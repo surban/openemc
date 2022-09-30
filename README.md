@@ -31,12 +31,11 @@ The easiest method to evaluate and hack on OpenEMC is to get an STM32F103
 Nucleo-64 board ([NUCLEO-F103RB]) and connect its I2C bus (SCL, SDA) and D12 pin (IRQ)
 to a Raspberry Pi or similar board.
 
-Bootloader flashing can be performed using [probe-run] and requires no additional hardware.
+Bootloader flashing can be performed using the STLink embedded on the board and requires no additional hardware.
 
 Linux drivers have been tested with Linux v5.19.
 
 [NUCLEO-F103RB]: https://www.st.com/en/evaluation-tools/nucleo-f103rb.html
-[probe-run]: https://github.com/knurling-rs/probe-run
 
 ## Building
 
@@ -48,14 +47,19 @@ For building the firmware your machine must have the following things installed:
   - Rust target thumbv7m-none-eabi (`rustup target add thumbv7m-none-eabi`),
   - Rust LLVM utils (`rustup component add llvm-tools-preview`),
   - Cargo binutils (`cargo install cargo-binutils`),
-  - probe-run (`cargo install probe-run`).
+  - STLINK tools (from https://github.com/stlink-org/stlink or your Linux distribution),
+  - for development: probe-run (`cargo install probe-run`).
 
 For building the Linux kernel drivers the kernel headers and `gcc` are required.
 The kernel must have support for devicetree enabled.
 
 ### Building the firmware image
 
-Run `cargo xtask <BOARD_NAME>` to build the firmware; it will be placed into the `image` directory.
+To build both the bootloader and main firmware, run:
+
+    cargo xtask <BOARD_NAME>
+
+They will be placed into the `image` directory.
 Here `<BOARD_NAME>` specifies the name of the board; see `openemc-bootloader/src/boards` for a list
 of supported boards. If no board is specified a generic board image will be generated.
 
@@ -66,13 +70,12 @@ This crates two files:
     directory on the target device, where it will be picked up by the driver and 
     sent to the device.
 
-For development and testing, both the bootloader and main firmware can be flashed 
-and executed directly by invoking 
+### Flashing the bootloader image
 
-    OPENEMC_BOARD=<BOARD_NAME> cargo run --release -- --connect-under-reset
+Connect the STM32 to your computer using an (integrated) STLink USB adapter.
+Use `st-flash` from STLINK tools to flash the bootloader image:
 
-from the respective directory. Set the environment variable `DEFMT_LOG=info` to enable logging.
-
+    st-flash --connect-under-reset write image/openemc_bootloader_*.bin 0x8000000
 
 ### Building the kernel driver
 
@@ -85,6 +88,15 @@ The driver will only be loaded if it is referenced in the system's devicetree.
 Examples are provided in the `devicetree` directory.
 Use `scripts/devicetree-build.sh` to build them and `scripts/devicetree-load.sh`
 to dynamically load a devicetree overlay into a running system.
+
+## Development and testing
+
+For development and testing, both the bootloader and main firmware can be flashed 
+and executed directly by invoking 
+
+    OPENEMC_BOARD=<BOARD_NAME> DEFMT_LOG=info cargo run --release -- --connect-under-reset
+
+from the respective directory. Set the environment variable `DEFMT_LOG` your desired log level.
 
 ## License
 
