@@ -20,7 +20,7 @@ jobs:
       run: |
         rustup target add thumbv7m-none-eabi
         rustup component add llvm-tools-preview
-        cargo install cargo-binutils
+        cargo install --quiet cargo-binutils
     - name: Check formatting
       run: |
         cargo fmt --check --manifest-path openemc-bootloader/Cargo.toml
@@ -39,7 +39,15 @@ jobs:
       run: cd openemc-bootloader ; cargo build --release --quiet
     - name: Build firmware
       run: cd openemc-firmware ; cargo build --release --quiet
+    - name: Build packer
+      run: cd openemc-pack ; cargo build --quiet
+    - name: Build generic firmware package
+      run: cargo xtask    
     - name: Build firmware package for STM NUCLEO-F103RB
       run: cargo xtask stm_nucleo_f103rb
+    - uses: actions/upload-artifact@v3
+      with:
+        name: firmware-images
+        path: image/*      
 
     
