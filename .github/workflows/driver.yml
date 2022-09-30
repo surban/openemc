@@ -13,6 +13,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: sudo apt install libelf-dev
     - name: Prepare Linux kernel source
       run: |
         curl https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.19.12.tar.xz | tar xJ
