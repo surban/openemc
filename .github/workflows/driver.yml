@@ -14,7 +14,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install dependencies
-      run: sudo apt install libelf-dev
+      run: sudo apt install --yes libelf-dev device-tree-compiler
     - name: Prepare Linux kernel source
       run: |
         curl https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.19.12.tar.xz | tar xJ
