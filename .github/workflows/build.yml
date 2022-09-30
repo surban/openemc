@@ -49,6 +49,8 @@ jobs:
         with:
           name: firmware-images
           path: image/*
+      - name: Show firmware size
+        run: ls -l image/
 
   driver:
     name: Build driver
