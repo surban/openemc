@@ -5,6 +5,8 @@ controller (EMC) on an STM32F1 microcontroller.
 It consists of a bootloader and firmware (both written in Rust) and
 Linux kernel driver modules (written in C).
 
+[![Build](https://github.com/surban/openemc/actions/workflows/build.yml/badge.svg)](https://github.com/surban/openemc/actions/workflows/build.yml)
+
 ## Features
 
 The following features are implemented:
