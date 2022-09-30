@@ -1,0 +1,11 @@
+[package]
+name = "xtask"
+description = "OpenEMC build script"
+license = "GPL-3.0"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+devx-cmd = "0.5"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }

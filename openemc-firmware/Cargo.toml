@@ -1,0 +1,37 @@
+[package]
+name = "openemc-firmware"
+description = "OpenEMC Firmware"
+authors = ["Sebastian Urban <surban@surban.net>"]
+license = "GPL-3.0"
+version = "0.1.0"
+publish = false
+edition = "2021"
+
+[features]
+
+[dependencies]
+openemc-shared = { path = "../openemc-shared" }
+
+cortex-m = "0.7"
+cortex-m-rt = { version = "0.7", features = ["device"] }
+cortex-m-rtic = "1.1"
+embedded-hal = "0.2"
+stm32f1 = { version = "0.14", features = ["stm32f103", "rt"] }
+stm32f1xx-hal = { version = "0.9", features = ["stm32f103", "medium", "rt"] }
+panic-probe = "0.3"
+systick-monotonic = "1.0"
+defmt = "0.3"
+defmt-rtt = "0.3"
+nb = "1.0"
+
+[dev-dependencies]
+defmt-test = "0.3"
+
+[profile.devrel]
+inherits = "release"
+lto = false
+
+[profile.release]
+opt-level = 'z'
+lto = 'fat'
+debug = 2

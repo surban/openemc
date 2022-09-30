@@ -1,0 +1,32 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build openemc-driver",
+            "type": "shell",
+            "command": "./scripts/driver-build.sh clean ; clear ; bear -- ./scripts/driver-build.sh -j",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "LINUX_DIR": "~/dev/linux"
+                },
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build"
+        },
+        {
+            "label": "rsync to test host",
+            "type": "shell",
+            "command": "./scripts/rsync.sh",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": [
+                "build openemc-driver"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}

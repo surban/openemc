@@ -1,0 +1,18 @@
+[workspace]
+members = ["xtask"]
+
+exclude = [
+    "openemc-bootloader",
+    "openemc-firmware",
+    "openemc-pack",
+    "openemc-shared",
+]
+
+[profile.devrel]
+inherits = "release"
+lto = false
+
+[profile.release]
+opt-level = 'z'
+lto = 'fat'
+debug = 2

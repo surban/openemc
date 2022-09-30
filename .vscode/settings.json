@@ -1,0 +1,70 @@
+{
+    "rust-analyzer.checkOnSave.allTargets": false,
+    "files.exclude": {
+        "**/.*.*.cmd": true,
+        "**/.*.d": true,
+        "**/.*.S": true,
+        "**/*.mod*": true,
+        "**/*.ko": true,
+        "**/*.o": true,
+        "**/Module.symvers": true,
+        "**/modules.order": true,
+        "**/compile_commands.json": true,
+        "**/target": true,
+    },
+    "[rust]": {
+        "editor.rulers": [
+            114
+        ],
+    },
+    "[c]": {
+        "editor.detectIndentation": false,
+        "editor.tabSize": 8,
+        "editor.insertSpaces": false,
+        "editor.rulers": [
+            80
+        ]
+    },
+    "[cpp]": {
+        "editor.detectIndentation": false,
+        "editor.tabSize": 8,
+        "editor.insertSpaces": false,
+        "editor.rulers": [
+            80
+        ]
+    },
+    "files.associations": {
+        "*.h": "c",
+        "type_traits": "c",
+        "typeinfo": "c",
+        "array": "c",
+        "string": "c",
+        "string_view": "c",
+        "cctype": "c",
+        "cerrno": "c",
+        "climits": "c",
+        "clocale": "c",
+        "cmath": "c",
+        "cstdarg": "c",
+        "cstddef": "c",
+        "cstdio": "c",
+        "cstdlib": "c",
+        "cwchar": "c",
+        "cwctype": "c",
+        "functional": "c",
+        "iosfwd": "c",
+        "streambuf": "c",
+        "random": "c",
+        "*.tcc": "c"
+    },
+    "rust-analyzer.linkedProjects": [
+        "openemc-bootloader/Cargo.toml",
+        "openemc-firmware/Cargo.toml",
+        "openemc-pack/Cargo.toml",
+        "openemc-shared/Cargo.toml",
+        "xtask/Cargo.toml",
+    ],
+    "rust-analyzer.cargo.extraEnv": {
+        "DEFMT_LOG": "trace"
+    }
+}

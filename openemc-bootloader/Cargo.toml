@@ -1,0 +1,26 @@
+[package]
+name = "openemc-bootloader"
+description = "OpenEMC Bootloader"
+authors = ["Sebastian Urban <surban@surban.net>"]
+license = "GPL-3.0"
+version = "0.1.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+openemc-shared = { path = "../openemc-shared" }
+
+cortex-m = "0.7"
+cortex-m-rt = { version = "0.7", features = ["device"] }
+stm32f1 = { version = "0.15", features = ["stm32f103", "rt"] }
+panic-probe = "0.3"
+defmt = "0.3"
+defmt-rtt = "0.3"
+
+[dev-dependencies]
+defmt-test = "0.3"
+
+[profile.release]
+opt-level = 'z'
+lto = true
+debug = 2

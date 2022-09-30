@@ -1,0 +1,83 @@
+/* Example device tree overlay for connecting OpenEMC
+   to a Raspberry Pi 4 via I2C bus 1 and IRQ line at GPIO 4.
+*/
+
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/gpio/gpio.h>
+
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2711";
+
+    fragment@0 {
+        target = <&i2c1>;
+
+        __overlay__ {
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            openemc@10 {
+                compatible = "openemc,openemc";
+                reg = <0x10>;
+
+                interrupt-parent = <&gpio>;
+                interrupts = <4 IRQ_TYPE_EDGE_FALLING>;
+
+                emc_power: emc_power {
+                    compatible = "openemc,openemc_power";
+                    system-power-controller;
+                };
+
+                emc_rtc: emc_rtc {
+                    compatible = "openemc,openemc_rtc";
+                    wakeup-source;
+                };
+
+                emc_wdt: emc_wdt {
+                    compatible = "openemc,openemc_wdt";
+                };
+
+                emc_adc: emc_adc {
+                    compatible = "openemc,openemc_adc";
+
+                    pinctrl-names = "default";
+                    pinctrl-0 = <&emc_analog_in>;
+
+                    labels = "PA0", "PA1", "PA2", "PA3";
+                };
+
+                emc_pinctrl: emc_pinctrl {
+                    compatible = "openemc,openemc_pinctrl";
+
+                    emc_analog_in: analog_in {
+                        function = "analog";
+                        pins = "PA0", "PA1", "PA2", "PA3";
+                    };
+                };
+
+                emc_gpio: emc_gpio {
+                    compatible = "openemc,openemc_gpio";
+
+                    gpio-controller;
+                    #gpio-cells = <2>;
+                    gpio-ranges = <&emc_pinctrl 0 0 64>;
+                    gpio-line-names =
+                        "PA0", "PA1", "PA2", "PA3", "PA4", "PA5", "PA6", "PA7",
+                        "PA8", "PA9", "PA10", "PA11", "PA12", "PA13", "PA14", "PA15",
+                        "PB0", "PB1", "PB2", "PB3", "PB4", "PB5", "PB6", "PB7",
+                        "PB8", "PB9", "PB10", "PB11", "PB12", "PB13", "PB14", "PB15",
+                        "PC0", "PC1", "PC2", "PC3", "PC4", "PC5", "PC6", "PC7",
+                        "PC8", "PC9", "PC10", "PC11", "PC12", "PC13", "PC14", "PC15",
+                        "PD0", "PD1", "PD2", "PD3", "PD4", "PD5", "PD6", "PD7",
+                        "PD8", "PD9", "PD10", "PD11", "PD12", "PD13", "PD14", "PD15";
+
+                    interrupt-controller;
+                    #interrupt-cells = <2>;
+                    #address-cells = <1>;
+                };
+            };
+        };
+    };
+};
