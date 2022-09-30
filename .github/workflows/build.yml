@@ -1,0 +1,71 @@
+name: Build
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  firmware:
+    name: Build firmware
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          rustup target add thumbv7m-none-eabi
+          rustup component add llvm-tools-preview
+          cargo install --quiet cargo-binutils
+      - name: Check formatting
+        run: |
+          cargo fmt --check --manifest-path openemc-bootloader/Cargo.toml
+          cargo fmt --check --manifest-path openemc-firmware/Cargo.toml
+          cargo fmt --check --manifest-path openemc-pack/Cargo.toml
+          cargo fmt --check --manifest-path openemc-shared/Cargo.toml
+          cargo fmt --check --manifest-path xtask/Cargo.toml
+      - name: Lint code
+        run: |
+          cargo clippy --quiet --manifest-path openemc-bootloader/Cargo.toml
+          cargo clippy --quiet --manifest-path openemc-firmware/Cargo.toml
+          cargo clippy --quiet --manifest-path openemc-pack/Cargo.toml
+          cargo clippy --quiet --manifest-path openemc-shared/Cargo.toml
+          cargo clippy --quiet --manifest-path xtask/Cargo.toml
+      - name: Build bootloader
+        run: cd openemc-bootloader ; cargo build --release --quiet
+      - name: Build firmware
+        run: cd openemc-firmware ; cargo build --release --quiet
+      - name: Build packer
+        run: cd openemc-pack ; cargo build --quiet
+      - name: Build generic firmware package
+        run: cargo xtask
+      - name: Build firmware package for STM NUCLEO-F103RB
+        run: cargo xtask stm_nucleo_f103rb
+      - uses: actions/upload-artifact@v3
+        with:
+          name: firmware-images
+          path: image/*
+
+  driver:
+    name: Build driver
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: sudo apt install --yes libelf-dev device-tree-compiler
+      - name: Prepare Linux kernel source
+        run: |
+          curl https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.19.12.tar.xz | tar xJ
+          mv linux-5.19.12 linux
+          cp -f .github/workflows/kernel.config linux/.config
+          cd linux
+          make modules_prepare -j
+      - name: Build kernel modules
+        run: LINUX_DIR=$PWD/linux ./scripts/driver-build.sh -j
+      - name: Build devicetree examples
+        run: ./scripts/devicetree-build.sh
