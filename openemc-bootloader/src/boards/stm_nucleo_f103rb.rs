@@ -111,7 +111,7 @@ impl Board for BoardImpl {
         data
     }
 
-    fn bootloader_request<'a>(&mut self, t: I2CRegTransaction<'a>) {
+    fn bootloader_request(&mut self, t: I2CRegTransaction) {
         match t {
             I2CRegTransaction::Read(mut tx) if tx.reg() == REG_DEVELOPMENT_MODE => {
                 tx.send_u8(if self.development_mode { 0x01 } else { 0x00 });

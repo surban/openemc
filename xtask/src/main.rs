@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
 
     fs::create_dir_all(project_root().join("image"))?;
 
-    let cargo = env::var("CARGO").unwrap_or("cargo".to_string());
+    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
 
     cmd!(&cargo, "build", "--release")
         .current_dir(project_root().join("openemc-bootloader"))

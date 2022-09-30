@@ -13,14 +13,14 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OPENEMC_BOARD");
     println!("cargo:rerun-if-changed=src/boards");
 
-    let board = env::var("OPENEMC_BOARD").unwrap_or("generic".to_string());
+    let board = env::var("OPENEMC_BOARD").unwrap_or_else(|_| "generic".to_string());
 
     let src = format!("src/boards/{}.x", board.to_lowercase());
     if !Path::new(&src).is_file() {
         panic!("board {board} is unknown");
     }
     println!("cargo:rerun-if-changed={src}");
-    let memory = fs::read(&src).expect(&format!("cannot read board memory from {src}"));
+    let memory = fs::read(&src).unwrap_or_else(|_| panic!("cannot read board memory from {src}"));
     fs::write(out.join("memory.x"), memory).unwrap();
 
     let mut board_mods = File::create(out.join("board_mods.rs")).unwrap();

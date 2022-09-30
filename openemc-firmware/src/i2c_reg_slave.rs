@@ -82,7 +82,7 @@ where
     }
 
     /// Gets the next event.
-    pub fn event<'a>(&'a mut self) -> nb::Result<Event<'a, BUFFER>, Error> {
+    pub fn event(&mut self) -> nb::Result<Event<BUFFER>, Error> {
         match &mut self.state {
             State::Idle => match self.i2c_event()? {
                 I2cEvent::StartRead => {
@@ -113,7 +113,7 @@ where
             },
             State::ReceivedReg => match self.i2c_event()? {
                 I2cEvent::Read(value) => {
-                    if self.buf.len() > 0 {
+                    if !self.buf.is_empty() {
                         self.buf[0] = value;
                         self.pos = 1;
                         self.state = State::Receiving;

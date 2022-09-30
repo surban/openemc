@@ -28,7 +28,7 @@ struct Args {
 fn parse_maybe_hex(s: &str) -> Result<u32, ParseIntError> {
     match s.to_ascii_lowercase().strip_prefix("0x") {
         Some(hex) => u32::from_str_radix(hex, 16),
-        None => u32::from_str_radix(s, 10),
+        None => s.parse::<u32>(),
     }
 }
 
@@ -50,7 +50,7 @@ const SIG_LENGTH: usize = (PROGRAM_SIGNATURE.len() + 4) * size_of::<u32>();
 fn main() -> io::Result<()> {
     let args = Args::parse();
 
-    let bootloader = env::var("OPENEMC_BOOTLOADER").unwrap_or("normal".to_string());
+    let bootloader = env::var("OPENEMC_BOOTLOADER").unwrap_or_else(|_| "normal".to_string());
 
     let (mut start, mut page_size) =
         get_flash_params(if bootloader == "big" { MEMORY_BIG_BOOTLOADER } else { MEMORY_NORMAL });
@@ -63,7 +63,7 @@ fn main() -> io::Result<()> {
     assert!(start % page_size == 0, "flash start is not page aligned");
 
     let dst = args.dst.unwrap_or_else(|| args.src.with_extension("emc"));
-    let id = args.id.unwrap_or_else(|| rand::random());
+    let id = args.id.unwrap_or_else(rand::random);
 
     // Copy firmware binary and append signature.
     let mut data = fs::read(&args.src)?;

@@ -19,7 +19,7 @@ pub struct Watchman {
 
 impl Watchman {
     /// Watchdog unlock code.
-    pub const UNLOCK_CODE: u64 = 0x19840902_04061986;
+    pub const UNLOCK_CODE: u64 = 0x1984_0902_0406_1986;
 
     /// Creates a new watchdog manager.
     pub fn new(mut dog: IndependentWatchdog, interval: Duration, active: bool) -> Self {

@@ -97,6 +97,7 @@ const ID_STANDALONE: u8 = 0xf0;
 pub const I2C_BUFFER_SIZE: usize = 32;
 
 /// I2C register slave that may have remapped pins.
+#[allow(clippy::type_complexity)]
 pub enum RemappableI2CRegSlave {
     Remapped(
         I2CRegSlave<
@@ -353,8 +354,8 @@ mod app {
     /// Reads ADC values and stores them in the ADC buffer.
     #[task(local = [adc, adc_inp], shared = [adc_buf], priority = 1)]
     fn adc_convert(mut cx: adc_convert::Context) {
-        let adc_convert::LocalResources { mut adc, mut adc_inp } = cx.local;
-        let buf = AdcBuf::acquire(&mut adc, &mut adc_inp);
+        let adc_convert::LocalResources { adc, adc_inp } = cx.local;
+        let buf = AdcBuf::acquire(adc, adc_inp);
         cx.shared.adc_buf.lock(|adc_buf| *adc_buf = Some(buf));
     }
 
@@ -377,7 +378,7 @@ mod app {
                 let new_src = if lse_ready { ClockSrc::Lse } else { ClockSrc::Lsi };
                 defmt::info!("changing RTC source from {} to {}", cur_src, new_src);
                 rtc.set_clock_src(bkp, new_src);
-                if let Err(_) = rtc.set_prescalar(unwrap!(new_src.prescaler()) - Rtc::PRESCALER_NEG_OFFSET) {
+                if rtc.set_prescalar(unwrap!(new_src.prescaler()) - Rtc::PRESCALER_NEG_OFFSET).is_err() {
                     defmt::warn!("cannot set RTC prescaler");
                 }
                 rtc.set_slowdown(bkp, 64);
@@ -684,7 +685,7 @@ mod app {
             }
             Event::Read { reg: reg::GPIO_USABLE, value } => {
                 cx.shared.ugpio.lock(|ugpio| {
-                    let v: [u8; board::PORTS * size_of::<u16>()] = array_from_u16(&ugpio.usable());
+                    let v: [u8; board::PORTS * size_of::<u16>()] = array_from_u16(ugpio.usable());
                     value.set(&v);
                 });
             }

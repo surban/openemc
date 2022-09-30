@@ -13,7 +13,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OPENEMC_BOARD");
     println!("cargo:rerun-if-changed=src/boards");
 
-    let board = env::var("OPENEMC_BOARD").unwrap_or("generic".to_string());
+    let board = env::var("OPENEMC_BOARD").unwrap_or_else(|_| "generic".to_string());
     let src = format!("src/boards/{}.rs", board.to_lowercase());
 
     if !Path::new(&src).is_file() {

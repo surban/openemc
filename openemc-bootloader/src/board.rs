@@ -53,5 +53,5 @@ pub trait Board {
     fn system_power_on(&mut self) {}
 
     /// Bootloader I2C request handler.
-    fn bootloader_request<'a>(&mut self, _t: I2CRegTransaction<'a>) {}
+    fn bootloader_request(&mut self, _t: I2CRegTransaction) {}
 }

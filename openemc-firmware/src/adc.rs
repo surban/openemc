@@ -27,6 +27,12 @@ pub struct AdcInputs {
     ch15: Pin<Analog, CRL, 'C', 5>,
 }
 
+impl Default for AdcInputs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AdcInputs {
     /// Number of ADC channels.
     pub const CHANNELS: usize = 16;
@@ -125,18 +131,15 @@ impl AdcBuf {
     /// Voltages of all channels.
     pub fn voltages(&self) -> [u16; AdcInputs::CHANNELS] {
         let mut v = [0; AdcInputs::CHANNELS];
-        for ch in 0..AdcInputs::CHANNELS {
-            v[ch] = self.voltage(ch);
+        for (ch, vch) in v.iter_mut().enumerate() {
+            *vch = self.voltage(ch);
         }
         v
     }
 
     /// Acquires the values.
     pub fn acquire(adc: &mut Adc<ADC1>, inputs: &mut AdcInputs) -> Self {
-        let mut this = Self::default();
-
-        this.vref = adc.read_vref();
-        this.temp = adc.read_temp();
+        let mut this = Self { vref: adc.read_vref(), temp: adc.read_temp(), ..Default::default() };
 
         for ch in 0..this.channel.len() {
             this.channel[ch] = inputs.read(adc, ch);

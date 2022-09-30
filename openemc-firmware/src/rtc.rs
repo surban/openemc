@@ -114,7 +114,7 @@ impl Rtc {
         }
 
         let _ = self.set_clock(clock.map(|c| c.clock).unwrap_or_default());
-        let _ = self.set_slowdown(bkp, slowdown);
+        self.set_slowdown(bkp, slowdown);
     }
 
     /// Gets the clock source of the RTC.
