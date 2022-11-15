@@ -184,6 +184,8 @@ mod app {
         pwm_timer_index: u8,
         /// Index of PWM channel.
         pwm_channel_index: u8,
+        /// Reset the RTC prescaler.
+        rtc_reset_prescaler: bool,
     }
 
     /// Initialization (entry point).
@@ -335,6 +337,7 @@ mod app {
                 adc_inp,
                 pwm_timer_index: 0,
                 pwm_channel_index: 0,
+                rtc_reset_prescaler: false,
             },
             init::Monotonics(mono),
         )
@@ -384,7 +387,7 @@ mod app {
     }
 
     /// Check RTC clock source and change if necessary.
-    #[task(shared = [rtc, bkp])]
+    #[task(shared = [rtc, bkp], local = [rtc_reset_prescaler])]
     fn check_rtc_src(cx: check_rtc_src::Context) {
         (cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| {
             let lse_ready = ClockSrc::Lse.is_ready();
@@ -402,10 +405,23 @@ mod app {
                 let new_src = if lse_ready { ClockSrc::Lse } else { ClockSrc::Lsi };
                 defmt::info!("changing RTC source from {} to {}", cur_src, new_src);
                 rtc.set_clock_src(bkp, new_src);
-                if rtc.set_prescalar(unwrap!(new_src.prescaler()) - Rtc::PRESCALER_NEG_OFFSET).is_err() {
-                    defmt::warn!("cannot set RTC prescaler");
+                *cx.local.rtc_reset_prescaler = true;
+            }
+
+            match rtc.clock_src() {
+                Some(clock_src) if *cx.local.rtc_reset_prescaler => {
+                    let prescaler = unwrap!(clock_src.prescaler()) - Rtc::PRESCALER_NEG_OFFSET;
+                    match rtc.set_prescalar(prescaler) {
+                        Ok(()) => {
+                            rtc.set_slowdown(bkp, 64);
+                            *cx.local.rtc_reset_prescaler = false;
+                        }
+                        Err(_) => {
+                            defmt::warn!("cannot set RTC prescaler");
+                        }
+                    }
                 }
-                rtc.set_slowdown(bkp, 64);
+                _ => (),
             }
         });
 
