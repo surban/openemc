@@ -59,7 +59,7 @@ impl Board for BoardImpl {
     fn i2c_event<'a>(&mut self, event: Event<'a, I2C_BUFFER_SIZE>) -> Result<(), UnknownEvent<'a>> {
         match event {
             Event::Read { reg: REG_DEVELOPMENT_MODE, value } => {
-                value.set_u8(if self.development_mode { 1 } else { 0 });
+                value.set_u8(u8::from(self.development_mode));
                 Ok(())
             }
             unknown => Err(UnknownEvent(unknown)),
