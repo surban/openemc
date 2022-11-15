@@ -178,6 +178,35 @@ pub const ADC_VALUES: u8 = 0x63;
 /// One u16.
 pub const ADC_TEMPERATURE: u8 = 0x64;
 
+/// Number of PWM timers (read-only, u8).
+pub const PWM_TIMERS: u8 = 0x70;
+
+/// The PWM timer to configure (u8).
+pub const PWM_TIMER: u8 = 0x71;
+
+/// Number of PWM channels of the current PWM timer (read-only, u8).
+pub const PWM_TIMER_CHANNELS: u8 = 0x72;
+
+/// Pin remapping configuration of the current PWM timer (u8).
+pub const PWM_TIMER_REMAP: u8 = 0x73;
+
+/// Frequency of the current PWM timer in Hz (write-only, u32).
+pub const PWM_TIMER_FREQUENCY: u8 = 0x74;
+
+/// The PWM channel to configure (u8).
+pub const PWM_CHANNEL: u8 = 0x75;
+
+/// The duty cycle of the current PWM channel (write-only, u16).
+pub const PWM_CHANNEL_DUTY_CYCLE: u8 = 0x76;
+
+/// The polarity of the current PWM channel (write-only, u8).
+/// 0=not inverted, 1=inverted.
+pub const PWM_CHANNEL_POLARITY: u8 = 0x77;
+
+/// Output of current PWM channel. (write-only, u8)
+/// 1=enabled, 0=disabled.
+pub const PWM_CHANNEL_OUTPUT: u8 = 0x78;
+
 /// Resets the system.
 pub const RESET: u8 = 0xf0;
 
