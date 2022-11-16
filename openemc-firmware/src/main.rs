@@ -82,6 +82,7 @@ static MFD_CELLS: &[&[u8]] = &[
     b"openemc,openemc_gpio",
     b"openemc,openemc_pinctrl",
     b"openemc,openemc_power",
+    b"openemc,openemc_pwm",
     b"openemc,openemc_rtc",
     b"openemc,openemc_wdt",
 ];
@@ -203,10 +204,10 @@ mod app {
         let mut afio = cx.device.AFIO.constrain();
         let clocks = rcc.cfgr.use_hse(8.MHz()).freeze(&mut flash.acr);
         let mono = Systick::new(cx.core.SYST, clocks.sysclk().to_Hz());
-        let mut delay = cx.device.TIM1.delay_ms(&clocks);
+
         let adc = Adc::adc1(cx.device.ADC1, clocks);
         let adc_inp = AdcInputs::new();
-        let _gpioa = cx.device.GPIOA.split();
+        let mut _gpioa = cx.device.GPIOA.split();
         let mut gpiob = cx.device.GPIOB.split();
         let _gpioc = cx.device.GPIOC.split();
         let _gpiod = cx.device.GPIOD.split();
@@ -250,7 +251,9 @@ mod app {
             || bi.boot_reason == BootReason::Restart as _
         {
             // Make sure system is powered off for at least one second.
+            let mut delay = cx.device.TIM4.delay_ms(&clocks);
             delay.delay(1u32.secs());
+            delay.release();
         }
         if bi.boot_reason == BootReason::PowerOff as _ {
             BootReason::PowerOn.set(&mut bkp);
@@ -767,9 +770,11 @@ mod app {
             Event::Write { reg: reg::PWM_TIMER, value } => {
                 *cx.local.pwm_timer_index = value.as_u8();
             }
-            Event::Read { reg: reg::PWM_TIMER_CHANNELS, value } => {
-                value.set_u8(pwm::Channel::count() as u8);
-            }
+            Event::Read { reg: reg::PWM_TIMER_CHANNELS, value } => cx.shared.pwm_timers.lock(|pwm_timers| {
+                if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                    value.set_u8(pwm_timer.channel_count());
+                }
+            }),
             Event::Write { reg: reg::PWM_TIMER_REMAP, value } => cx.shared.pwm_timers.lock(|pwm_timers| {
                 if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     pwm_timer.set_remap(value.as_u8());
@@ -777,37 +782,36 @@ mod app {
             }),
             Event::Write { reg: reg::PWM_TIMER_FREQUENCY, value } => cx.shared.pwm_timers.lock(|pwm_timers| {
                 if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                    pwm_timer.set_remap(value.as_u8());
+                    pwm_timer.set_frequency(value.as_u32().Hz());
                 }
             }),
             Event::Read { reg: reg::PWM_CHANNEL, value } => value.set_u8(*cx.local.pwm_channel_index),
-            Event::Write { reg: reg::PWM_CHANNEL, value } => {
-                *cx.local.pwm_channel_index = value.as_u8();
-            }
+            Event::Write { reg: reg::PWM_CHANNEL, value } => cx.shared.pwm_timers.lock(|pwm_timers| {
+                let channel = value.as_u8();
+                if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                    if channel < pwm_timer.channel_count() {
+                        *cx.local.pwm_channel_index = channel;
+                    }
+                }
+            }),
             Event::Write { reg: reg::PWM_CHANNEL_DUTY_CYCLE, value } => {
                 cx.shared.pwm_timers.lock(|pwm_timers| {
                     if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                        if let Ok(ch) = pwm::Channel::try_from(*cx.local.pwm_channel_index) {
-                            pwm_timer.set_duty_cycle(&ch, value.as_u16());
-                        }
+                        pwm_timer.set_duty_cycle(*cx.local.pwm_channel_index, value.as_u16());
                     }
                 });
             }
             Event::Write { reg: reg::PWM_CHANNEL_POLARITY, value } => {
                 cx.shared.pwm_timers.lock(|pwm_timers| {
                     if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                        if let Ok(ch) = pwm::Channel::try_from(*cx.local.pwm_channel_index) {
-                            pwm_timer.set_polarity(&ch, value.as_u8() != 0);
-                        }
+                        pwm_timer.set_polarity(*cx.local.pwm_channel_index, value.as_u8() != 0);
                     }
                 });
             }
             Event::Write { reg: reg::PWM_CHANNEL_OUTPUT, value } => {
                 cx.shared.pwm_timers.lock(|pwm_timers| {
                     if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                        if let Ok(ch) = pwm::Channel::try_from(*cx.local.pwm_channel_index) {
-                            pwm_timer.set_output(&ch, value.as_u8() != 0);
-                        }
+                        pwm_timer.set_output(*cx.local.pwm_channel_index, value.as_u8() != 0);
                     }
                 });
             }
