@@ -202,7 +202,7 @@ mod app {
         let mut bkp = rcc.bkp.constrain(cx.device.BKP, &mut cx.device.PWR);
         let mut flash = cx.device.FLASH.constrain();
         let mut afio = cx.device.AFIO.constrain();
-        let clocks = rcc.cfgr.use_hse(8.MHz()).freeze(&mut flash.acr);
+        let clocks = rcc.cfgr.freeze(&mut flash.acr);
         let mono = Systick::new(cx.core.SYST, clocks.sysclk().to_Hz());
 
         let adc = Adc::adc1(cx.device.ADC1, clocks);
