@@ -69,12 +69,23 @@
 #define OPENEMC_GPIO_IN 0x53
 #define OPENEMC_GPIO_USABLE 0x54
 
-/* AD converter */
+/* AD converter register definitions */
 #define OPENEMC_ADC_CONVERT 0x60
 #define OPENEMC_ADC_READY 0x61
 #define OPENEMC_ADC_VREF 0x62
 #define OPENEMC_ADC_VALUES 0x63
 #define OPENEMC_ADC_TEMPERATURE 0x64
+
+/* PWM register definitions */
+#define OPENEMC_PWM_TIMERS 0x70
+#define OPENEMC_PWM_TIMER 0x71
+#define OPENEMC_PWM_TIMER_CHANNELS 0x72
+#define OPENEMC_PWM_TIMER_REMAP 0x73
+#define OPENEMC_PWM_TIMER_FREQUENCY 0x74
+#define OPENEMC_PWM_CHANNEL 0x75
+#define OPENEMC_PWM_CHANNEL_DUTY_CYCLE 0x76
+#define OPENEMC_PWM_CHANNEL_POLARITY 0x77
+#define OPENEMC_PWM_CHANNEL_OUTPUT 0x78
 
 /* Reset register definitions */
 #define OPENEMC_RESET 0xf0

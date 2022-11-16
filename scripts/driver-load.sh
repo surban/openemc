@@ -12,3 +12,4 @@ modprobe openemc_power
 modprobe openemc_rtc
 modprobe openemc_wdt
 modprobe openemc_adc
+modprobe openemc_pwm

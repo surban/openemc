@@ -5,6 +5,7 @@
 
 set -e
 
+modprobe -r openemc_pwm || true
 modprobe -r openemc_wdt || true
 modprobe -r openemc_power || true
 modprobe -r openemc_adc || true
