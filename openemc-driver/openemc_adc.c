@@ -465,7 +465,7 @@ static int openemc_adc_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	dev_info(adc->dev, "OpenEMC ADC registered");
+	dev_info(adc->dev, "OpenEMC ADC registered\n");
 
 	return 0;
 }
