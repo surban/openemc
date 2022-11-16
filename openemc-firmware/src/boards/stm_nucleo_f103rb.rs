@@ -52,7 +52,7 @@ impl Board for BoardImpl {
     fn limit_usable(&mut self, usable: &mut [u16; PORTS]) {
         usable[0] = 0b1111111111111111;
         usable[1] = 0b1111111111111111;
-        usable[2] = 0b1110000000000000;
+        usable[2] = 0b1111111111111111;
         usable[3] = 0b0000000000000011;
     }
 
