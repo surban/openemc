@@ -52,6 +52,16 @@
                     labels = "A0", "A1", "", "Tst3";
                 };
 
+                emc_pwm: emc_pwm {
+                    compatible = "openemc,openemc_pwm";
+                    #pwm-cells = <2>;
+
+                    timer-remap = <0 0 2 0>;
+
+                    pinctrl-names = "default";
+                    pinctrl-0 = <&emc_pwm_pins>;
+                };
+
                 emc_pinctrl: emc_pinctrl {
                     compatible = "openemc,openemc_pinctrl";
 
@@ -75,6 +85,11 @@
                     emc_analog_in: analog_in {
                         function = "analog";
                         pins = "PA0", "PA1";
+                    };
+
+                    emc_pwm_pins: pwm_pins {
+                        function = "alt_push_pull";
+                        pins = "PA8", "PA9", "PB13", "PB4", "PB5";
                     };
                 };
 
