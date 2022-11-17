@@ -50,7 +50,7 @@
 
                 emc_pwm: emc_pwm {
                     compatible = "openemc,openemc_pwm";
-                    #pwm-cells = <2>;
+                    #pwm-cells = <3>;
 
                     timer-remap = <0 0 0 0>;
 
