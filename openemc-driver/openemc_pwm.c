@@ -58,6 +58,7 @@ static int openemc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm_dev,
 	struct openemc_pwm *pwm = to_openemc_pwm(chip);
 	u16 freq = 1000000000 / max(state->period, 1ULL);
 	u16 duty = U16_MAX * state->duty_cycle / state->period;
+	bool enabled = state->enabled;
 	u8 timer, channel;
 	int ret = 0;
 
@@ -67,6 +68,22 @@ static int openemc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm_dev,
 	if (ret < 0)
 		goto out;
 
+	/* Dsabling the on-chip PWM generator causes inconsistent logic levels
+	   on the complementary outputs of timer 1. Thus we always enable it,
+	   but set its duty cycle to 0% if it should be disabled. */
+	if (timer == 0 && !enabled) {
+		duty = 0;
+		enabled = true;
+	}
+
+	dev_dbg(pwm->dev,
+		"%s PWM %d (timer %d, channel %d) with "
+		"frequency %d Hz, duty cycle %d%% and %s polarity\n",
+		enabled ? "enabling" : "disabling", pwm_dev->hwpwm, timer,
+		channel, freq, duty * 100 / U16_MAX,
+		state->polarity == PWM_POLARITY_INVERSED ? "inverted" :
+							   "normal");
+
 	ret = openemc_write_u8(pwm->emc, OPENEMC_PWM_TIMER, timer);
 	if (ret < 0)
 		goto out;
@@ -75,39 +92,31 @@ static int openemc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm_dev,
 	if (ret < 0)
 		goto out;
 
+	if (!enabled) {
+		ret = openemc_write_u8(pwm->emc, OPENEMC_PWM_CHANNEL_OUTPUT, 0);
+		if (ret < 0)
+			goto out;
+	}
+
 	ret = openemc_write_u8(pwm->emc, OPENEMC_PWM_CHANNEL_POLARITY,
 			       state->polarity == PWM_POLARITY_INVERSED ? 1 :
 									  0);
 	if (ret < 0)
 		goto out;
 
-	if (state->enabled) {
-		dev_dbg(pwm->dev,
-			"enabling PWM %d (timer %d, channel %d) with "
-			"frequency %d Hz, duty cycle %d%% and %s polarity\n",
-			pwm_dev->hwpwm, timer, channel, freq,
-			duty * 100 / U16_MAX,
-			state->polarity == PWM_POLARITY_INVERSED ? "inverted" :
-								   "normal");
-
-		ret = openemc_write_u32(pwm->emc, OPENEMC_PWM_TIMER_FREQUENCY,
-					freq);
-		if (ret < 0)
-			goto out;
-
-		ret = openemc_write_u16(pwm->emc,
-					OPENEMC_PWM_CHANNEL_DUTY_CYCLE, duty);
-		if (ret < 0)
-			goto out;
-	} else {
-		dev_dbg(pwm->dev, "disabling PWM %d (timer %d, channel %d)\n",
-			pwm_dev->hwpwm, timer, channel);
-	}
-
-	ret = openemc_write_u8(pwm->emc, OPENEMC_PWM_CHANNEL_OUTPUT,
-			       state->enabled ? 1 : 0);
+	ret = openemc_write_u32(pwm->emc, OPENEMC_PWM_TIMER_FREQUENCY, freq);
 	if (ret < 0)
 		goto out;
+
+	ret = openemc_write_u16(pwm->emc, OPENEMC_PWM_CHANNEL_DUTY_CYCLE, duty);
+	if (ret < 0)
+		goto out;
+
+	if (enabled) {
+		ret = openemc_write_u8(pwm->emc, OPENEMC_PWM_CHANNEL_OUTPUT, 1);
+		if (ret < 0)
+			goto out;
+	}
 
 out:
 	mutex_unlock(&pwm->lock);
