@@ -349,6 +349,7 @@ dependencies = [
  "defmt-rtt",
  "defmt-test",
  "embedded-hal",
+ "heapless",
  "nb 1.0.0",
  "openemc-shared",
  "panic-probe",

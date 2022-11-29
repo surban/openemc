@@ -1,6 +1,6 @@
 //! Interrupt handling.
 
-use cortex_m::peripheral::NVIC;
+use cortex_m::{interrupt::free, peripheral::NVIC};
 use stm32f1::stm32f103::{Interrupt, Peripherals};
 
 use crate::pio::MaskedGpio;
@@ -17,6 +17,8 @@ pub struct IrqState<const PORTS: usize> {
     trig_high_level: u16,
     /// Low level trigger mask for EXTI lines.
     trig_low_level: u16,
+    /// Mask of EXTI lines controlled by this.
+    controlled: u32,
 }
 
 impl<const PORTS: usize> IrqState<PORTS> {
@@ -27,7 +29,7 @@ impl<const PORTS: usize> IrqState<PORTS> {
     pub const RTC_ALARM: u32 = 1 << 17;
 
     /// Initializes the IRQ state.
-    pub fn new(irq_pin: u8, irq_pin_cfg: u8) -> Self {
+    pub fn new(irq_pin: u8, irq_pin_cfg: u8, controlled: u32) -> Self {
         // Configure IRQ pin.
         let mut irq_mask = [0u16; PORTS];
         irq_mask[irq_pin as usize / 16] = 1 << (irq_pin % 16);
@@ -38,7 +40,8 @@ impl<const PORTS: usize> IrqState<PORTS> {
         irq_cfg[irq_pin as usize * 4 / 64] = (irq_pin_cfg as u64 & 0b1111) << (irq_pin * 4 % 64);
         irq_pin_io.set_cfg(&irq_cfg);
 
-        let mut this = Self { irq_pin_io, irq_pin_level: false, trig_high_level: 0, trig_low_level: 0 };
+        let mut this =
+            Self { irq_pin_io, irq_pin_level: false, trig_high_level: 0, trig_low_level: 0, controlled };
 
         this.set_irq_pin_level(true);
         this.set_mask(0);
@@ -67,15 +70,17 @@ impl<const PORTS: usize> IrqState<PORTS> {
     pub fn get_pending_and_clear(&mut self) -> u32 {
         let dp = unsafe { Peripherals::steal() };
 
-        let mut pending = 0;
-
         // Get and clear EXTI GPIO pending interrupts.
-        pending |= dp.EXTI.pr.read().bits();
-        dp.EXTI.pr.write(|w| unsafe { w.bits(0xffffffff) });
+        let pending = dp.EXTI.pr.read().bits() & self.controlled;
+        dp.EXTI.pr.write(|w| unsafe { w.bits(pending) });
 
         self.set_irq_pin_level(true);
 
         pending
+    }
+
+    fn apply_controlled(&self, current: u32, desired: u32) -> u32 {
+        current & !self.controlled | (desired & self.controlled)
     }
 
     /// Sets the IRQ mask (0=disabled, 1=enabled).
@@ -85,7 +90,7 @@ impl<const PORTS: usize> IrqState<PORTS> {
     pub fn set_mask(&mut self, mask: u32) {
         let dp = unsafe { Peripherals::steal() };
         defmt::info!("IRQ mask: {:b}", mask);
-        dp.EXTI.imr.write(|w| unsafe { w.bits(mask) })
+        free(|_| dp.EXTI.imr.modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
     }
 
     /// Gets the IRQ mask (0=disabled, 1=enabled).
@@ -101,7 +106,7 @@ impl<const PORTS: usize> IrqState<PORTS> {
     pub fn set_exti_trigger_rising_edge(&mut self, mask: u32) {
         let dp = unsafe { Peripherals::steal() };
         defmt::info!("IRQ trigger rising edge: {:b}", mask);
-        dp.EXTI.rtsr.write(|w| unsafe { w.bits(mask) })
+        free(|_| dp.EXTI.rtsr.modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
     }
 
     /// Gets the EXTI rising edge trigger mask (0=disabled, 1=enabled).
@@ -114,7 +119,7 @@ impl<const PORTS: usize> IrqState<PORTS> {
     pub fn set_exti_trigger_falling_edge(&mut self, mask: u32) {
         let dp = unsafe { Peripherals::steal() };
         defmt::info!("IRQ trigger falling edge: {:b}", mask);
-        dp.EXTI.ftsr.write(|w| unsafe { w.bits(mask as u32) })
+        free(|_| dp.EXTI.ftsr.modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
     }
 
     /// Gets the EXTI falling edge trigger mask (0=disabled, 1=enabled).
@@ -152,10 +157,22 @@ impl<const PORTS: usize> IrqState<PORTS> {
     pub fn set_exti_gpio_source(&mut self, src: u64) {
         let dp = unsafe { Peripherals::steal() };
 
-        dp.AFIO.exticr1.write(|w| unsafe { w.bits(src as u32 & Self::EXTI_GPIO_MASK) });
-        dp.AFIO.exticr2.write(|w| unsafe { w.bits((src >> 16) as u32 & Self::EXTI_GPIO_MASK) });
-        dp.AFIO.exticr3.write(|w| unsafe { w.bits((src >> 32) as u32 & Self::EXTI_GPIO_MASK) });
-        dp.AFIO.exticr4.write(|w| unsafe { w.bits((src >> 48) as u32 & Self::EXTI_GPIO_MASK) });
+        let mut controlled = 0;
+        for n in 0..u32::BITS {
+            if self.controlled & (1 << n) != 0 {
+                controlled |= 0b1111 << (4 * n);
+            }
+        }
+
+        free(|_| {
+            let current = self.get_exti_gpio_source();
+            let new = current & !controlled | (src & controlled);
+
+            dp.AFIO.exticr1.write(|w| unsafe { w.bits(new as u32 & Self::EXTI_GPIO_MASK) });
+            dp.AFIO.exticr2.write(|w| unsafe { w.bits((new >> 16) as u32 & Self::EXTI_GPIO_MASK) });
+            dp.AFIO.exticr3.write(|w| unsafe { w.bits((new >> 32) as u32 & Self::EXTI_GPIO_MASK) });
+            dp.AFIO.exticr4.write(|w| unsafe { w.bits((new >> 48) as u32 & Self::EXTI_GPIO_MASK) });
+        });
     }
 
     /// Gets the EXTI line sources.

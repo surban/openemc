@@ -33,6 +33,7 @@ mod pio;
 mod pwm;
 mod reg;
 mod rtc;
+mod stusb4500;
 mod util;
 mod watchman;
 
@@ -48,6 +49,8 @@ use stm32f1xx_hal::{
     adc::Adc,
     backup_domain::BackupDomain,
     gpio::{Alternate, OpenDrain, Pin, CRH, CRL},
+    i2c,
+    i2c::I2c,
     pac::{ADC1, I2C1},
     prelude::*,
     watchdog::IndependentWatchdog,
@@ -65,6 +68,7 @@ use crate::{
     pio::MaskedGpio,
     pwm::PwmTimer,
     rtc::{ClockSrc, Rtc},
+    stusb4500::StUsb4500,
     util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64},
     watchman::Watchman,
 };
@@ -128,11 +132,23 @@ impl RemappableI2CRegSlave {
     }
 }
 
+/// I2C 2 master.
+type I2c2Master = i2c::BlockingI2c<
+    stm32f1xx_hal::pac::I2C2,
+    (
+        stm32f1xx_hal::gpio::Pin<Alternate<OpenDrain>, CRH, 'B', 10>,
+        stm32f1xx_hal::gpio::Pin<Alternate<OpenDrain>, CRH, 'B', 11>,
+    ),
+>;
+
 /// Instant in time.
 pub type Instant = systick_monotonic::fugit::Instant<u64, 1, 100>;
 
 /// Time duration.
 pub type Duration = systick_monotonic::fugit::Duration<u64, 1, 100>;
+
+/// Delay.
+pub type Delay = stm32f1xx_hal::timer::Delay<stm32f1::stm32f103::TIM4, 1000>;
 
 /// Board.
 pub use boards::Chosen as ThisBoard;
@@ -164,6 +180,10 @@ mod app {
         adc_buf: Option<AdcBuf>,
         /// PWM timers.
         pwm_timers: [PwmTimer; 4],
+        /// I2C 2 master.
+        i2c2: Option<I2c2Master>,
+        /// STUSB4500 USB PD controller.
+        stusb4500: Option<StUsb4500<I2c2Master>>,
         /// Board.
         board: ThisBoard,
     }
@@ -204,13 +224,14 @@ mod app {
         let mut afio = cx.device.AFIO.constrain();
         let clocks = rcc.cfgr.freeze(&mut flash.acr);
         let mono = Systick::new(cx.core.SYST, clocks.sysclk().to_Hz());
-
         let adc = Adc::adc1(cx.device.ADC1, clocks);
         let adc_inp = AdcInputs::new();
-        let mut _gpioa = cx.device.GPIOA.split();
+        let mut delay = cx.device.TIM4.delay_ms(&clocks);
+        let gpioa = cx.device.GPIOA.split();
         let mut gpiob = cx.device.GPIOB.split();
         let _gpioc = cx.device.GPIOC.split();
         let _gpiod = cx.device.GPIOD.split();
+        let (_pa15, _pb3, _pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
 
         // Initialize backup registers.
         BackupReg::init(&mut bkp);
@@ -219,7 +240,14 @@ mod app {
         unsafe { BootInfo::init(&bkp) };
         let bi = BootInfo::get();
 
-        let mut board = ThisBoard::new(if BootInfo::is_from_bootloader() { Some(&bi.board_data) } else { None });
+        // Create board handler.
+        defmt::info!("board new");
+        let mut board = ThisBoard::new(
+            if BootInfo::is_from_bootloader() { Some(&bi.board_data) } else { None },
+            &mut afio,
+            &mut delay,
+        );
+        defmt::info!("board new done");
 
         // Print boot information.
         if !BootInfo::is_from_bootloader() {
@@ -251,9 +279,7 @@ mod app {
             || bi.boot_reason == BootReason::Restart as _
         {
             // Make sure system is powered off for at least one second.
-            let mut delay = cx.device.TIM4.delay_ms(&clocks);
             delay.delay(1u32.secs());
-            delay.release();
         }
         if bi.boot_reason == BootReason::PowerOff as _ {
             BootReason::PowerOn.set(&mut bkp);
@@ -278,7 +304,9 @@ mod app {
         unwrap!(print_rtc_info::spawn());
 
         // Initializes board.
-        board.init();
+        defmt::info!("board init");
+        board.power_on(&mut delay);
+        defmt::info!("board init done");
 
         // Configure user GPIO.
         let mut usable = [0xffff; board::PORTS];
@@ -291,7 +319,38 @@ mod app {
         usable[bi.irq_pin as usize / 16] &= !(1 << (bi.irq_pin % 16));
         let ugpio = MaskedGpio::new(usable);
 
+        // Initialize I2C bus 2 master.
+        let mut i2c2 = ThisBoard::I2C2_MODE.map(|mode| {
+            let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
+            let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
+            I2c::i2c2(cx.device.I2C2, (scl, sda), mode, clocks).blocking_default(clocks)
+        });
+
+        // Initialize STUSB4500.
+        let stusb4500 = match ThisBoard::STUSB4500_I2C_ADDR {
+            Some(addr) => {
+                match StUsb4500::new(
+                    defmt::unwrap!(i2c2.as_mut()),
+                    addr,
+                    ThisBoard::STUSB4500_RESET,
+                    &ThisBoard::USB_INITIAL_PDO,
+                    ThisBoard::USB_MAXIMUM_VOLTAGE,
+                ) {
+                    Ok(stusb) => {
+                        defmt::unwrap!(stusb4500_periodic::spawn_after(1u64.secs()));
+                        Some(stusb)
+                    }
+                    Err(err) => {
+                        defmt::warn!("Cannot initialize STUSB4500: {:?}", err);
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
+
         // Initialize PWM timers.
+        delay.release();
         let pwm_timers = [
             PwmTimer::new(pwm::Timer::Timer1, &clocks),
             PwmTimer::new(pwm::Timer::Timer2, &clocks),
@@ -300,7 +359,9 @@ mod app {
         ];
 
         // Configure IRQ pin.
-        let irq = IrqState::new(bi.irq_pin, bi.irq_pin_cfg);
+        let mut usable_exti = u32::MAX;
+        board.limit_usable_exti(&mut usable_exti);
+        let irq = IrqState::new(bi.irq_pin, bi.irq_pin_cfg, usable_exti);
         unsafe { irq::unmask_exti() };
 
         // Enable I2C register slave.
@@ -331,7 +392,19 @@ mod app {
 
         defmt::debug!("init done");
         (
-            Shared { start_bootloader: false, irq, ugpio, bkp, watchman, rtc, adc_buf: None, pwm_timers, board },
+            Shared {
+                start_bootloader: false,
+                irq,
+                ugpio,
+                bkp,
+                watchman,
+                rtc,
+                adc_buf: None,
+                pwm_timers,
+                board,
+                i2c2,
+                stusb4500,
+            },
             Local {
                 copyright_offset: 0,
                 mfd_cell_index: 0,
@@ -460,12 +533,47 @@ mod app {
         });
     }
 
-    /// External interrupt handler 0, handling EXTI0 - EXTI15.
-    #[task(binds = EXTI0, shared = [irq])]
-    fn exti0(mut cx: exti0::Context) {
-        cx.shared.irq.lock(|irq| {
-            irq.pend_gpio_exti();
+    /// Handles STUSB4500 alert.
+    #[task(shared = [i2c2, stusb4500])]
+    fn stusb4500_alert(cx: stusb4500_alert::Context) {
+        (cx.shared.i2c2, cx.shared.stusb4500).lock(|i2c2, stusb4500| {
+            if let Some(stusb4500) = stusb4500.as_mut() {
+                if let Err(err) = stusb4500.alert(defmt::unwrap!(i2c2.as_mut())) {
+                    defmt::error!("STUSB4500 alert handling failed: {:?}", err);
+                }
+            }
         });
+    }
+
+    #[task(shared = [i2c2, stusb4500])]
+    fn stusb4500_periodic(cx: stusb4500_periodic::Context) {
+        (cx.shared.i2c2, cx.shared.stusb4500).lock(|i2c2, stusb4500| {
+            if let Some(stusb4500) = stusb4500.as_mut() {
+                if let Err(err) = stusb4500.periodic(defmt::unwrap!(i2c2.as_mut())) {
+                    defmt::error!("STUSB4500 periodic handling failed: {:?}", err);
+                }
+
+                if stusb4500.new_report_available() {
+                    let report = stusb4500.report();
+                    defmt::info!("Power supply report: {:?}", &report);
+                }
+            }
+        });
+
+        defmt::unwrap!(stusb4500_periodic::spawn_after(1u64.secs()));
+    }
+
+    /// External interrupt handler 0, handling EXTI0 - EXTI15.
+    #[task(binds = EXTI0, shared = [irq, board, i2c2, stusb4500])]
+    fn exti0(mut cx: exti0::Context) {
+        if cx.shared.board.lock(|board| board.check_stusb4500_alerting()) {
+            defmt::trace!("STUSB4500 alert interrupt!");
+            unwrap!(stusb4500_alert::spawn());
+        } else {
+            cx.shared.irq.lock(|irq| {
+                irq.pend_gpio_exti();
+            });
+        }
     }
 
     /// External interrupt handler 1, forwarding to EXTI0.

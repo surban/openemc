@@ -23,6 +23,7 @@ systick-monotonic = "1.0"
 defmt = "0.3"
 defmt-rtt = "0.3"
 nb = "1.0"
+heapless = "0.7"
 
 [dev-dependencies]
 defmt-test = "0.3"
