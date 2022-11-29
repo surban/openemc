@@ -107,14 +107,14 @@ impl Board for BoardImpl {
 
     fn board_data(&self) -> [u8; BootInfo::BOARD_DATA_SIZE] {
         let mut data = [0; BootInfo::BOARD_DATA_SIZE];
-        data[0] = if self.development_mode { 1 } else { 0 };
+        data[0] = u8::from(self.development_mode);
         data
     }
 
     fn bootloader_request(&mut self, t: I2CRegTransaction) {
         match t {
             I2CRegTransaction::Read(mut tx) if tx.reg() == REG_DEVELOPMENT_MODE => {
-                tx.send_u8(if self.development_mode { 0x01 } else { 0x00 });
+                tx.send_u8(u8::from(self.development_mode));
             }
             _ => (),
         }

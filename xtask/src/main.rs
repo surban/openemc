@@ -44,24 +44,24 @@ fn main() -> anyhow::Result<()> {
 
     cmd!(&cargo, "build", "--release")
         .current_dir(project_root().join("openemc-bootloader"))
-        .env("OPENEMC_BOARD", &board)
-        .env("OPENEMC_BOOTLOADER", &bootloader_variant)
+        .env("OPENEMC_BOARD", board)
+        .env("OPENEMC_BOOTLOADER", bootloader_variant)
         .run()?;
     cmd!(&cargo, "objcopy", "--release", "--", "-O", "binary", format!("../image/{bootloader}.bin"))
         .current_dir(project_root().join("openemc-bootloader"))
-        .env("OPENEMC_BOARD", &board)
-        .env("OPENEMC_BOOTLOADER", &bootloader_variant)
+        .env("OPENEMC_BOARD", board)
+        .env("OPENEMC_BOOTLOADER", bootloader_variant)
         .run()?;
 
     cmd!(&cargo, "build", "--release")
         .current_dir(project_root().join("openemc-firmware"))
-        .env("OPENEMC_BOARD", &board)
-        .env("OPENEMC_BOOTLOADER", &bootloader_variant)
+        .env("OPENEMC_BOARD", board)
+        .env("OPENEMC_BOOTLOADER", bootloader_variant)
         .run()?;
     cmd!(&cargo, "objcopy", "--release", "--", "-O", "binary", format!("../image/{firmware}.bin"))
         .current_dir(project_root().join("openemc-firmware"))
-        .env("OPENEMC_BOARD", &board)
-        .env("OPENEMC_BOOTLOADER", &bootloader_variant)
+        .env("OPENEMC_BOARD", board)
+        .env("OPENEMC_BOOTLOADER", bootloader_variant)
         .run()?;
 
     cmd!(

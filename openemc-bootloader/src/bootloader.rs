@@ -278,7 +278,7 @@ where
                 }
             },
             Some(I2CRegTransaction::Read(mut tx)) if tx.reg() == REG_FLASH_STATUS => {
-                tx.send_u8(if flash_fail { 0x01 } else { 0x00 });
+                tx.send_u8(u8::from(flash_fail));
             }
             Some(I2CRegTransaction::Write(tx)) if tx.reg() == REG_FLASH_STATUS => {
                 defmt::debug!("bootloader: clearing flash_fail");
@@ -301,7 +301,7 @@ where
                 return BootloaderResult::Start;
             }
             Some(I2CRegTransaction::Read(mut tx)) if tx.reg() == REG_TIMEOUT_ENABLED => {
-                tx.send_u8(if timer.is_some() && timeout_enabled { 0x01 } else { 0x00 });
+                tx.send_u8(u8::from(timer.is_some() && timeout_enabled));
             }
             Some(I2CRegTransaction::Write(mut rx)) if rx.reg() == REG_TIMEOUT_ENABLED => {
                 timeout_enabled = rx.recv_u8() != 0;
