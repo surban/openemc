@@ -20,3 +20,5 @@ devicetree/*.dtbo
 
 /.test-host
 /compile_commands.json
+
+enqt*

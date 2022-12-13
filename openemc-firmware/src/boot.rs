@@ -4,7 +4,7 @@ use core::{mem::MaybeUninit, ptr, slice};
 use cortex_m::peripheral::{scb::Exception, SCB};
 use openemc_shared::{BootInfo, ResetStatus};
 use stm32f1::stm32f103::Peripherals;
-use stm32f1xx_hal::backup_domain::BackupDomain;
+use stm32f1xx_hal::{backup_domain::BackupDomain, prelude::_stm32_hal_gpio_GpioExt};
 
 use crate::{backup::BackupReg, board::Board, ThisBoard};
 
@@ -227,6 +227,15 @@ pub fn reset(bkp: &mut BackupDomain) -> ! {
 pub fn enter_standby() -> ! {
     let mut cp = unsafe { cortex_m::Peripherals::steal() };
     let dp = unsafe { Peripherals::steal() };
+
+    // Check if WKUP pin is low.
+    let mut gpioa = dp.GPIOA.split();
+    let wkup = gpioa.pa0.into_floating_input(&mut gpioa.crl);
+    if wkup.is_high() {
+        // Device should stay awake, convert shutdown into reset.
+        defmt::info!("WKUP pin is high, turning shutdown into reset");
+        SCB::sys_reset();
+    }
 
     // Disable and clear SysTick interrupt.
     cp.SYST.disable_interrupt();

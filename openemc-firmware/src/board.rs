@@ -4,7 +4,9 @@ use openemc_shared::BootInfo;
 use stm32f1xx_hal::{afio, i2c};
 
 use crate::{
-    boot, i2c_reg_slave,
+    boot,
+    bq25713::Bq25713Cfg,
+    i2c_reg_slave,
     stusb4500::{Current, FixedSinkPdo, Voltage},
     Delay, I2C_BUFFER_SIZE,
 };
@@ -32,8 +34,8 @@ pub trait Board {
     /// I2C address on I2C 2 master bus of STUSB4500 USB PD controller, if present.
     const STUSB4500_I2C_ADDR: Option<u8> = None;
 
-    /// Reset STUSB4500 USB PD controller at startup?
-    const STUSB4500_RESET: bool = true;
+    /// BQ25713 battery charge controller configuration, if present.
+    const BQ25713_CFG: Option<Bq25713Cfg> = None;
 
     /// Initial USB PD sink PDO.
     ///
@@ -51,6 +53,9 @@ pub trait Board {
 
     /// Maximum USB input voltage to request via USB PD.
     const USB_MAXIMUM_VOLTAGE: Voltage = Voltage::from_mv(5000);
+
+    /// Battery voltage in mV that triggers immediate low voltage shutdown.
+    const CRITICAL_LOW_BATTERY_VOLTAGE: Option<u32> = None;
 
     /// Create a new instance.
     fn new(
@@ -91,6 +96,12 @@ pub trait Board {
     fn check_stusb4500_alerting(&mut self) -> bool {
         false
     }
+
+    /// Reset STUSB4500 via reset pin.
+    fn set_stusb4500_reset_pin(&mut self, _state: bool) {}
+
+    /// Sets the power LED to the specified state.
+    fn set_power_led(&mut self, _state: bool) {}
 }
 
 /// Unknown I2C event.

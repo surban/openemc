@@ -36,7 +36,6 @@ impl Board for BoardImpl {
     const STANDALONE_IRQ_PIN: u8 = 6;
     const I2C2_MODE: Option<i2c::Mode> = Some(i2c::Mode::Standard { frequency: Rate::<u32, 1, 1>::Hz(300_000) });
     const STUSB4500_I2C_ADDR: Option<u8> = Some(0x28);
-    const STUSB4500_RESET: bool = RESET_STUSB4500;
     const USB_MAXIMUM_VOLTAGE: Voltage = Voltage::from_mv(10_000);
 
     fn new(

@@ -110,6 +110,93 @@ pub enum PowerSupply {
     CcPins5V3000mA,
 }
 
+impl PowerSupply {
+    /// Voltage in mV.
+    pub fn voltage_mv(&self) -> u32 {
+        match self {
+            PowerSupply::Unknown => 0,
+            PowerSupply::Disconnected => 0,
+            PowerSupply::UsbDefault => 5000,
+            PowerSupply::PdoContract { voltage, .. } => voltage.to_mv(),
+            PowerSupply::CcPins5V1500mA => 5000,
+            PowerSupply::CcPins5V3000mA => 5000,
+        }
+    }
+
+    /// Returns the maximum current available in mA.
+    pub fn max_current_ma(&self) -> u32 {
+        match self {
+            Self::Unknown => 0,
+            Self::Disconnected => 0,
+            Self::UsbDefault => 100,
+            Self::PdoContract { max_current, .. } => max_current.to_ma(),
+            Self::CcPins5V1500mA => 1500,
+            Self::CcPins5V3000mA => 3000,
+        }
+    }
+
+    /// USB communication support status.
+    pub fn communication(&self) -> PowerSupplyUsbCommunication {
+        match self {
+            Self::Unknown => PowerSupplyUsbCommunication::Unknown,
+            Self::Disconnected => PowerSupplyUsbCommunication::Unsupported,
+            Self::UsbDefault => PowerSupplyUsbCommunication::Unknown,
+            Self::PdoContract { communication, .. } => {
+                if *communication {
+                    PowerSupplyUsbCommunication::Supported
+                } else {
+                    PowerSupplyUsbCommunication::Unsupported
+                }
+            }
+            Self::CcPins5V1500mA => PowerSupplyUsbCommunication::Unknown,
+            Self::CcPins5V3000mA => PowerSupplyUsbCommunication::Unknown,
+        }
+    }
+}
+
+impl From<&PowerSupply> for u8 {
+    fn from(supply: &PowerSupply) -> Self {
+        match supply {
+            PowerSupply::Unknown => 0,
+            PowerSupply::Disconnected => 1,
+            PowerSupply::UsbDefault => 2,
+            PowerSupply::PdoContract { .. } => 3,
+            PowerSupply::CcPins5V1500mA => 4,
+            PowerSupply::CcPins5V3000mA => 5,
+        }
+    }
+}
+
+/// USB communication supported.
+#[derive(Default, Clone, Copy, Format, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PowerSupplyUsbCommunication {
+    /// USB data communication is unsupported.
+    Unsupported,
+    /// USB data communication is supported.
+    Supported,
+    /// Unknown whether USB communication is supported.
+    #[default]
+    Unknown,
+}
+
+impl From<PowerSupplyUsbCommunication> for u8 {
+    fn from(uc: PowerSupplyUsbCommunication) -> Self {
+        match uc {
+            PowerSupplyUsbCommunication::Unsupported => 0,
+            PowerSupplyUsbCommunication::Supported => 1,
+            PowerSupplyUsbCommunication::Unknown => 2,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResetState {
+    None,
+    PinResetHigh(Instant),
+    PinResetLow(Instant),
+    RegisterReset(Instant),
+}
+
 /// STUSB4500 USB PD controller instance.
 ///
 /// [`alert`](Self::alert) must be called when the ALERT pin goes low.
@@ -132,10 +219,12 @@ pub struct StUsb4500<I2C> {
     supply_pdos: Vec<SupplyPdo, 7>,
     snk_ready_since: Option<Instant>,
     fsm_attached_since: Option<Instant>,
-    resetting_since: Option<Instant>,
+    reset: ResetState,
+    pin_reset_done: bool,
     best_pdo_requested: bool,
     report: PowerSupply,
     last_queried_report: PowerSupply,
+    started: Instant,
     _i2c: PhantomData<I2C>,
 }
 
@@ -163,17 +252,12 @@ where
     ///
     /// `addr` specifies the I2C address.
     ///
-    /// If `reset` is `true` the device is reset at initialization.
-    /// This can cause trouble when the only supply available is via the USB line.
-    ///
     /// `initial_pdo` specifies the PDO to present when initiating negotiation.
     /// It must have a voltage of 5 V.
     ///
     /// `maximum_voltage` is the maximum voltage to negotiate.
     /// The supply PDO with the highest voltage at or below `maximum_voltage` will be chosen.
-    pub fn new(
-        i2c: &mut I2C, addr: u8, reset: bool, initial_pdo: &FixedSinkPdo, maximum_voltage: Voltage,
-    ) -> Result<Self> {
+    pub fn new(i2c: &mut I2C, addr: u8, initial_pdo: &FixedSinkPdo, maximum_voltage: Voltage) -> Result<Self> {
         defmt::assert_eq!(initial_pdo.voltage.to_mv(), 5000);
 
         let mut this = Self {
@@ -192,10 +276,12 @@ where
             supply_pdos: Vec::new(),
             snk_ready_since: None,
             fsm_attached_since: None,
-            resetting_since: None,
+            reset: ResetState::None,
+            pin_reset_done: false,
             best_pdo_requested: false,
             report: Default::default(),
             last_queried_report: Default::default(),
+            started: monotonics::now(),
             _i2c: PhantomData,
         };
 
@@ -207,13 +293,9 @@ where
             return Err(Error::WrongId);
         }
 
-        if reset {
-            this.start_reset(i2c)?;
-        } else {
-            this.init_alert_mask(i2c)?;
-            this.init_sink_pdos(i2c)?;
-            this.alert(i2c)?;
-        }
+        this.init_alert_mask(i2c)?;
+        this.init_sink_pdos(i2c)?;
+        this.alert(i2c)?;
 
         defmt::info!("STUSB4500 initialized");
         Ok(this)
@@ -230,9 +312,19 @@ where
         self.last_queried_report != self.report
     }
 
+    /// Initiates a pin reset.
+    fn start_pin_reset(&mut self) {
+        if self.reset != ResetState::None {
+            return;
+        }
+
+        defmt::info!("STUSB4500 pin reset");
+        self.reset = ResetState::PinResetHigh(monotonics::now());
+    }
+
     /// Initiates a register reset.
-    fn start_reset(&mut self, i2c: &mut I2C) -> Result<()> {
-        if self.resetting_since.is_some() {
+    fn start_register_reset(&mut self, i2c: &mut I2C) -> Result<()> {
+        if self.reset != ResetState::None {
             return Ok(());
         }
 
@@ -246,19 +338,31 @@ where
         self.fsm_attached_since = None;
         self.best_pdo_requested = false;
         self.rdo = None;
-        self.resetting_since = Some(monotonics::now());
+        self.reset = ResetState::RegisterReset(monotonics::now());
         Ok(())
     }
 
-    /// Completes a register reset.
+    /// Completes a reset.
     ///
     /// Returns whether a reset is in progress.
     fn resetting(&mut self, i2c: &mut I2C) -> Result<bool> {
         let reset_duration: Duration = 200u64.millis();
 
-        match self.resetting_since {
-            Some(since) if monotonics::now() - since >= reset_duration => {
-                defmt::debug!("reset done");
+        match self.reset {
+            ResetState::None => Ok(false),
+            ResetState::PinResetHigh(since) if monotonics::now() - since >= reset_duration => {
+                defmt::debug!("STUSB4500 pin reset low");
+                self.reset = ResetState::PinResetLow(monotonics::now());
+                Ok(true)
+            }
+            ResetState::PinResetLow(since) if monotonics::now() - since >= reset_duration => {
+                defmt::debug!("STUSB4500 pin reset done");
+                self.reset = ResetState::None;
+                self.start_register_reset(i2c)?;
+                Ok(true)
+            }
+            ResetState::RegisterReset(since) if monotonics::now() - since >= reset_duration => {
+                defmt::debug!("STUSB4500 register reset done");
 
                 // Disable reset.
                 self.write(i2c, REG_RESET, &[0])?;
@@ -266,14 +370,13 @@ where
                 self.init_alert_mask(i2c)?;
                 self.init_sink_pdos(i2c)?;
 
-                self.resetting_since = None;
+                self.reset = ResetState::None;
                 Ok(false)
             }
-            Some(_) => {
+            _ => {
                 defmt::trace!("reset in progress");
                 Ok(true)
             }
-            None => Ok(false),
         }
     }
 
@@ -624,7 +727,7 @@ where
                                 "USB CC not attached for too long after FSM attach, issuing register reset"
                             );
                             self.fsm_attached_since = None;
-                            self.start_reset(i2c)?;
+                            self.start_register_reset(i2c)?;
                         }
                     }
                     None => self.fsm_attached_since = Some(monotonics::now()),
@@ -636,8 +739,27 @@ where
 
         self.generate_report();
 
+        // STUSB4500 sometimes needs a hard reset to detect a supply.
+        let grace_period = 10u64.secs();
+        match &self.report {
+            PowerSupply::Unknown | PowerSupply::Disconnected
+                if !self.pin_reset_done
+                    && monotonics::now().checked_duration_since(self.started) > Some(grace_period) =>
+            {
+                defmt::warn!("no supply connected, trying STUSB4500 pin reset");
+                self.pin_reset_done = true;
+                self.start_pin_reset();
+            }
+            _ => (),
+        }
+
         defmt::trace!("STUSB4500 periodic done");
         Ok(())
+    }
+
+    /// The level that should be applied on the reset pin.
+    pub fn reset_pin_level(&self) -> bool {
+        matches!(self.reset, ResetState::PinResetHigh(_))
     }
 }
 

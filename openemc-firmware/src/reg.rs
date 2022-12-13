@@ -207,6 +207,33 @@ pub const PWM_CHANNEL_POLARITY: u8 = 0x77;
 /// 1=enabled, 0=disabled.
 pub const PWM_CHANNEL_OUTPUT: u8 = 0x78;
 
+/// Current battery voltage in mV. (read-only, u32)
+pub const BATTERY_VOLTAGE: u8 = 0x80;
+
+/// Minimum battery voltage in mV. (read-only, u32)
+pub const BATTERY_MIN_VOLTAGE: u8 = 0x81;
+
+/// Maximum battery voltage in mV. (read-only, u32)
+pub const BATTERY_MAX_VOLTAGE: u8 = 0x82;
+
+/// Battery charging status. (read-only, u8)
+/// 0=off, 1=pre, 2=fast.
+pub const BATTERY_CHARGING: u8 = 0x83;
+
+/// External power supply present. (read-only, u8)
+/// 0=unknown, 1=disconnected, 2=USB default, 3=USB PD contract, 4=USB 1.5A, 5=USB 3.0A.
+pub const SUPPLY_TYPE: u8 = 0x90;
+
+/// External power supply voltage in mV. (read-only, u32)
+pub const SUPPLY_VOLTAGE: u8 = 0x91;
+
+/// External power supply maximum current in mA. (read-only, u32)
+pub const SUPPLY_MAX_CURRENT: u8 = 0x92;
+
+/// External power supply USB communication status. (read-only, u8)
+/// 0=unsupported, 1=supported, 2=unknown.
+pub const SUPPLY_USB_COMMUNICATION: u8 = 0x93;
+
 /// Resets the system.
 pub const RESET: u8 = 0xf0;
 

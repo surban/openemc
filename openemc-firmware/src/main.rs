@@ -26,6 +26,7 @@ mod backup;
 mod board;
 mod boards;
 mod boot;
+mod bq25713;
 mod i2c_reg_slave;
 mod i2c_slave;
 mod irq;
@@ -62,13 +63,14 @@ use crate::{
     backup::BackupReg,
     board::Board,
     boot::{BootInfoExt, BootReason},
+    bq25713::{Battery, Bq25713},
     i2c_reg_slave::{Event, I2CRegSlave},
     i2c_slave::I2cSlave,
     irq::IrqState,
     pio::MaskedGpio,
     pwm::PwmTimer,
     rtc::{ClockSrc, Rtc},
-    stusb4500::StUsb4500,
+    stusb4500::{PowerSupply, StUsb4500},
     util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64},
     watchman::Watchman,
 };
@@ -184,6 +186,12 @@ mod app {
         i2c2: Option<I2c2Master>,
         /// STUSB4500 USB PD controller.
         stusb4500: Option<StUsb4500<I2c2Master>>,
+        /// BQ25713 batter charge controller.
+        bq25713: Option<Bq25713<I2c2Master>>,
+        /// Latest power supply report.
+        power_supply: Option<PowerSupply>,
+        /// Latest battery report.
+        battery: Option<Battery>,
         /// Board.
         board: ThisBoard,
     }
@@ -207,6 +215,12 @@ mod app {
         pwm_channel_index: u8,
         /// Reset the RTC prescaler.
         rtc_reset_prescaler: bool,
+        /// Undervoltage blink LED state.
+        undervoltage_blink_state: bool,
+        /// Undervoltage blink count.
+        undervoltage_blink_count: usize,
+        /// Time when BQ25713 periodic handler first ran.
+        bq25713_first_periodic: Option<Instant>,
     }
 
     /// Initialization (entry point).
@@ -282,6 +296,7 @@ mod app {
             delay.delay(1u32.secs());
         }
         if bi.boot_reason == BootReason::PowerOff as _ {
+            board.set_power_led(false);
             BootReason::PowerOn.set(&mut bkp);
             board.shutdown();
         }
@@ -305,6 +320,7 @@ mod app {
 
         // Initializes board.
         defmt::info!("board init");
+        board.set_power_led(true);
         board.power_on(&mut delay);
         defmt::info!("board init done");
 
@@ -326,13 +342,27 @@ mod app {
             I2c::i2c2(cx.device.I2C2, (scl, sda), mode, clocks).blocking_default(clocks)
         });
 
+        // Initialize BQ25713.
+        let bq25713 = match ThisBoard::BQ25713_CFG {
+            Some(cfg) => match Bq25713::new(defmt::unwrap!(i2c2.as_mut()), cfg) {
+                Ok(bq) => {
+                    defmt::unwrap!(bq25713_periodic::spawn_after(1u64.secs()));
+                    Some(bq)
+                }
+                Err(err) => {
+                    defmt::warn!("Cannot initialize BQ25713: {:?}", err);
+                    None
+                }
+            },
+            None => None,
+        };
+
         // Initialize STUSB4500.
         let stusb4500 = match ThisBoard::STUSB4500_I2C_ADDR {
             Some(addr) => {
                 match StUsb4500::new(
                     defmt::unwrap!(i2c2.as_mut()),
                     addr,
-                    ThisBoard::STUSB4500_RESET,
                     &ThisBoard::USB_INITIAL_PDO,
                     ThisBoard::USB_MAXIMUM_VOLTAGE,
                 ) {
@@ -404,6 +434,9 @@ mod app {
                 board,
                 i2c2,
                 stusb4500,
+                bq25713,
+                power_supply: None,
+                battery: None,
             },
             Local {
                 copyright_offset: 0,
@@ -414,6 +447,9 @@ mod app {
                 pwm_timer_index: 0,
                 pwm_channel_index: 0,
                 rtc_reset_prescaler: false,
+                undervoltage_blink_state: false,
+                undervoltage_blink_count: 0,
+                bq25713_first_periodic: None,
             },
             init::Monotonics(mono),
         )
@@ -441,8 +477,20 @@ mod app {
     }
 
     /// Power off system.
-    #[task(shared = [bkp])]
+    #[task(shared = [bkp, i2c2, bq25713])]
     fn power_off(mut cx: power_off::Context) {
+        // Shut down charger, if we are running from battery.
+        (cx.shared.i2c2, cx.shared.bq25713).lock(|i2c2, bq25713| {
+            if let (Some(i2c2), Some(bq25713)) = (i2c2.as_mut(), bq25713) {
+                if !bq25713.status().ac_stat {
+                    defmt::info!("Shutting down BQ25713");
+                    if let Err(err) = bq25713.shutdown(i2c2) {
+                        defmt::error!("Cannot shutdown BQ25713: {}", err);
+                    }
+                }
+            }
+        });
+
         defmt::info!("requesting power off");
         cx.shared.bkp.lock(|bkp| boot::power_off(bkp));
     }
@@ -541,26 +589,131 @@ mod app {
                 if let Err(err) = stusb4500.alert(defmt::unwrap!(i2c2.as_mut())) {
                     defmt::error!("STUSB4500 alert handling failed: {:?}", err);
                 }
+
+                if stusb4500.new_report_available() {
+                    defmt::unwrap!(stusb4500_handle_report::spawn());
+                }
             }
         });
     }
 
-    #[task(shared = [i2c2, stusb4500])]
+    /// STUSB4500 periodic task.
+    #[task(shared = [i2c2, stusb4500, board])]
     fn stusb4500_periodic(cx: stusb4500_periodic::Context) {
-        (cx.shared.i2c2, cx.shared.stusb4500).lock(|i2c2, stusb4500| {
+        (cx.shared.i2c2, cx.shared.stusb4500, cx.shared.board).lock(|i2c2, stusb4500, board| {
             if let Some(stusb4500) = stusb4500.as_mut() {
                 if let Err(err) = stusb4500.periodic(defmt::unwrap!(i2c2.as_mut())) {
                     defmt::error!("STUSB4500 periodic handling failed: {:?}", err);
                 }
 
                 if stusb4500.new_report_available() {
-                    let report = stusb4500.report();
-                    defmt::info!("Power supply report: {:?}", &report);
+                    defmt::unwrap!(stusb4500_handle_report::spawn());
                 }
+
+                board.set_stusb4500_reset_pin(stusb4500.reset_pin_level());
             }
         });
 
         defmt::unwrap!(stusb4500_periodic::spawn_after(1u64.secs()));
+    }
+
+    /// Handles a new power supply report from the STUSB4500.
+    #[task(shared = [i2c2, stusb4500, bq25713, power_supply])]
+    fn stusb4500_handle_report(cx: stusb4500_handle_report::Context) {
+        (cx.shared.i2c2, cx.shared.stusb4500, cx.shared.bq25713, cx.shared.power_supply).lock(
+            |i2c2, stusb4500, bq25713, power_supply| {
+                let i2c2 = defmt::unwrap!(i2c2.as_mut());
+
+                let report = defmt::unwrap!(stusb4500.as_mut()).report();
+                defmt::info!("STUSB4500 power supply report: {:?}", &report);
+
+                if let Some(bq25713) = bq25713.as_mut() {
+                    defmt::info!("Setting BQ25713 maximum input current to {} mA", report.max_current_ma());
+                    if let Err(err) =
+                        bq25713.set_max_input_current(i2c2, report.max_current_ma()).and_then(|_| {
+                            if report.max_current_ma() > 0 && !bq25713.is_charge_enabled() {
+                                bq25713.set_charge_enable(i2c2, true)?;
+                            } else if report.max_current_ma() == 0 && bq25713.is_charge_enabled() {
+                                bq25713.set_charge_enable(i2c2, false)?;
+                            }
+                            Ok(())
+                        })
+                    {
+                        defmt::error!("Cannot configure BQ25713 charging: {}", err);
+                    }
+                }
+
+                *power_supply = Some(report);
+            },
+        );
+    }
+
+    /// BQ25713 periodic task.
+    #[task(shared = [i2c2, bq25713, battery], local = [bq25713_first_periodic])]
+    fn bq25713_periodic(cx: bq25713_periodic::Context) {
+        let grace_period = 10u64.secs();
+        let first = cx.local.bq25713_first_periodic.get_or_insert_with(monotonics::now);
+
+        (cx.shared.i2c2, cx.shared.bq25713, cx.shared.battery).lock(|i2c2, bq25713, battery| {
+            if let Some(bq25713) = bq25713.as_mut() {
+                let i2c2 = defmt::unwrap!(i2c2.as_mut());
+
+                if let Err(err) = bq25713.periodic(i2c2) {
+                    defmt::error!("BQ25713 periodic handling failed: {:?}", err);
+                }
+
+                let status = bq25713.status();
+                if status.has_any_fault() {
+                    defmt::warn!("BQ25713 reported a fault: {:?}", bq25713.status());
+                }
+
+                match (bq25713.measurement(), ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE) {
+                    (Some(m), Some(min_mv))
+                        if !status.ac_stat
+                            && m.v_bat_mv < min_mv
+                            && monotonics::now().checked_duration_since(*first) >= Some(grace_period) =>
+                    {
+                        if undervoltage_power_off::spawn().is_ok() {
+                            defmt::warn!(
+                                "Battery voltage of {} mV is below critical voltage of {} mV, shutting down",
+                                m.v_bat_mv,
+                                min_mv
+                            );
+                        }
+                    }
+                    _ => (),
+                }
+
+                if status.has_clearable_fault() {
+                    defmt::info!("Clearing BQ25713 fault");
+                    if let Err(err) = bq25713.clear_faults(i2c2) {
+                        defmt::error!("Clearing BQ25713 faults failed: {}", err);
+                    }
+                }
+
+                let report = bq25713.battery();
+                if Some(&report) != battery.as_ref() {
+                    defmt::info!("Battery report: {:?}", &report);
+                    *battery = Some(report);
+                }
+            }
+        });
+
+        defmt::unwrap!(bq25713_periodic::spawn_after(1u64.secs()));
+    }
+
+    /// Performs power off when battery has reached lower voltage limit.
+    #[task(shared = [board], local = [undervoltage_blink_state, undervoltage_blink_count], capacity = 1)]
+    fn undervoltage_power_off(mut cx: undervoltage_power_off::Context) {
+        if *cx.local.undervoltage_blink_count < 100 {
+            *cx.local.undervoltage_blink_state = !*cx.local.undervoltage_blink_state;
+            *cx.local.undervoltage_blink_count += 1;
+            cx.shared.board.lock(|board| board.set_power_led(*cx.local.undervoltage_blink_state));
+            defmt::unwrap!(undervoltage_power_off::spawn_after(100u64.millis()));
+        } else {
+            defmt::warn!("Undervoltage power off");
+            defmt::unwrap!(power_off::spawn());
+        }
     }
 
     /// External interrupt handler 0, handling EXTI0 - EXTI15.
@@ -621,7 +774,7 @@ mod app {
     /// I2C event interrupt handler.
     #[task(binds = I2C1_EV,
         local = [i2c_reg_slave, copyright_offset, mfd_cell_index, pwm_timer_index, pwm_channel_index],
-        shared = [start_bootloader, irq, ugpio, bkp, watchman, rtc, adc_buf, pwm_timers, board],
+        shared = [start_bootloader, irq, ugpio, bkp, watchman, rtc, adc_buf, pwm_timers, board, power_supply, battery],
         priority = 2)]
     fn i2c1_ev(mut cx: i2c1_ev::Context) {
         let res = cx.local.i2c_reg_slave.event();
@@ -920,6 +1073,58 @@ mod app {
                 cx.shared.pwm_timers.lock(|pwm_timers| {
                     if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                         pwm_timer.set_output(*cx.local.pwm_channel_index, value.as_u8() != 0);
+                    }
+                });
+            }
+            Event::Read { reg: reg::BATTERY_VOLTAGE, value } => {
+                cx.shared.battery.lock(|battery| {
+                    if let Some(battery) = battery {
+                        value.set_u32(battery.voltage_mv);
+                    }
+                });
+            }
+            Event::Read { reg: reg::BATTERY_MIN_VOLTAGE, value } => {
+                value.set_u32(ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE.unwrap_or_default());
+            }
+            Event::Read { reg: reg::BATTERY_MAX_VOLTAGE, value } => {
+                cx.shared.battery.lock(|battery| {
+                    if let Some(battery) = battery {
+                        value.set_u32(battery.max_voltage_mv);
+                    }
+                });
+            }
+            Event::Read { reg: reg::BATTERY_CHARGING, value } => {
+                cx.shared.battery.lock(|battery| {
+                    if let Some(battery) = battery {
+                        value.set_u8(battery.charging.into());
+                    }
+                });
+            }
+            Event::Read { reg: reg::SUPPLY_TYPE, value } => {
+                cx.shared.power_supply.lock(|supply| {
+                    if let Some(supply) = supply {
+                        value.set_u8(u8::from(&*supply));
+                    }
+                });
+            }
+            Event::Read { reg: reg::SUPPLY_VOLTAGE, value } => {
+                cx.shared.power_supply.lock(|supply| {
+                    if let Some(supply) = supply {
+                        value.set_u32(supply.voltage_mv());
+                    }
+                });
+            }
+            Event::Read { reg: reg::SUPPLY_MAX_CURRENT, value } => {
+                cx.shared.power_supply.lock(|supply| {
+                    if let Some(supply) = supply {
+                        value.set_u32(supply.max_current_ma());
+                    }
+                });
+            }
+            Event::Read { reg: reg::SUPPLY_USB_COMMUNICATION, value } => {
+                cx.shared.power_supply.lock(|supply| {
+                    if let Some(supply) = supply {
+                        value.set_u8(supply.communication().into());
                     }
                 });
             }
