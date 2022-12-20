@@ -18,7 +18,7 @@
 
 //! STUSB4500 USB PD controller driver.
 
-use core::{convert::identity, marker::PhantomData, mem::size_of};
+use core::{marker::PhantomData, mem::size_of};
 use defmt::Format;
 use embedded_hal::blocking::i2c;
 use heapless::Vec;
@@ -225,6 +225,7 @@ pub struct StUsb4500<I2C> {
     supply_pdos: Vec<SupplyPdo, 7>,
     snk_ready_since: Option<Instant>,
     fsm_attached_since: Option<Instant>,
+    last_fsm_reset: Option<Instant>,
     reset: ResetState,
     last_pin_reset: Option<Instant>,
     last_register_reset: Option<Instant>,
@@ -284,6 +285,7 @@ where
             supply_pdos: Vec::new(),
             snk_ready_since: None,
             fsm_attached_since: None,
+            last_fsm_reset: None,
             reset: ResetState::None,
             last_pin_reset: None,
             last_register_reset: None,
@@ -573,14 +575,17 @@ where
             _ => PowerSupply::Disconnected,
         };
 
+        // If CC pins do not work, we can still try USB default power.
+        if self.type_c_status.typec_fsm_state == TypeCFsmState::AttachWaitSink
+            && self.report == PowerSupply::Disconnected
+        {
+            self.report = PowerSupply::UsbDefault;
+        }
+
         // Inhibit high currents during negotiation phase.
         let grace_period: Duration = 10u64.secs();
         let now = monotonics::now();
-        match [self.last_pin_reset, self.last_register_reset, self.last_soft_reset]
-            .into_iter()
-            .filter_map(identity)
-            .max()
-        {
+        match [self.last_pin_reset, self.last_register_reset, self.last_soft_reset].into_iter().flatten().max() {
             Some(latest) if now - latest <= grace_period => match self.report {
                 PowerSupply::CcPins5V1500mA | PowerSupply::CcPins5V3000mA => {
                     self.report = PowerSupply::Negotiating;
@@ -691,6 +696,7 @@ where
         if self.port_status.cc_attach_state {
             defmt::debug!("CC is attached!");
             self.fsm_attached_since = None;
+            self.last_fsm_reset = None;
 
             let pe_state = self.read(i2c, REG_PE_FSM, 1)?;
             defmt::trace!("PE state: {:x}", pe_state[0]);
@@ -749,10 +755,14 @@ where
             if [TypeCFsmState::AttachWaitSink, TypeCFsmState::AttachedSink]
                 .contains(&self.type_c_status.typec_fsm_state)
             {
-                match self.fsm_attached_since {
-                    Some(since) => {
-                        let fsm_timeout: Duration = 2u64.secs();
-                        if monotonics::now() - since >= fsm_timeout {
+                let since = self.fsm_attached_since.get_or_insert_with(monotonics::now);
+                let now = monotonics::now();
+                let fsm_timeout: Duration = 2u64.secs();
+                let fsm_prevent: Duration = 10u64.secs();
+                if now - *since >= fsm_timeout {
+                    match self.last_fsm_reset {
+                        Some(last) if now - last <= fsm_prevent => (),
+                        _ => {
                             defmt::info!(
                                 "USB CC not attached for too long after FSM attach, issuing register reset"
                             );
@@ -760,7 +770,7 @@ where
                             self.start_register_reset(i2c)?;
                         }
                     }
-                    None => self.fsm_attached_since = Some(monotonics::now()),
+                    self.last_fsm_reset = Some(now);
                 }
             } else {
                 self.fsm_attached_since = None;
