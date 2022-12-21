@@ -250,7 +250,7 @@ pub fn enter_standby() -> ! {
         unsafe { icpr.write(0xffffffff) };
     }
 
-    // Enable standby mode and waking up using WKUP pin.
+    // Enable standby mode and wake up using WKUP pin.
     dp.PWR.csr.modify(|_, w| w.ewup().set_bit());
     dp.PWR.cr.modify(|_, w| w.lpds().set_bit().cwuf().set_bit().pdds().standby_mode());
     cp.SCB.set_sleepdeep();
