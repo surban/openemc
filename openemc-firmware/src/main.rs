@@ -244,8 +244,11 @@ mod app {
         let gpioa = cx.device.GPIOA.split();
         let mut gpiob = cx.device.GPIOB.split();
         let _gpioc = cx.device.GPIOC.split();
-        let _gpiod = cx.device.GPIOD.split();
+        let mut _gpiod = cx.device.GPIOD.split();
+
+        // Configure GPIO remapping.
         let (_pa15, _pb3, _pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
+        afio.mapr.modify_mapr(|_, w| w.pd01_remap().set_bit());
 
         // Initialize backup registers.
         BackupReg::init(&mut bkp);
@@ -393,6 +396,11 @@ mod app {
         board.limit_usable_exti(&mut usable_exti);
         let irq = IrqState::new(bi.irq_pin, bi.irq_pin_cfg, usable_exti);
         unsafe { irq::unmask_exti() };
+
+        // Simulate PD IRQs.
+        if ThisBoard::SIMULATE_PD_IRQS.is_some() {
+            defmt::unwrap!(simulate_pd_irqs::spawn());
+        }
 
         // Enable I2C register slave.
         let i2c_reg_slave = match BootInfo::get().i2c_remap {
@@ -716,6 +724,13 @@ mod app {
         }
     }
 
+    /// Simulates interrupts on PD0 and PD1.
+    #[task(shared = [irq])]
+    fn simulate_pd_irqs(mut cx: simulate_pd_irqs::Context) {
+        cx.shared.irq.lock(|irq| irq.simulate_gpio_pd_exti());
+        defmt::unwrap!(simulate_pd_irqs::spawn_after(defmt::unwrap!(ThisBoard::SIMULATE_PD_IRQS)));
+    }
+
     /// External interrupt handler 0, handling EXTI0 - EXTI15.
     #[task(binds = EXTI0, shared = [irq, board, i2c2, stusb4500])]
     fn exti0(mut cx: exti0::Context) {
@@ -831,10 +846,10 @@ mod app {
                 cx.shared.irq.lock(|irq| value.set_u32(irq.get_pending_and_clear()))
             }
             Event::Read { reg: reg::IRQ_EXTI_TRIGGER_RISING_EDGE, value } => {
-                cx.shared.irq.lock(|irq| value.set_u32(irq.get_exti_trigger_rising_edge()))
+                cx.shared.irq.lock(|irq| value.set_u32(irq.get_exti_trigger_raising_edge()))
             }
             Event::Write { reg: reg::IRQ_EXTI_TRIGGER_RISING_EDGE, value } => {
-                cx.shared.irq.lock(|irq| irq.set_exti_trigger_rising_edge(value.as_u32()))
+                cx.shared.irq.lock(|irq| irq.set_exti_trigger_raising_edge(value.as_u32()))
             }
             Event::Read { reg: reg::IRQ_EXTI_TRIGGER_FALLING_EDGE, value } => {
                 cx.shared.irq.lock(|irq| value.set_u32(irq.get_exti_trigger_falling_edge()))
@@ -992,8 +1007,10 @@ mod app {
                 });
             }
             Event::Write { reg: reg::ADC_CONVERT, .. } => {
-                cx.shared.adc_buf.lock(|adc_buf| *adc_buf = None);
-                unwrap!(adc_convert::spawn());
+                cx.shared.adc_buf.lock(|adc_buf| match adc_convert::spawn() {
+                    Ok(()) => *adc_buf = None,
+                    Err(()) => defmt::warn!("ADC conversion already in progress"),
+                });
             }
             Event::Read { reg: reg::ADC_READY, value } => {
                 cx.shared.adc_buf.lock(|adc_buf| value.set_u8(u8::from(adc_buf.is_some())));

@@ -8,7 +8,7 @@ use crate::{
     bq25713::Bq25713Cfg,
     i2c_reg_slave,
     stusb4500::{Current, FixedSinkPdo, Voltage},
-    Delay, I2C_BUFFER_SIZE,
+    Delay, Duration, I2C_BUFFER_SIZE,
 };
 
 /// Number of IO ports (PA, PB, PC, etc.).
@@ -27,6 +27,12 @@ pub trait Board {
 
     /// IRQ pin configuration. (only for standalone firmware)
     const STANDALONE_IRQ_PIN_CFG: u8 = 0b0010; // 2 MHz push-pull output
+
+    /// Simulates interrupts on PD0 and PD1 with the specified polling interval.
+    ///
+    /// This is necessary because the STM32 does not support them as interrupt
+    /// triggers.
+    const SIMULATE_PD_IRQS: Option<Duration> = None;
 
     /// Mode for I2C 2 master bus.
     const I2C2_MODE: Option<i2c::Mode> = None;

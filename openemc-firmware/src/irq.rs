@@ -19,6 +19,8 @@ pub struct IrqState<const PORTS: usize> {
     trig_low_level: u16,
     /// Mask of EXTI lines controlled by this.
     controlled: u32,
+    /// PD GPIO values for interrupt simulation.
+    pd: u16,
 }
 
 impl<const PORTS: usize> IrqState<PORTS> {
@@ -33,7 +35,6 @@ impl<const PORTS: usize> IrqState<PORTS> {
         // Configure IRQ pin.
         let mut irq_mask = [0u16; PORTS];
         irq_mask[irq_pin as usize / 16] = 1 << (irq_pin % 16);
-
         let mut irq_pin_io = MaskedGpio::new(irq_mask);
 
         let mut irq_cfg = [0u64; PORTS];
@@ -41,12 +42,12 @@ impl<const PORTS: usize> IrqState<PORTS> {
         irq_pin_io.set_cfg(&irq_cfg);
 
         let mut this =
-            Self { irq_pin_io, irq_pin_level: false, trig_high_level: 0, trig_low_level: 0, controlled };
+            Self { irq_pin_io, irq_pin_level: false, trig_high_level: 0, trig_low_level: 0, controlled, pd: 0 };
 
         this.set_irq_pin_level(true);
         this.set_mask(0);
         this.set_exti_trigger_falling_edge(0);
-        this.set_exti_trigger_rising_edge(0);
+        this.set_exti_trigger_raising_edge(0);
         this.set_exti_gpio_source(0);
         this.get_pending_and_clear();
 
@@ -103,14 +104,14 @@ impl<const PORTS: usize> IrqState<PORTS> {
     }
 
     /// Sets the EXTI rising edge trigger mask (0=disabled, 1=enabled).
-    pub fn set_exti_trigger_rising_edge(&mut self, mask: u32) {
+    pub fn set_exti_trigger_raising_edge(&mut self, mask: u32) {
         let dp = unsafe { Peripherals::steal() };
-        defmt::info!("IRQ trigger rising edge: {:b}", mask);
+        defmt::info!("IRQ trigger raising edge: {:b}", mask);
         free(|_| dp.EXTI.rtsr.modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
     }
 
     /// Gets the EXTI rising edge trigger mask (0=disabled, 1=enabled).
-    pub fn get_exti_trigger_rising_edge(&self) -> u32 {
+    pub fn get_exti_trigger_raising_edge(&self) -> u32 {
         let dp = unsafe { Peripherals::steal() };
         dp.EXTI.rtsr.read().bits()
     }
@@ -168,6 +169,8 @@ impl<const PORTS: usize> IrqState<PORTS> {
             let current = self.get_exti_gpio_source();
             let new = current & !controlled | (src & controlled);
 
+            defmt::info!("EXTI GPIO source: {:b}", new);
+
             dp.AFIO.exticr1.write(|w| unsafe { w.bits(new as u32 & Self::EXTI_GPIO_MASK) });
             dp.AFIO.exticr2.write(|w| unsafe { w.bits((new >> 16) as u32 & Self::EXTI_GPIO_MASK) });
             dp.AFIO.exticr3.write(|w| unsafe { w.bits((new >> 32) as u32 & Self::EXTI_GPIO_MASK) });
@@ -214,7 +217,7 @@ impl<const PORTS: usize> IrqState<PORTS> {
             }
         }
 
-        defmt::debug!("level trigger: {:x}", pend);
+        defmt::debug!("level trigger: {:b}", pend);
 
         dp.EXTI.swier.reset();
         dp.EXTI.swier.write(|w| unsafe { w.bits(pend) });
@@ -225,6 +228,44 @@ impl<const PORTS: usize> IrqState<PORTS> {
     pub fn pend_gpio_exti(&mut self) {
         defmt::trace!("EXTI IRQ request");
         self.set_irq_pin_level(false);
+    }
+
+    /// Simulates interrupts on PD0 and PD1.
+    pub fn simulate_gpio_pd_exti(&mut self) {
+        let dp = unsafe { Peripherals::steal() };
+        let pd = dp.GPIOD.idr.read().bits() as u16;
+
+        let mask = self.get_mask();
+        let srcs = self.get_exti_gpio_source();
+        let falling = self.get_exti_trigger_falling_edge();
+        let raising = self.get_exti_trigger_raising_edge();
+
+        let mut pend = 0;
+        for n in 0..=1 {
+            if mask & (1 << n) != 0 && srcs >> (n * 4) & 0b1111 == 0b0011 {
+                if falling & (1 << n) != 0 {
+                    if pd & (1 << n) == 0 && self.pd & (1 << n) != 0 {
+                        pend |= 1 << n;
+                    }
+                }
+
+                if raising & (1 << n) != 0 {
+                    if pd & (1 << n) != 0 && self.pd & (1 << n) == 0 {
+                        pend |= 1 << n;
+                    }
+                }
+            }
+        }
+
+        self.pd = pd;
+
+        if pend != 0 {
+            defmt::debug!("simulated trigger: {:b}", pend);
+        }
+
+        dp.EXTI.swier.reset();
+        dp.EXTI.swier.write(|w| unsafe { w.bits(pend) });
+        dp.EXTI.swier.reset();
     }
 }
 
