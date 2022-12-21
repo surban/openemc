@@ -758,7 +758,7 @@ where
                 let since = self.fsm_attached_since.get_or_insert_with(monotonics::now);
                 let now = monotonics::now();
                 let fsm_timeout: Duration = 2u64.secs();
-                let fsm_prevent: Duration = 10u64.secs();
+                let fsm_prevent: Duration = 5u64.secs();
                 if now - *since >= fsm_timeout {
                     match self.last_fsm_reset {
                         Some(last) if now - last <= fsm_prevent => (),
