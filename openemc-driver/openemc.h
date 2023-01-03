@@ -12,10 +12,11 @@
 #include <linux/mfd/core.h>
 
 #define OPENEMC_MAX_PINS 64
-#define OPENEMC_IRQS 32
-#define OPENEMC_EXT_IRQS 16
 #define OPENEMC_MAX_DATA_SIZE 32
 #define OPENEMC_MAX_CELLS 32
+
+#define OPENEMC_IRQS 32
+#define OPENEMC_EXT_IRQS 16
 
 /* Info register definitions */
 #define OPENEMC_ID 0x00
@@ -87,6 +88,20 @@
 #define OPENEMC_PWM_CHANNEL_POLARITY 0x77
 #define OPENEMC_PWM_CHANNEL_OUTPUT 0x78
 
+/* Battery register definitions */
+#define OPENEMC_BATTERY_VOLTAGE 0x80
+#define OPENEMC_BATTERY_MIN_VOLTAGE 0x81
+#define OPENEMC_BATTERY_MAX_VOLTAGE 0x82
+#define OPENEMC_BATTERY_CHARGING 0x83
+#define OPENEMC_BATTERY_CONSTANT_CHARGE_VOLTAGE 0x84
+#define OPENEMC_BATTERY_CONSTANT_CHARGE_CURRENT 0x85
+
+/* Supply register definitions */
+#define OPENEMC_SUPPLY_TYPE 0x90
+#define OPENEMC_SUPPLY_VOLTAGE 0x91
+#define OPENEMC_SUPPLY_MAX_CURRENT 0x92
+#define OPENEMC_SUPPLY_USB_COMMUNICATION 0x93
+
 /* Reset register definitions */
 #define OPENEMC_RESET 0xf0
 #define OPENEMC_START_BOOTLOADER 0xff
@@ -126,6 +141,8 @@
 
 /* Interrupts */
 #define OPENEMC_IRQ_RTC_ALARM 17
+#define OPENEMC_IRQ_BATTERY 20
+#define OPENEMC_IRQ_SUPPLY 21
 
 enum openemc_pin_mode {
 	OPENEMC_PIN_MODE_GPIO,

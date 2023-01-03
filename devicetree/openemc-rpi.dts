@@ -39,6 +39,11 @@
                     compatible = "openemc,openemc_wdt";
                 };
 
+                emc_battery: emc_battery {
+                    compatible = "openemc,openemc_battery";
+                    name = "openemc_battery";
+                };
+
                 emc_adc: emc_adc {
                     compatible = "openemc,openemc_adc";
 
