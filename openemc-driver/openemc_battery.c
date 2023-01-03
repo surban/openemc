@@ -217,7 +217,8 @@ static int openemc_battery_probe(struct platform_device *pdev)
 
 	psy_desc = devm_kzalloc(&pdev->dev, sizeof(*psy_desc), GFP_KERNEL);
 	memcpy(psy_desc, &openemc_battery_desc, sizeof(*psy_desc));
-	of_property_read_string(pdev->dev.of_node, "name", &psy_desc->name);
+	of_property_read_string(pdev->dev.of_node, "battery-name",
+				&psy_desc->name);
 
 	ret = openemc_battery_update(bat);
 	if (ret < 0) {
