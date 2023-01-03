@@ -220,6 +220,12 @@ pub const BATTERY_MAX_VOLTAGE: u8 = 0x82;
 /// 0=off, 1=pre, 2=fast.
 pub const BATTERY_CHARGING: u8 = 0x83;
 
+/// Battery charging voltage in mV. (read-only, u32)
+pub const BATTERY_CONSTANT_CHARGE_VOLTAGE: u8 = 0x84;
+
+/// Battery charging current in mA. (read-only, u32)
+pub const BATTERY_CONSTANT_CHARGE_CURRENT: u8 = 0x85;
+
 /// External power supply present. (read-only, u8)
 /// 0=unknown, 1=disconnected, 2=USB default, 3=USB PD contract, 4=USB 1.5A, 5=USB 3.0A, 6=negotiating.
 pub const SUPPLY_TYPE: u8 = 0x90;

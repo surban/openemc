@@ -66,7 +66,6 @@ use crate::{
     bq25713::{Battery, Bq25713},
     i2c_reg_slave::{Event, I2CRegSlave},
     i2c_slave::I2cSlave,
-    irq::IrqState,
     pio::MaskedGpio,
     pwm::PwmTimer,
     rtc::{ClockSrc, Rtc},
@@ -80,11 +79,12 @@ use openemc_shared::BootInfo;
 pub static VERSION: &[u8] = env!("CARGO_PKG_VERSION").as_bytes();
 
 /// Firmware copyright.
-static COPYRIGHT: &[u8] = b"(c) 2022 Sebastian Urban <surban@surban.net> license: GNU GPL version 3";
+static COPYRIGHT: &[u8] = b"(c) 2022-2023 Sebastian Urban <surban@surban.net> license: GNU GPL version 3";
 
 /// MFD cells.
 static MFD_CELLS: &[&[u8]] = &[
     b"openemc,openemc_adc",
+    b"openemc,openemc_battery",
     b"openemc,openemc_gpio",
     b"openemc,openemc_pinctrl",
     b"openemc,openemc_power",
@@ -155,6 +155,9 @@ pub type Delay = stm32f1xx_hal::timer::Delay<stm32f1::stm32f103::TIM4, 1000>;
 /// Board.
 pub use boards::Chosen as ThisBoard;
 
+/// IRQ state.
+pub type IrqState = irq::IrqState<{ board::PORTS }>;
+
 #[rtic::app(device = stm32f1::stm32f103, peripherals = true, dispatchers = [SPI1, SPI2, SPI3])]
 mod app {
     use super::*;
@@ -171,7 +174,7 @@ mod app {
         /// User GPIO.
         ugpio: MaskedGpio<{ board::PORTS }>,
         /// IRQ state.
-        irq: IrqState<{ board::PORTS }>,
+        irq: IrqState,
         /// Backup domain.
         bkp: BackupDomain,
         /// Watchdog manager.
@@ -392,7 +395,7 @@ mod app {
         ];
 
         // Configure IRQ pin.
-        let mut usable_exti = u32::MAX;
+        let mut usable_exti = 0b0000_0000_0000_1111_1111_1111_1111_1111;
         board.limit_usable_exti(&mut usable_exti);
         let irq = IrqState::new(bi.irq_pin, bi.irq_pin_cfg, usable_exti);
         unsafe { irq::unmask_exti() };
@@ -626,10 +629,10 @@ mod app {
     }
 
     /// Handles a new power supply report from the STUSB4500.
-    #[task(shared = [i2c2, stusb4500, bq25713, power_supply])]
+    #[task(shared = [i2c2, stusb4500, bq25713, power_supply, irq])]
     fn stusb4500_handle_report(cx: stusb4500_handle_report::Context) {
-        (cx.shared.i2c2, cx.shared.stusb4500, cx.shared.bq25713, cx.shared.power_supply).lock(
-            |i2c2, stusb4500, bq25713, power_supply| {
+        (cx.shared.i2c2, cx.shared.stusb4500, cx.shared.bq25713, cx.shared.power_supply, cx.shared.irq).lock(
+            |i2c2, stusb4500, bq25713, power_supply, irq| {
                 let i2c2 = defmt::unwrap!(i2c2.as_mut());
 
                 let report = defmt::unwrap!(stusb4500.as_mut()).report();
@@ -651,61 +654,67 @@ mod app {
                     }
                 }
 
+                irq.pend_soft(IrqState::SUPPLY);
+
                 *power_supply = Some(report);
             },
         );
     }
 
     /// BQ25713 periodic task.
-    #[task(shared = [i2c2, bq25713, battery], local = [bq25713_first_periodic])]
+    #[task(shared = [i2c2, bq25713, battery, irq], local = [bq25713_first_periodic])]
     fn bq25713_periodic(cx: bq25713_periodic::Context) {
         let grace_period = 10u64.secs();
         let first = cx.local.bq25713_first_periodic.get_or_insert_with(monotonics::now);
 
-        (cx.shared.i2c2, cx.shared.bq25713, cx.shared.battery).lock(|i2c2, bq25713, battery| {
-            if let Some(bq25713) = bq25713.as_mut() {
-                let i2c2 = defmt::unwrap!(i2c2.as_mut());
+        (cx.shared.i2c2, cx.shared.bq25713, cx.shared.battery, cx.shared.irq).lock(
+            |i2c2, bq25713, battery, irq| {
+                if let Some(bq25713) = bq25713.as_mut() {
+                    let i2c2 = defmt::unwrap!(i2c2.as_mut());
 
-                if let Err(err) = bq25713.periodic(i2c2) {
-                    defmt::error!("BQ25713 periodic handling failed: {:?}", err);
-                }
+                    if let Err(err) = bq25713.periodic(i2c2) {
+                        defmt::error!("BQ25713 periodic handling failed: {:?}", err);
+                    }
 
-                let status = bq25713.status();
-                if status.has_any_fault() {
-                    defmt::warn!("BQ25713 reported a fault: {:?}", bq25713.status());
-                }
+                    let status = bq25713.status();
+                    if status.has_any_fault() {
+                        defmt::warn!("BQ25713 reported a fault: {:?}", bq25713.status());
+                    }
 
-                match (bq25713.measurement(), ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE) {
-                    (Some(m), Some(min_mv))
-                        if !status.ac_stat
-                            && m.v_bat_mv < min_mv
-                            && monotonics::now().checked_duration_since(*first) >= Some(grace_period) =>
-                    {
-                        if undervoltage_power_off::spawn().is_ok() {
-                            defmt::warn!(
-                                "Battery voltage of {} mV is below critical voltage of {} mV, shutting down",
-                                m.v_bat_mv,
-                                min_mv
-                            );
+                    match (bq25713.measurement(), ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE) {
+                        (Some(m), Some(min_mv))
+                            if !status.ac_stat
+                                && m.v_bat_mv < min_mv
+                                && monotonics::now().checked_duration_since(*first) >= Some(grace_period) =>
+                        {
+                            if undervoltage_power_off::spawn().is_ok() {
+                                defmt::warn!(
+                                    "Battery voltage of {} mV is below critical voltage of {} mV, shutting down",
+                                    m.v_bat_mv,
+                                    min_mv
+                                );
+                            }
+                        }
+                        _ => (),
+                    }
+
+                    if status.has_clearable_fault() {
+                        defmt::info!("Clearing BQ25713 fault");
+                        if let Err(err) = bq25713.clear_faults(i2c2) {
+                            defmt::error!("Clearing BQ25713 faults failed: {}", err);
                         }
                     }
-                    _ => (),
-                }
 
-                if status.has_clearable_fault() {
-                    defmt::info!("Clearing BQ25713 fault");
-                    if let Err(err) = bq25713.clear_faults(i2c2) {
-                        defmt::error!("Clearing BQ25713 faults failed: {}", err);
+                    let report = bq25713.battery();
+                    if battery.as_ref().map(|b| report.changed_significantly(b)).unwrap_or(true) {
+                        defmt::info!("Battery report: {:?}", &report);
+                        *battery = Some(report);
+
+                        irq.pend_soft(IrqState::BATTERY);
                     }
                 }
-
-                let report = bq25713.battery();
-                if Some(&report) != battery.as_ref() {
-                    defmt::info!("Battery report: {:?}", &report);
-                    *battery = Some(report);
-                }
-            }
-        });
+            },
+        );
 
         defmt::unwrap!(bq25713_periodic::spawn_after(1u64.secs()));
     }
@@ -1114,6 +1123,20 @@ mod app {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
                         value.set_u8(battery.charging.into());
+                    }
+                });
+            }
+            Event::Read { reg: reg::BATTERY_CONSTANT_CHARGE_VOLTAGE, value } => {
+                cx.shared.battery.lock(|battery| {
+                    if let Some(battery) = battery {
+                        value.set_u32(battery.max_voltage_mv);
+                    }
+                });
+            }
+            Event::Read { reg: reg::BATTERY_CONSTANT_CHARGE_CURRENT, value } => {
+                cx.shared.battery.lock(|battery| {
+                    if let Some(battery) = battery {
+                        value.set_u32(battery.max_charge_current_ma);
                     }
                 });
             }

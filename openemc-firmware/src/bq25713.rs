@@ -163,8 +163,20 @@ pub struct Battery {
     pub voltage_mv: u32,
     /// Maximum voltage in mV.
     pub max_voltage_mv: u32,
+    /// Maximum charging current in mA.
+    pub max_charge_current_ma: u32,
     /// Charging status.
     pub charging: Charging,
+}
+
+impl Battery {
+    /// Whether the battery status changed significantly.
+    pub fn changed_significantly(&self, other: &Battery) -> bool {
+        self.voltage_mv.abs_diff(other.voltage_mv) > 50
+            || self.max_voltage_mv != other.max_voltage_mv
+            || self.max_charge_current_ma != other.max_charge_current_ma
+            || self.charging != other.charging
+    }
 }
 
 /// Battery charging status.
@@ -467,6 +479,7 @@ where
         Battery {
             voltage_mv: self.measurement.as_ref().map(|m| m.v_bat_mv).unwrap_or_default(),
             max_voltage_mv: self.cfg.max_battery_mv,
+            max_charge_current_ma: self.cfg.max_charge_ma,
             charging: if !self.status.ac_stat
                 || self
                     .measurement
