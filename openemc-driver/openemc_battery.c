@@ -34,6 +34,8 @@ struct openemc_battery {
 	u32 constant_charge_voltage;
 	u32 constant_charge_current;
 	u32 supply_max_current;
+	s32 battery_current;
+	u32 system_voltage;
 };
 
 static int openemc_battery_update(struct openemc_battery *bat)
@@ -74,6 +76,16 @@ static int openemc_battery_update(struct openemc_battery *bat)
 
 	ret = openemc_read_u32(bat->emc, OPENEMC_SUPPLY_MAX_CURRENT,
 			       &bat->supply_max_current);
+	if (ret < 0)
+		return ret;
+
+	ret = openemc_read_u32(bat->emc, OPENEMC_BATTERY_CURRENT,
+			       &bat->battery_current);
+	if (ret < 0)
+		return ret;
+
+	ret = openemc_read_u32(bat->emc, OPENEMC_BATTERY_SYSTEM_VOLTAGE,
+			       &bat->system_voltage);
 	if (ret < 0)
 		return ret;
 
@@ -119,6 +131,9 @@ int openemc_battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN:
 		val->intval = bat->min_voltage * 1000;
 		break;
+	case POWER_SUPPLY_PROP_CURRENT_NOW:
+		val->intval = bat->battery_current * 1000;
+		break;
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 		val->intval = bat->supply_max_current * 1000;
 		break;
@@ -157,6 +172,7 @@ static const enum power_supply_property openemc_battery_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN,
 	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
+	POWER_SUPPLY_PROP_CURRENT_NOW,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
