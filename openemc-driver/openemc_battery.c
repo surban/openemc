@@ -211,11 +211,13 @@ static int openemc_battery_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(&pdev->dev, bat);
 
-	memset(&psy_cfg, 1, sizeof(psy_cfg));
+	memset(&psy_cfg, 0, sizeof(psy_cfg));
 	psy_cfg.of_node = pdev->dev.of_node;
 	psy_cfg.drv_data = bat;
 
 	psy_desc = devm_kzalloc(&pdev->dev, sizeof(*psy_desc), GFP_KERNEL);
+	if (!psy_desc)
+		return -ENOMEM;
 	memcpy(psy_desc, &openemc_battery_desc, sizeof(*psy_desc));
 	of_property_read_string(pdev->dev.of_node, "battery-name",
 				&psy_desc->name);
