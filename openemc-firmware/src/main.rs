@@ -1140,6 +1140,20 @@ mod app {
                     }
                 });
             }
+            Event::Read { reg: reg::BATTERY_CURRENT, value } => {
+                cx.shared.battery.lock(|battery| {
+                    if let Some(battery) = battery {
+                        value.set_u32(battery.current_ma as u32);
+                    }
+                });
+            }
+            Event::Read { reg: reg::BATTERY_SYSTEM_VOLTAGE, value } => {
+                cx.shared.battery.lock(|battery| {
+                    if let Some(battery) = battery {
+                        value.set_u32(battery.system_voltage_mv);
+                    }
+                });
+            }
             Event::Read { reg: reg::SUPPLY_TYPE, value } => {
                 cx.shared.power_supply.lock(|supply| {
                     if let Some(supply) = supply {
@@ -1147,7 +1161,7 @@ mod app {
                     }
                 });
             }
-            Event::Read { reg: reg::SUPPLY_VOLTAGE, value } => {
+            Event::Read { reg: reg::SUPPLY_REQUESTED_VOLTAGE, value } => {
                 cx.shared.power_supply.lock(|supply| {
                     if let Some(supply) = supply {
                         value.set_u32(supply.voltage_mv());
@@ -1165,6 +1179,20 @@ mod app {
                 cx.shared.power_supply.lock(|supply| {
                     if let Some(supply) = supply {
                         value.set_u8(supply.communication().into());
+                    }
+                });
+            }
+            Event::Read { reg: reg::SUPPLY_VOLTAGE, value } => {
+                cx.shared.battery.lock(|battery| {
+                    if let Some(battery) = battery {
+                        value.set_u32(battery.input_voltage_mv);
+                    }
+                });
+            }
+            Event::Read { reg: reg::SUPPLY_CURRENT, value } => {
+                cx.shared.battery.lock(|battery| {
+                    if let Some(battery) = battery {
+                        value.set_u32(battery.input_current_ma);
                     }
                 });
             }

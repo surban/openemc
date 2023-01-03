@@ -226,12 +226,18 @@ pub const BATTERY_CONSTANT_CHARGE_VOLTAGE: u8 = 0x84;
 /// Battery charging current in mA. (read-only, u32)
 pub const BATTERY_CONSTANT_CHARGE_CURRENT: u8 = 0x85;
 
+/// Battery current in mA. (read-only, i32)
+pub const BATTERY_CURRENT: u8 = 0x86;
+
+/// System voltage measured by the battery charger in mV. (read-only, u32)
+pub const BATTERY_SYSTEM_VOLTAGE: u8 = 0x87;
+
 /// External power supply present. (read-only, u8)
 /// 0=unknown, 1=disconnected, 2=USB default, 3=USB PD contract, 4=USB 1.5A, 5=USB 3.0A, 6=negotiating.
 pub const SUPPLY_TYPE: u8 = 0x90;
 
-/// External power supply voltage in mV. (read-only, u32)
-pub const SUPPLY_VOLTAGE: u8 = 0x91;
+/// External power supply requested voltage in mV. (read-only, u32)
+pub const SUPPLY_REQUESTED_VOLTAGE: u8 = 0x91;
 
 /// External power supply maximum current in mA. (read-only, u32)
 pub const SUPPLY_MAX_CURRENT: u8 = 0x92;
@@ -239,6 +245,12 @@ pub const SUPPLY_MAX_CURRENT: u8 = 0x92;
 /// External power supply USB communication status. (read-only, u8)
 /// 0=unsupported, 1=supported, 2=unknown.
 pub const SUPPLY_USB_COMMUNICATION: u8 = 0x93;
+
+/// External power supply actual voltage in mV. (read-only, u32)
+pub const SUPPLY_VOLTAGE: u8 = 0x94;
+
+/// External power supply current in mA. (read-only, u32)
+pub const SUPPLY_CURRENT: u8 = 0x95;
 
 /// Resets the system.
 pub const RESET: u8 = 0xf0;

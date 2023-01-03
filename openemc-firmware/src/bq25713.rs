@@ -159,9 +159,19 @@ impl Bq25713Status {
 /// Battery status.
 #[derive(Format, Default, Clone, PartialEq, Eq)]
 pub struct Battery {
-    /// Current voltage in mV.
+    /// Battery voltage in mV.
     pub voltage_mv: u32,
-    /// Maximum voltage in mV.
+    /// Battery current in mA.
+    ///
+    /// Positive is charging, negative is discharging.
+    pub current_ma: i32,
+    /// System voltage in mV.
+    pub system_voltage_mv: u32,
+    /// Input voltage in mV.
+    pub input_voltage_mv: u32,
+    /// Input current in mA.
+    pub input_current_ma: u32,
+    /// Maximum battery voltage in mV.
     pub max_voltage_mv: u32,
     /// Maximum charging current in mA.
     pub max_charge_current_ma: u32,
@@ -172,7 +182,13 @@ pub struct Battery {
 impl Battery {
     /// Whether the battery status changed significantly.
     pub fn changed_significantly(&self, other: &Battery) -> bool {
-        self.voltage_mv.abs_diff(other.voltage_mv) > 50
+        const DIFF: u32 = 75;
+
+        self.voltage_mv.abs_diff(other.voltage_mv) >= DIFF
+            || self.current_ma.abs_diff(other.current_ma) >= DIFF
+            || self.system_voltage_mv.abs_diff(other.system_voltage_mv) >= DIFF
+            || self.input_voltage_mv.abs_diff(other.input_voltage_mv) >= DIFF
+            || self.input_current_ma.abs_diff(other.input_current_ma) >= DIFF
             || self.max_voltage_mv != other.max_voltage_mv
             || self.max_charge_current_ma != other.max_charge_current_ma
             || self.charging != other.charging
@@ -229,7 +245,7 @@ where
         Ok(buf)
     }
 
-    /// Write I2C register(s).     
+    /// Write I2C register(s).
     fn write(&self, i2c: &mut I2C, reg: u8, data: &[u8]) -> Result<()> {
         if self.shutdown {
             return Err(Error::Shutdown);
@@ -478,6 +494,24 @@ where
     pub fn battery(&self) -> Battery {
         Battery {
             voltage_mv: self.measurement.as_ref().map(|m| m.v_bat_mv).unwrap_or_default(),
+            current_ma: self
+                .measurement
+                .as_ref()
+                .map(|m| {
+                    if self.status.ac_stat {
+                        m.i_chg_ma.try_into().unwrap_or_default()
+                    } else {
+                        -i32::try_from(m.i_dchg_ma).unwrap_or_default()
+                    }
+                })
+                .unwrap_or_default(),
+            system_voltage_mv: self.measurement.as_ref().map(|m| m.v_sys_mv).unwrap_or_default(),
+            input_voltage_mv: self
+                .measurement
+                .as_ref()
+                .map(|m| if m.v_bus_mv >= 3300 { m.v_bus_mv } else { 0 })
+                .unwrap_or_default(),
+            input_current_ma: self.measurement.as_ref().map(|m| m.i_in_ma).unwrap_or_default(),
             max_voltage_mv: self.cfg.max_battery_mv,
             max_charge_current_ma: self.cfg.max_charge_ma,
             charging: if !self.status.ac_stat
