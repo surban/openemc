@@ -335,7 +335,7 @@ static int openemc_rtc_probe(struct platform_device *pdev)
 	if (ret < 0)
 		return ret;
 
-	dev_info(rtc->dev, "OpenEMC RTC registered");
+	dev_info(rtc->dev, "OpenEMC RTC registered\n");
 
 	return 0;
 }
