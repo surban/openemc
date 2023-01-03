@@ -8,6 +8,12 @@ use crate::pio::MaskedGpio;
 /// IRQ state.
 ///
 /// Interrupt is signalled by low level on IRQ pin.
+///
+/// Interrupt bit assignment:
+///    * Bits 0 - 15 correspond to the EXTI GPIO lines
+///    * Bit 17 is the RTC alarm interrupt
+///    * Bit 20 is the battery interrupt
+///    * Bit 21 is the supply interrupt
 pub struct IrqState<const PORTS: usize> {
     /// Gpio for signalling any IRQ to I2C master.
     irq_pin_io: MaskedGpio<PORTS>,
@@ -21,6 +27,10 @@ pub struct IrqState<const PORTS: usize> {
     controlled: u32,
     /// PD GPIO values for interrupt simulation.
     pd: u16,
+    /// Interrupt mask.
+    mask: u32,
+    /// Pending software interrupts.
+    soft_pending: u32,
 }
 
 impl<const PORTS: usize> IrqState<PORTS> {
@@ -29,6 +39,12 @@ impl<const PORTS: usize> IrqState<PORTS> {
 
     /// RTC interrupt flag.
     pub const RTC_ALARM: u32 = 1 << 17;
+
+    /// Battery interrupt flag.
+    pub const BATTERY: u32 = 1 << 20;
+
+    /// Supply interrupt flag.
+    pub const SUPPLY: u32 = 1 << 21;
 
     /// Initializes the IRQ state.
     pub fn new(irq_pin: u8, irq_pin_cfg: u8, controlled: u32) -> Self {
@@ -41,8 +57,16 @@ impl<const PORTS: usize> IrqState<PORTS> {
         irq_cfg[irq_pin as usize * 4 / 64] = (irq_pin_cfg as u64 & 0b1111) << (irq_pin * 4 % 64);
         irq_pin_io.set_cfg(&irq_cfg);
 
-        let mut this =
-            Self { irq_pin_io, irq_pin_level: false, trig_high_level: 0, trig_low_level: 0, controlled, pd: 0 };
+        let mut this = Self {
+            irq_pin_io,
+            irq_pin_level: false,
+            trig_high_level: 0,
+            trig_low_level: 0,
+            controlled,
+            pd: 0,
+            mask: 0,
+            soft_pending: 0,
+        };
 
         this.set_irq_pin_level(true);
         this.set_mask(0);
@@ -65,15 +89,16 @@ impl<const PORTS: usize> IrqState<PORTS> {
     }
 
     /// Gets the set of pending IRQs, clears them and resets the IRQ line.
-    ///
-    /// Bits 0 - 15 correspond to the EXTI GPIO lines.
-    /// Bit 17 is the RTC alarm interrupt.
     pub fn get_pending_and_clear(&mut self) -> u32 {
         let dp = unsafe { Peripherals::steal() };
 
         // Get and clear EXTI GPIO pending interrupts.
-        let pending = dp.EXTI.pr.read().bits() & self.controlled;
+        let mut pending = dp.EXTI.pr.read().bits() & self.controlled;
         dp.EXTI.pr.write(|w| unsafe { w.bits(pending) });
+
+        // Add pending software interrupts.
+        pending |= self.soft_pending & self.mask;
+        self.soft_pending &= !pending;
 
         self.set_irq_pin_level(true);
 
@@ -85,22 +110,20 @@ impl<const PORTS: usize> IrqState<PORTS> {
     }
 
     /// Sets the IRQ mask (0=disabled, 1=enabled).
-    ///
-    /// Bits 0 - 15 correspond to the EXTI GPIO lines.
-    /// Bit 17 is the RTC alarm interrupt.
     pub fn set_mask(&mut self, mask: u32) {
-        let dp = unsafe { Peripherals::steal() };
         defmt::info!("IRQ mask: {:b}", mask);
+        self.mask = mask;
+
+        let dp = unsafe { Peripherals::steal() };
         free(|_| dp.EXTI.imr.modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
+
+        // Trigger software interrupts that may have become unmasked.
+        self.pend_soft(0);
     }
 
     /// Gets the IRQ mask (0=disabled, 1=enabled).
-    ///
-    /// Bits 0 - 15 correspond to the EXTI GPIO lines.
-    /// Bit 17 is the RTC alarm interrupt.
     pub fn get_mask(&self) -> u32 {
-        let dp = unsafe { Peripherals::steal() };
-        dp.EXTI.imr.read().bits()
+        self.mask
     }
 
     /// Sets the EXTI rising edge trigger mask (0=disabled, 1=enabled).
@@ -243,16 +266,12 @@ impl<const PORTS: usize> IrqState<PORTS> {
         let mut pend = 0;
         for n in 0..=1 {
             if mask & (1 << n) != 0 && srcs >> (n * 4) & 0b1111 == 0b0011 {
-                if falling & (1 << n) != 0 {
-                    if pd & (1 << n) == 0 && self.pd & (1 << n) != 0 {
-                        pend |= 1 << n;
-                    }
+                if falling & (1 << n) != 0 && pd & (1 << n) == 0 && self.pd & (1 << n) != 0 {
+                    pend |= 1 << n;
                 }
 
-                if raising & (1 << n) != 0 {
-                    if pd & (1 << n) != 0 && self.pd & (1 << n) == 0 {
-                        pend |= 1 << n;
-                    }
+                if raising & (1 << n) != 0 && pd & (1 << n) != 0 && self.pd & (1 << n) == 0 {
+                    pend |= 1 << n;
                 }
             }
         }
@@ -266,6 +285,16 @@ impl<const PORTS: usize> IrqState<PORTS> {
         dp.EXTI.swier.reset();
         dp.EXTI.swier.write(|w| unsafe { w.bits(pend) });
         dp.EXTI.swier.reset();
+    }
+
+    /// Pends software interrupts.
+    pub fn pend_soft(&mut self, irqs: u32) {
+        self.soft_pending |= irqs;
+
+        if self.soft_pending & self.mask != 0 {
+            defmt::trace!("software IRQ request: {:b}", self.soft_pending);
+            self.set_irq_pin_level(false);
+        }
     }
 }
 
