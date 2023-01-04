@@ -19,6 +19,8 @@ The following features are implemented:
   - GPIO with interrupts
   - pin control
   - analog digital converter (ADC)
+  - battery charger (BQ25713)
+  - external power supply with USB PD (STUSB4500)
   - full devicetree integration
 
 Due to its open-source nature, modular design and usage of the Rust programming
