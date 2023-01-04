@@ -492,7 +492,7 @@ mod app {
     fn power_off(mut cx: power_off::Context) {
         // Shut down charger, if we are running from battery.
         (cx.shared.i2c2, cx.shared.bq25713).lock(|i2c2, bq25713| {
-            if let (Some(i2c2), Some(bq25713)) = (i2c2.as_mut(), bq25713) {
+            if let (Some(i2c2), Some(bq25713)) = (i2c2.as_mut(), bq25713.take()) {
                 if !bq25713.status().ac_stat {
                     defmt::info!("Shutting down BQ25713");
                     if let Err(err) = bq25713.shutdown(i2c2) {

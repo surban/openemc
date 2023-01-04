@@ -30,8 +30,6 @@ pub enum Error {
     I2c,
     /// Device responded with wrong id.
     WrongId,
-    /// Device was shutdown.
-    Shutdown,
 }
 
 /// BQ25713 result.
@@ -225,7 +223,6 @@ pub struct Bq25713<I2C> {
     measurement: Option<Bq25713Measurement>,
     status: Bq25713Status,
     charge_enabled: bool,
-    shutdown: bool,
     _i2c: PhantomData<I2C>,
 }
 
@@ -235,10 +232,6 @@ where
 {
     /// Read I2C register(s).
     fn read(&self, i2c: &mut I2C, reg: u8, len: usize) -> Result<Vec<u8, 32>> {
-        if self.shutdown {
-            return Err(Error::Shutdown);
-        }
-
         let mut buf: Vec<u8, 32> = Vec::new();
         defmt::unwrap!(buf.resize_default(len));
         i2c.write_read(self.addr, &[reg], &mut buf).map_err(|_| Error::I2c)?;
@@ -247,10 +240,6 @@ where
 
     /// Write I2C register(s).
     fn write(&self, i2c: &mut I2C, reg: u8, data: &[u8]) -> Result<()> {
-        if self.shutdown {
-            return Err(Error::Shutdown);
-        }
-
         let mut buf: Vec<u8, 32> = Vec::new();
         defmt::unwrap!(buf.push(reg));
         buf.extend(data.iter().cloned());
@@ -281,7 +270,6 @@ where
             measurement: None,
             status: Default::default(),
             charge_enabled: false,
-            shutdown: false,
             _i2c: PhantomData,
         };
 
@@ -352,7 +340,7 @@ where
     /// Enters low power and Hi-Z mode.
     ///
     /// Afterwards reinitialization is necessary.
-    pub fn shutdown(&mut self, i2c: &mut I2C) -> Result<()> {
+    pub fn shutdown(self, i2c: &mut I2C) -> Result<()> {
         defmt::info!("BQ25713 entering low power mode");
 
         // Enable low power mode.
@@ -361,13 +349,7 @@ where
         // Enable Hi-Z mode.
         self.modify(i2c, REG_CHARGE_OPTION_3_HI, |v| v | (1 << 7))?;
 
-        self.shutdown = true;
         Ok(())
-    }
-
-    /// Returns whether the device has been shut down.
-    pub fn is_shutdown(&self) -> bool {
-        self.shutdown
     }
 
     /// Updates the values from the ADC converter.
