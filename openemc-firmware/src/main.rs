@@ -90,6 +90,7 @@ static MFD_CELLS: &[&[u8]] = &[
     b"openemc,openemc_power",
     b"openemc,openemc_pwm",
     b"openemc,openemc_rtc",
+    b"openemc,openemc_supply",
     b"openemc,openemc_wdt",
 ];
 
@@ -654,7 +655,7 @@ mod app {
                     }
                 }
 
-                irq.pend_soft(IrqState::SUPPLY);
+                irq.pend_soft(IrqState::SUPPLY | IrqState::BATTERY);
 
                 *power_supply = Some(report);
             },
@@ -710,7 +711,7 @@ mod app {
                         defmt::info!("Battery report: {:?}", &report);
                         *battery = Some(report);
 
-                        irq.pend_soft(IrqState::BATTERY);
+                        irq.pend_soft(IrqState::SUPPLY | IrqState::BATTERY);
                     }
                 }
             },

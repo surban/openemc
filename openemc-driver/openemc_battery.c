@@ -125,10 +125,10 @@ int openemc_battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		val->intval = bat->voltage * 1000;
 		break;
-	case POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN:
+	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
 		val->intval = bat->max_voltage * 1000;
 		break;
-	case POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN:
+	case POWER_SUPPLY_PROP_VOLTAGE_MIN:
 		val->intval = bat->min_voltage * 1000;
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
@@ -170,8 +170,8 @@ static const enum power_supply_property openemc_battery_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_CHARGE_TYPE,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
-	POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN,
-	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
+	POWER_SUPPLY_PROP_VOLTAGE_MAX,
+	POWER_SUPPLY_PROP_VOLTAGE_MIN,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
@@ -179,7 +179,7 @@ static const enum power_supply_property openemc_battery_props[] = {
 };
 
 static const struct power_supply_desc openemc_battery_desc = {
-	.name = "openemc",
+	.name = "openemc-battery",
 	.type = POWER_SUPPLY_TYPE_BATTERY,
 	.properties = openemc_battery_props,
 	.num_properties = ARRAY_SIZE(openemc_battery_props),

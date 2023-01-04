@@ -48,6 +48,11 @@
                     battery-name = "openemc_battery";
                 };
 
+                emc_supply: emc_supply {
+                    compatible = "openemc,openemc_supply";
+                    supply-name = "openemc_supply";
+                };
+
                 emc_adc: emc_adc {
                     compatible = "openemc,openemc_adc";
 

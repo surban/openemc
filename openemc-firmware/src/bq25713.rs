@@ -497,11 +497,7 @@ where
             max_voltage_mv: self.cfg.max_battery_mv,
             max_charge_current_ma: self.cfg.max_charge_ma,
             charging: if !self.status.ac_stat
-                || self
-                    .measurement
-                    .as_ref()
-                    .map(|m| m.v_bat_mv >= self.cfg.max_battery_mv + 100)
-                    .unwrap_or_default()
+                || self.measurement.as_ref().map(|m| m.i_chg_ma <= 50).unwrap_or_default()
             {
                 Charging::Off
             } else if self.status.in_pchrg {
