@@ -227,6 +227,8 @@ mod app {
         bq25713_first_periodic: Option<Instant>,
         /// Charge LED blink state.
         charge_blink_state: u8,
+        /// Time when supply was attached, for charge LED.
+        supplying_since: Option<Instant>,
     }
 
     /// Initialization (entry point).
@@ -346,11 +348,14 @@ mod app {
 
         // Initialize I2C bus 2 master.
         let mut i2c2 = ThisBoard::I2C2_MODE.map(|mode| {
+            // Required for I2C timeouts to work.
+            cx.core.DCB.enable_trace();
+            cx.core.DWT.enable_cycle_counter();
+
             let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
             let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
             let i2c2 = I2c::i2c2(cx.device.I2C2, (scl, sda), mode, clocks);
             i2c2.blocking_default(clocks)
-            //i2c2.blocking(1, 1, 1, 1, clocks)
         });
 
         // Initialize BQ25713.
@@ -457,6 +462,7 @@ mod app {
                 undervoltage_blink_count: 0,
                 bq25713_first_periodic: None,
                 charge_blink_state: 0,
+                supplying_since: None,
             },
             init::Monotonics(mono),
         )
@@ -619,7 +625,7 @@ mod app {
             }
         });
 
-        defmt::unwrap!(stusb4500_periodic::spawn_after(1u64.secs()));
+        defmt::unwrap!(stusb4500_periodic::spawn_after(500u64.millis()));
     }
 
     /// Handles a new power supply report from the STUSB4500.
@@ -728,10 +734,25 @@ mod app {
     }
 
     /// Controls the charging LED.
-    #[task(shared = [battery, power_supply, board], local = [charge_blink_state])]
+    #[task(shared = [battery, power_supply, board], local = [charge_blink_state, supplying_since])]
     fn charge_led(cx: charge_led::Context) {
         (cx.shared.battery, cx.shared.power_supply, cx.shared.board).lock(|battery, power_supply, board| {
             let supplying = power_supply.as_ref().map(|s| s.is_connected()).unwrap_or_default();
+            if supplying {
+                if cx.local.supplying_since.is_none() {
+                    *cx.local.supplying_since = Some(monotonics::now());
+                }
+            } else {
+                *cx.local.supplying_since = None;
+            }
+
+            let grace_period: Duration = 5u64.secs();
+            let grace = cx
+                .local
+                .supplying_since
+                .map(|since| monotonics::now() - since <= grace_period)
+                .unwrap_or_default();
+
             let (should_charge, charging_error) = battery
                 .as_ref()
                 .map(|b| {
@@ -741,17 +762,19 @@ mod app {
                     )
                 })
                 .unwrap_or_default();
-            let charging_error = true;
+
             let led = match (supplying, should_charge, charging_error) {
                 (false, _, _) => false,
-                (true, true, false) => *cx.local.charge_blink_state / 2 == 1,
+                (true, true, false) => *cx.local.charge_blink_state / 10 == 1,
+                (true, true, true) if grace => true,
                 (true, true, true) => *cx.local.charge_blink_state % 2 == 1,
                 (true, false, _) => true,
             };
             board.set_charging_led(led);
-            *cx.local.charge_blink_state = (*cx.local.charge_blink_state + 1) % 4;
+
+            *cx.local.charge_blink_state = (*cx.local.charge_blink_state + 1) % 20;
         });
-        defmt::unwrap!(charge_led::spawn_after((500 as u64).millis()));
+        defmt::unwrap!(charge_led::spawn_after(100u64.millis()));
     }
 
     /// Simulates interrupts on PD0 and PD1.
