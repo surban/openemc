@@ -63,6 +63,12 @@ pub trait Board {
     /// Battery voltage in mV that triggers immediate low voltage shutdown.
     const CRITICAL_LOW_BATTERY_VOLTAGE: Option<u32> = None;
 
+    /// Battery voltage in mV that is used for switching charging LED from blinking to steady.
+    const CHARGING_LED_END_VOLTAGE: u32 = 10000;
+
+    /// Battery current in mA that is used to indicate charging error if fallen below.
+    const CHARGING_LED_MIN_CURRENT: i32 = 0;
+
     /// Create a new instance.
     fn new(
         board_data: Option<&[u8; BootInfo::BOARD_DATA_SIZE]>, afio: &mut afio::Parts, delay: &mut Delay,
@@ -108,6 +114,9 @@ pub trait Board {
 
     /// Sets the power LED to the specified state.
     fn set_power_led(&mut self, _state: bool) {}
+
+    /// Sets the charging LED to the specified state.
+    fn set_charging_led(&mut self, _state: bool) {}
 }
 
 /// Unknown I2C event.

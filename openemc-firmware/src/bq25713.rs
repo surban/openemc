@@ -205,6 +205,16 @@ pub enum Charging {
     Fast,
 }
 
+impl Charging {
+    /// Returns whether charging.
+    pub fn is_charging(&self) -> bool {
+        match self {
+            Self::Off => false,
+            Self::Pre | Self::Fast => true,
+        }
+    }
+}
+
 impl From<Charging> for u8 {
     fn from(ch: Charging) -> Self {
         match ch {

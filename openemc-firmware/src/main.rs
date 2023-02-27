@@ -225,6 +225,8 @@ mod app {
         undervoltage_blink_count: usize,
         /// Time when BQ25713 periodic handler first ran.
         bq25713_first_periodic: Option<Instant>,
+        /// Charge LED blink state.
+        charge_blink_state: u8,
     }
 
     /// Initialization (entry point).
@@ -310,7 +312,7 @@ mod app {
 
         // Start watchdog and its manager.
         let dog = IndependentWatchdog::new(cx.device.IWDG);
-        let watchman = Watchman::new(dog, 120u64.secs(), true);
+        let watchman = Watchman::new(dog, 120u64.secs(), option_env!("DISABLE_WATCHDOG").is_none());
         unwrap!(watchdog_petter::spawn());
 
         // Initialize RTC.
@@ -432,6 +434,9 @@ mod app {
         unsafe { NVIC::unmask(Interrupt::I2C1_ER) };
         unsafe { NVIC::unmask(Interrupt::I2C1_EV) };
 
+        // Drive charging LED.
+        unwrap!(charge_led::spawn());
+
         defmt::debug!("init done");
         (
             Shared {
@@ -462,6 +467,7 @@ mod app {
                 undervoltage_blink_state: false,
                 undervoltage_blink_count: 0,
                 bq25713_first_periodic: None,
+                charge_blink_state: 0,
             },
             init::Monotonics(mono),
         )
@@ -732,6 +738,33 @@ mod app {
             defmt::warn!("Undervoltage power off");
             defmt::unwrap!(power_off::spawn());
         }
+    }
+
+    /// Controls the charging LED.
+    #[task(shared = [battery, power_supply, board], local = [charge_blink_state])]
+    fn charge_led(cx: charge_led::Context) {
+        (cx.shared.battery, cx.shared.power_supply, cx.shared.board).lock(|battery, power_supply, board| {
+            let supplying = power_supply.as_ref().map(|s| s.is_connected()).unwrap_or_default();
+            let (should_charge, charging_error) = battery
+                .as_ref()
+                .map(|b| {
+                    (
+                        b.voltage_mv < ThisBoard::CHARGING_LED_END_VOLTAGE,
+                        !b.charging.is_charging() || b.current_ma < ThisBoard::CHARGING_LED_MIN_CURRENT,
+                    )
+                })
+                .unwrap_or_default();
+            let charging_error = true;
+            let led = match (supplying, should_charge, charging_error) {
+                (false, _, _) => false,
+                (true, true, false) => *cx.local.charge_blink_state / 2 == 1,
+                (true, true, true) => *cx.local.charge_blink_state % 2 == 1,
+                (true, false, _) => true,
+            };
+            board.set_charging_led(led);
+            *cx.local.charge_blink_state = (*cx.local.charge_blink_state + 1) % 4;
+        });
+        defmt::unwrap!(charge_led::spawn_after((500 as u64).millis()));
     }
 
     /// Simulates interrupts on PD0 and PD1.

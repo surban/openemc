@@ -113,16 +113,28 @@ pub enum PowerSupply {
 }
 
 impl PowerSupply {
+    /// Returns whether a power supply is surely detected.
+    pub fn is_connected(&self) -> bool {
+        match self {
+            Self::Unknown | Self::Disconnected => false,
+            Self::UsbDefault
+            | Self::PdoContract { .. }
+            | Self::CcPins5V1500mA
+            | Self::CcPins5V3000mA
+            | Self::Negotiating => true,
+        }
+    }
+
     /// Voltage in mV.
     pub fn voltage_mv(&self) -> u32 {
         match self {
-            PowerSupply::Unknown => 0,
-            PowerSupply::Disconnected => 0,
-            PowerSupply::UsbDefault => 5000,
-            PowerSupply::PdoContract { voltage, .. } => voltage.to_mv(),
-            PowerSupply::CcPins5V1500mA => 5000,
-            PowerSupply::CcPins5V3000mA => 5000,
-            PowerSupply::Negotiating => 5000,
+            Self::Unknown => 0,
+            Self::Disconnected => 0,
+            Self::UsbDefault => 5000,
+            Self::PdoContract { voltage, .. } => voltage.to_mv(),
+            Self::CcPins5V1500mA => 5000,
+            Self::CcPins5V3000mA => 5000,
+            Self::Negotiating => 5000,
         }
     }
 
