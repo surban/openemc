@@ -213,7 +213,8 @@ enum ResetState {
     PinResetHigh(Instant),
     PinResetLow(Instant),
     RegisterReset(Instant),
-    Uninitialized,
+    Off,
+    Failed,
 }
 
 /// STUSB4500 USB PD controller instance.
@@ -301,7 +302,7 @@ where
             snk_ready_since: None,
             fsm_attached_since: None,
             last_fsm_reset: None,
-            reset: ResetState::Uninitialized,
+            reset: ResetState::Failed,
             last_pin_reset: None,
             last_register_reset: None,
             last_soft_reset: None,
@@ -372,13 +373,19 @@ where
     ///
     /// Returns whether a reset is in progress.
     fn resetting(&mut self, i2c: &mut I2C) -> Result<bool> {
-        let reset_duration: Duration = 200u64.millis();
+        let reset_duration: Duration = 500u64.millis();
 
         match self.reset {
             ResetState::None => Ok(false),
-            ResetState::Uninitialized => {
+            ResetState::Failed => {
                 self.reset = ResetState::None;
                 self.start_pin_reset();
+                Ok(true)
+            }
+            ResetState::Off => {
+                self.reset = ResetState::None;
+                self.check_id(i2c)?;
+                self.start_register_reset(i2c)?;
                 Ok(true)
             }
             ResetState::PinResetHigh(since) if monotonics::now() - since >= reset_duration => {
@@ -568,11 +575,6 @@ where
 
     /// Generates the power supply report.
     fn generate_report(&mut self) {
-        if let ResetState::Uninitialized = &self.reset {
-            self.report = PowerSupply::Disconnected;
-            return;
-        }
-
         // Check for active USB PD contract.
         if let Some(rdo) = self.rdo.as_ref() {
             if 1 <= rdo.object_pos && rdo.object_pos as usize <= self.supply_pdos.len() {
@@ -830,34 +832,44 @@ where
         &mut self, i2c: &mut I2C, attach_pin_level: bool, f: impl FnOnce(&mut Self, &mut I2C) -> Result<()>,
     ) {
         match (self.reset, attach_pin_level) {
-            (ResetState::Uninitialized, false) => (),
+            (ResetState::Failed | ResetState::Off, false) => {
+                self.reset = ResetState::Off;
+                self.report = PowerSupply::Disconnected;
+            }
             (ResetState::None, false) => {
                 defmt::info!("STUSB4500 disconnected");
-                self.reset = ResetState::Uninitialized;
+                self.reset = ResetState::Off;
+                self.report = PowerSupply::Disconnected;
             }
-            (ResetState::Uninitialized, true) => {
+            (ResetState::Failed | ResetState::Off, true) => {
                 defmt::info!("STUSB4500 initializing");
-                defmt::unwrap!(self.resetting(i2c));
+                if let Err(err) = self.resetting(i2c) {
+                    defmt::warn!("STUSB4500 reset failed: {}", err);
+                    self.reset = ResetState::Failed;
+                }
+                self.report = PowerSupply::Unknown;
             }
             _ => match self.resetting(i2c) {
                 Ok(false) => {
                     if let Err(err) = f(self, i2c) {
                         defmt::warn!("STUSB4500 failed: {}", err);
-                        self.reset = ResetState::Uninitialized;
+                        self.reset = ResetState::Failed;
+                        self.report = PowerSupply::Unknown;
                     }
                 }
                 Ok(true) => (),
                 Err(err) => {
                     defmt::warn!("STUSB4500 reset failed: {}", err);
-                    self.reset = ResetState::Uninitialized;
+                    self.reset = ResetState::Failed;
+                    self.report = PowerSupply::Unknown;
                 }
             },
         }
     }
 
-    /// Whether the STUSB4500 is uninitialized.
-    pub fn is_uninitialized(&self) -> bool {
-        matches!(self.reset, ResetState::Uninitialized)
+    /// Whether the STUSB4500 is available.
+    pub fn is_available(&self) -> bool {
+        matches!(self.reset, ResetState::None)
     }
 
     /// The level that should be applied on the reset pin.
