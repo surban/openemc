@@ -109,6 +109,11 @@ pub trait Board {
         false
     }
 
+    /// Checks whether STUSB4500 is attached.
+    fn check_stusb4500_attached(&mut self) -> bool {
+        false
+    }
+
     /// Reset STUSB4500 via reset pin.
     fn set_stusb4500_reset_pin(&mut self, _state: bool) {}
 

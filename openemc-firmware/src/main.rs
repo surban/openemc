@@ -348,7 +348,9 @@ mod app {
         let mut i2c2 = ThisBoard::I2C2_MODE.map(|mode| {
             let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
             let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
-            I2c::i2c2(cx.device.I2C2, (scl, sda), mode, clocks).blocking_default(clocks)
+            let i2c2 = I2c::i2c2(cx.device.I2C2, (scl, sda), mode, clocks);
+            i2c2.blocking_default(clocks)
+            //i2c2.blocking(1, 1, 1, 1, clocks)
         });
 
         // Initialize BQ25713.
@@ -369,21 +371,8 @@ mod app {
         // Initialize STUSB4500.
         let stusb4500 = match ThisBoard::STUSB4500_I2C_ADDR {
             Some(addr) => {
-                match StUsb4500::new(
-                    defmt::unwrap!(i2c2.as_mut()),
-                    addr,
-                    &ThisBoard::USB_INITIAL_PDO,
-                    ThisBoard::USB_MAXIMUM_VOLTAGE,
-                ) {
-                    Ok(stusb) => {
-                        defmt::unwrap!(stusb4500_periodic::spawn_after(1u64.secs()));
-                        Some(stusb)
-                    }
-                    Err(err) => {
-                        defmt::warn!("Cannot initialize STUSB4500: {:?}", err);
-                        None
-                    }
-                }
+                defmt::unwrap!(stusb4500_periodic::spawn_after(1u64.secs()));
+                Some(StUsb4500::new(addr, &ThisBoard::USB_INITIAL_PDO, ThisBoard::USB_MAXIMUM_VOLTAGE))
             }
             None => None,
         };
@@ -600,17 +589,17 @@ mod app {
     }
 
     /// Handles STUSB4500 alert.
-    #[task(shared = [i2c2, stusb4500])]
+    #[task(shared = [i2c2, stusb4500, board])]
     fn stusb4500_alert(cx: stusb4500_alert::Context) {
-        (cx.shared.i2c2, cx.shared.stusb4500).lock(|i2c2, stusb4500| {
+        (cx.shared.i2c2, cx.shared.stusb4500, cx.shared.board).lock(|i2c2, stusb4500, board| {
             if let Some(stusb4500) = stusb4500.as_mut() {
-                if let Err(err) = stusb4500.alert(defmt::unwrap!(i2c2.as_mut())) {
-                    defmt::error!("STUSB4500 alert handling failed: {:?}", err);
-                }
+                stusb4500.alert(defmt::unwrap!(i2c2.as_mut()), board.check_stusb4500_attached());
 
                 if stusb4500.new_report_available() {
                     defmt::unwrap!(stusb4500_handle_report::spawn());
                 }
+
+                board.set_stusb4500_reset_pin(stusb4500.reset_pin_level());
             }
         });
     }
@@ -620,9 +609,7 @@ mod app {
     fn stusb4500_periodic(cx: stusb4500_periodic::Context) {
         (cx.shared.i2c2, cx.shared.stusb4500, cx.shared.board).lock(|i2c2, stusb4500, board| {
             if let Some(stusb4500) = stusb4500.as_mut() {
-                if let Err(err) = stusb4500.periodic(defmt::unwrap!(i2c2.as_mut())) {
-                    defmt::error!("STUSB4500 periodic handling failed: {:?}", err);
-                }
+                stusb4500.periodic(defmt::unwrap!(i2c2.as_mut()), board.check_stusb4500_attached());
 
                 if stusb4500.new_report_available() {
                     defmt::unwrap!(stusb4500_handle_report::spawn());
