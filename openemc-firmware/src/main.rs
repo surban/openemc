@@ -49,7 +49,7 @@ use stm32f1::stm32f103::Interrupt;
 use stm32f1xx_hal::{
     adc::Adc,
     backup_domain::BackupDomain,
-    gpio::{Alternate, OpenDrain, Pin, CRH, CRL},
+    gpio::{Alternate, OpenDrain, Pin},
     i2c,
     i2c::I2c,
     pac::{ADC1, I2C1},
@@ -112,14 +112,14 @@ pub enum RemappableI2CRegSlave {
     Remapped(
         I2CRegSlave<
             I2C1,
-            (Pin<Alternate<OpenDrain>, CRH, 'B', 8>, Pin<Alternate<OpenDrain>, CRH, 'B', 9>),
+            (Pin<'B', 8, Alternate<OpenDrain>>, Pin<'B', 9, Alternate<OpenDrain>>),
             I2C_BUFFER_SIZE,
         >,
     ),
     Normal(
         I2CRegSlave<
             I2C1,
-            (Pin<Alternate<OpenDrain>, CRL, 'B', 6>, Pin<Alternate<OpenDrain>, CRL, 'B', 7>),
+            (Pin<'B', 6, Alternate<OpenDrain>>, Pin<'B', 7, Alternate<OpenDrain>>),
             I2C_BUFFER_SIZE,
         >,
     ),
@@ -139,8 +139,8 @@ impl RemappableI2CRegSlave {
 type I2c2Master = i2c::BlockingI2c<
     stm32f1xx_hal::pac::I2C2,
     (
-        stm32f1xx_hal::gpio::Pin<Alternate<OpenDrain>, CRH, 'B', 10>,
-        stm32f1xx_hal::gpio::Pin<Alternate<OpenDrain>, CRH, 'B', 11>,
+        stm32f1xx_hal::gpio::Pin<'B', 10, Alternate<OpenDrain>>,
+        stm32f1xx_hal::gpio::Pin<'B', 11, Alternate<OpenDrain>>,
     ),
 >;
 

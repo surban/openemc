@@ -3,28 +3,28 @@
 use stm32f1::stm32f103::{Peripherals, ADC1};
 use stm32f1xx_hal::{
     adc::Adc,
-    gpio::{Analog, Pin, CRL},
+    gpio::{Analog, Pin},
     prelude::*,
 };
 
 /// ADC inputs.
 pub struct AdcInputs {
-    ch0: Pin<Analog, CRL, 'A', 0>,
-    ch1: Pin<Analog, CRL, 'A', 1>,
-    ch2: Pin<Analog, CRL, 'A', 2>,
-    ch3: Pin<Analog, CRL, 'A', 3>,
-    ch4: Pin<Analog, CRL, 'A', 4>,
-    ch5: Pin<Analog, CRL, 'A', 5>,
-    ch6: Pin<Analog, CRL, 'A', 6>,
-    ch7: Pin<Analog, CRL, 'A', 7>,
-    ch8: Pin<Analog, CRL, 'B', 0>,
-    ch9: Pin<Analog, CRL, 'B', 1>,
-    ch10: Pin<Analog, CRL, 'C', 0>,
-    ch11: Pin<Analog, CRL, 'C', 1>,
-    ch12: Pin<Analog, CRL, 'C', 2>,
-    ch13: Pin<Analog, CRL, 'C', 3>,
-    ch14: Pin<Analog, CRL, 'C', 4>,
-    ch15: Pin<Analog, CRL, 'C', 5>,
+    ch0: Pin<'A', 0, Analog>,
+    ch1: Pin<'A', 1, Analog>,
+    ch2: Pin<'A', 2, Analog>,
+    ch3: Pin<'A', 3, Analog>,
+    ch4: Pin<'A', 4, Analog>,
+    ch5: Pin<'A', 5, Analog>,
+    ch6: Pin<'A', 6, Analog>,
+    ch7: Pin<'A', 7, Analog>,
+    ch8: Pin<'B', 0, Analog>,
+    ch9: Pin<'B', 1, Analog>,
+    ch10: Pin<'C', 0, Analog>,
+    ch11: Pin<'C', 1, Analog>,
+    ch12: Pin<'C', 2, Analog>,
+    ch13: Pin<'C', 3, Analog>,
+    ch14: Pin<'C', 4, Analog>,
+    ch15: Pin<'C', 5, Analog>,
 }
 
 impl Default for AdcInputs {

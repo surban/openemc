@@ -5,7 +5,7 @@ use openemc_shared::BootInfo;
 use stm32f1::stm32f103::Peripherals;
 use stm32f1xx_hal::{
     afio,
-    gpio::{Edge, ExtiPin, Input, Output, Pin, PinState, PullUp, PushPull, CRH, CRL},
+    gpio::{Edge, ExtiPin, Input, Output, Pin, PinState, PullUp, PushPull},
     i2c,
     prelude::*,
 };
@@ -27,8 +27,8 @@ const RESET_STUSB4500: bool = false;
 /// STM Nucleo-F103RB evaluation board.
 pub struct BoardImpl {
     development_mode: bool,
-    stusb4500_alert: Pin<Input<PullUp>, CRH, 'A', 15>,
-    _stusb4500_reset: Pin<Output<PushPull>, CRL, 'B', 7>,
+    stusb4500_alert: Pin<'A', 15, Input<PullUp>>,
+    _stusb4500_reset: Pin<'B', 7, Output<PushPull>>,
 }
 
 impl Board for BoardImpl {
@@ -41,7 +41,7 @@ impl Board for BoardImpl {
     fn new(
         board_data: Option<&[u8; BootInfo::BOARD_DATA_SIZE]>, afio: &mut afio::Parts, delay: &mut Delay,
     ) -> BoardImpl {
-        let dp = unsafe { Peripherals::steal() };
+        let mut dp = unsafe { Peripherals::steal() };
         let mut gpioa = dp.GPIOA.split();
         let mut gpiob = dp.GPIOB.split();
         let (pa15, _pb3, _pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
@@ -57,9 +57,9 @@ impl Board for BoardImpl {
 
         let mut stusb4500_alert = pa15.into_pull_up_input(&mut gpioa.crh);
         stusb4500_alert.make_interrupt_source(afio);
-        stusb4500_alert.trigger_on_edge(&dp.EXTI, Edge::Falling);
+        stusb4500_alert.trigger_on_edge(&mut dp.EXTI, Edge::Falling);
         stusb4500_alert.clear_interrupt_pending_bit();
-        stusb4500_alert.enable_interrupt(&dp.EXTI);
+        stusb4500_alert.enable_interrupt(&mut dp.EXTI);
 
         Self {
             development_mode: board_data.map(|bd| bd[0] != 0).unwrap_or_default(),

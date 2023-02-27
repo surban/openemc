@@ -12,16 +12,16 @@ edition = "2021"
 [dependencies]
 openemc-shared = { path = "../openemc-shared" }
 
-cortex-m = "0.7"
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7", features = ["device"] }
 cortex-m-rtic = "1.1"
 embedded-hal = "0.2"
-stm32f1 = { version = "0.14", features = ["stm32f103", "rt"] }
-stm32f1xx-hal = { version = "0.9", features = ["stm32f103", "medium", "rt"] }
+stm32f1 = { version = "0.15", features = ["stm32f103", "rt"] }
+stm32f1xx-hal = { version = "0.10", features = ["stm32f103", "medium", "rt"] }
 panic-probe = "0.3"
 systick-monotonic = "1.0"
 defmt = "0.3"
-defmt-rtt = "0.3"
+defmt-rtt = "0.4"
 nb = "1.0"
 heapless = "0.7"
 

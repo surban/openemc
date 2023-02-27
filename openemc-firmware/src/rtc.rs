@@ -122,10 +122,10 @@ impl Rtc {
         let dp = unsafe { Peripherals::steal() };
 
         match dp.RCC.bdcr.read().rtcsel().variant() {
-            RTCSEL_A::NOCLOCK => None,
-            RTCSEL_A::LSE => Some(ClockSrc::Lse),
-            RTCSEL_A::LSI => Some(ClockSrc::Lsi),
-            RTCSEL_A::HSE => Some(ClockSrc::HseDiv128),
+            RTCSEL_A::NoClock => None,
+            RTCSEL_A::Lse => Some(ClockSrc::Lse),
+            RTCSEL_A::Lsi => Some(ClockSrc::Lsi),
+            RTCSEL_A::Hse => Some(ClockSrc::HseDiv128),
         }
     }
 
@@ -154,9 +154,9 @@ impl Rtc {
 
         dp.RCC.bdcr.modify(|_, w| {
             w.rtcsel().variant(match clock_src {
-                ClockSrc::Lse => RTCSEL_A::LSE,
-                ClockSrc::Lsi => RTCSEL_A::LSI,
-                ClockSrc::HseDiv128 => RTCSEL_A::HSE,
+                ClockSrc::Lse => RTCSEL_A::Lse,
+                ClockSrc::Lsi => RTCSEL_A::Lsi,
+                ClockSrc::HseDiv128 => RTCSEL_A::Hse,
             })
         });
     }
