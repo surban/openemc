@@ -14,7 +14,6 @@ use systick_monotonic::fugit::Rate;
 use crate::{
     board::{Board, UnknownEvent, PORTS},
     i2c_reg_slave::Event,
-    stusb4500::Voltage,
     Delay, I2C_BUFFER_SIZE,
 };
 
@@ -36,7 +35,7 @@ impl Board for BoardImpl {
     const STANDALONE_IRQ_PIN: u8 = 6;
     const I2C2_MODE: Option<i2c::Mode> = Some(i2c::Mode::Standard { frequency: Rate::<u32, 1, 1>::Hz(300_000) });
     const STUSB4500_I2C_ADDR: Option<u8> = Some(0x28);
-    const USB_MAXIMUM_VOLTAGE: Voltage = Voltage::from_mv(10_000);
+    const USB_MAXIMUM_VOLTAGE: u32 = 10_000;
 
     fn new(
         board_data: Option<&[u8; BootInfo::BOARD_DATA_SIZE]>, afio: &mut afio::Parts, delay: &mut Delay,

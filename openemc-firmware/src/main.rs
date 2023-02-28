@@ -34,7 +34,7 @@ mod pio;
 mod pwm;
 mod reg;
 mod rtc;
-mod stusb4500;
+mod supply;
 mod util;
 mod watchman;
 
@@ -69,7 +69,7 @@ use crate::{
     pio::MaskedGpio,
     pwm::PwmTimer,
     rtc::{ClockSrc, Rtc},
-    stusb4500::{PowerSupply, StUsb4500},
+    supply::{stusb4500::StUsb4500, PowerSupply},
     util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64},
     watchman::Watchman,
 };

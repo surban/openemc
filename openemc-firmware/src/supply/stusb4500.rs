@@ -26,6 +26,8 @@ use systick_monotonic::*;
 
 use crate::{app::monotonics, Duration, Instant};
 
+use super::PowerSupply;
+
 /// STUSB4500 error.
 #[derive(Clone, Format, PartialEq, Eq)]
 pub enum Error {
@@ -40,7 +42,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 
 /// Voltage.
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Voltage(pub u16);
+struct Voltage(pub u16);
 
 impl Format for Voltage {
     fn format(&self, fmt: defmt::Formatter) {
@@ -62,7 +64,7 @@ impl Voltage {
 
 /// Current.
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Current(pub u16);
+struct Current(pub u16);
 
 impl Format for Current {
     fn format(&self, fmt: defmt::Formatter) {
@@ -79,131 +81,6 @@ impl Current {
     /// Creates the current from mA.
     pub const fn from_ma(ma: u32) -> Self {
         Self((ma / 10) as u16)
-    }
-}
-
-/// Power supply report.
-#[derive(Default, Clone, Format, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PowerSupply {
-    /// Power supply is unknown.
-    #[default]
-    Unknown,
-    /// No cable attached.
-    Disconnected,
-    /// No power supply information available.
-    ///
-    /// Supply voltage is 5 V and current must be limited
-    /// according to USB specification.
-    UsbDefault,
-    /// Negotiated USB PD contract with supply.
-    PdoContract {
-        /// Power supply voltage.
-        voltage: Voltage,
-        /// Maximum current provided by power supply.
-        max_current: Current,
-        /// Whether USB communication is supported.
-        communication: bool,
-    },
-    /// Resistor encoding on USB CC lines for 5 V and 1.5 A.
-    CcPins5V1500mA,
-    /// Resistor encoding on USB CC lines for 5 V and 3 A.
-    CcPins5V3000mA,
-    // USB CC lines are connected and negotiation is in progress.
-    Negotiating,
-}
-
-impl PowerSupply {
-    /// Returns whether a power supply is surely detected.
-    pub fn is_connected(&self) -> bool {
-        match self {
-            Self::Unknown | Self::Disconnected => false,
-            Self::UsbDefault
-            | Self::PdoContract { .. }
-            | Self::CcPins5V1500mA
-            | Self::CcPins5V3000mA
-            | Self::Negotiating => true,
-        }
-    }
-
-    /// Voltage in mV.
-    pub fn voltage_mv(&self) -> u32 {
-        match self {
-            Self::Unknown => 0,
-            Self::Disconnected => 0,
-            Self::UsbDefault => 5000,
-            Self::PdoContract { voltage, .. } => voltage.to_mv(),
-            Self::CcPins5V1500mA => 5000,
-            Self::CcPins5V3000mA => 5000,
-            Self::Negotiating => 5000,
-        }
-    }
-
-    /// Returns the maximum current available in mA.
-    pub fn max_current_ma(&self) -> u32 {
-        match self {
-            Self::Unknown => 0,
-            Self::Disconnected => 0,
-            Self::UsbDefault => 100,
-            Self::PdoContract { max_current, .. } => max_current.to_ma(),
-            Self::CcPins5V1500mA => 1500,
-            Self::CcPins5V3000mA => 3000,
-            Self::Negotiating => 500,
-        }
-    }
-
-    /// USB communication support status.
-    pub fn communication(&self) -> PowerSupplyUsbCommunication {
-        match self {
-            Self::Unknown => PowerSupplyUsbCommunication::Unknown,
-            Self::Disconnected => PowerSupplyUsbCommunication::Unsupported,
-            Self::UsbDefault => PowerSupplyUsbCommunication::Unknown,
-            Self::PdoContract { communication, .. } => {
-                if *communication {
-                    PowerSupplyUsbCommunication::Supported
-                } else {
-                    PowerSupplyUsbCommunication::Unsupported
-                }
-            }
-            Self::CcPins5V1500mA => PowerSupplyUsbCommunication::Unknown,
-            Self::CcPins5V3000mA => PowerSupplyUsbCommunication::Unknown,
-            Self::Negotiating => PowerSupplyUsbCommunication::Unknown,
-        }
-    }
-}
-
-impl From<&PowerSupply> for u8 {
-    fn from(supply: &PowerSupply) -> Self {
-        match supply {
-            PowerSupply::Unknown => 0,
-            PowerSupply::Disconnected => 1,
-            PowerSupply::UsbDefault => 2,
-            PowerSupply::PdoContract { .. } => 3,
-            PowerSupply::CcPins5V1500mA => 4,
-            PowerSupply::CcPins5V3000mA => 5,
-            PowerSupply::Negotiating => 6,
-        }
-    }
-}
-
-/// USB communication supported.
-#[derive(Default, Clone, Copy, Format, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PowerSupplyUsbCommunication {
-    /// USB data communication is unsupported.
-    Unsupported,
-    /// USB data communication is supported.
-    Supported,
-    /// Unknown whether USB communication is supported.
-    #[default]
-    Unknown,
-}
-
-impl From<PowerSupplyUsbCommunication> for u8 {
-    fn from(uc: PowerSupplyUsbCommunication) -> Self {
-        match uc {
-            PowerSupplyUsbCommunication::Unsupported => 0,
-            PowerSupplyUsbCommunication::Supported => 1,
-            PowerSupplyUsbCommunication::Unknown => 2,
-        }
     }
 }
 
@@ -280,7 +157,8 @@ where
     ///
     /// `maximum_voltage` is the maximum voltage to negotiate.
     /// The supply PDO with the highest voltage at or below `maximum_voltage` will be chosen.
-    pub fn new(addr: u8, initial_pdo: &FixedSinkPdo, maximum_voltage: Voltage) -> Self {
+    pub fn new(addr: u8, initial_pdo: &super::FixedSinkPdo, maximum_voltage_mv: u32) -> Self {
+        let initial_pdo = FixedSinkPdo::from(initial_pdo.clone());
         defmt::assert_eq!(initial_pdo.voltage.to_mv(), 5000);
 
         defmt::info!("STUSB4500 at 0x{:x} created", addr);
@@ -288,7 +166,7 @@ where
         Self {
             addr,
             initial_pdo: initial_pdo.clone(),
-            maximum_voltage,
+            maximum_voltage: Voltage::from_mv(maximum_voltage_mv),
             port_status: Default::default(),
             monitoring_status: Default::default(),
             cc_status: Default::default(),
@@ -583,8 +461,8 @@ where
 
                 if let SupplyPdo::Fixed(fixed) = active_pdo {
                     self.report = PowerSupply::PdoContract {
-                        voltage: fixed.voltage,
-                        max_current: fixed.max_operating_current,
+                        voltage_mv: fixed.voltage.to_mv(),
+                        max_current_ma: fixed.max_operating_current.to_ma(),
                         communication: fixed.communication,
                     };
                     return;
@@ -598,7 +476,7 @@ where
 
         // Check for CC pins.
         self.report = match (&self.cc_status.cc1_state, &self.cc_status.cc2_state) {
-            (CcState::Default, _) | (_, CcState::Default) => PowerSupply::UsbDefault,
+            (CcState::Default, _) | (_, CcState::Default) => PowerSupply::UsbSdp,
             (CcState::Power15, _) | (_, CcState::Power15) => PowerSupply::CcPins5V1500mA,
             (CcState::Power30, _) | (_, CcState::Power30) => PowerSupply::CcPins5V3000mA,
             _ => PowerSupply::Disconnected,
@@ -608,7 +486,7 @@ where
         if self.type_c_status.typec_fsm_state == TypeCFsmState::AttachWaitSink
             && self.report == PowerSupply::Disconnected
         {
-            self.report = PowerSupply::UsbDefault;
+            self.report = PowerSupply::UsbSdp;
         }
 
         // Inhibit high currents during negotiation phase.
@@ -1319,25 +1197,31 @@ impl SinkPdo {
     }
 }
 
-/// Fixed sink USB PDO.
-#[derive(Clone, Format, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FixedSinkPdo {
-    /// Required current.
+#[derive(Clone, Format)]
+struct FixedSinkPdo {
     pub operating_current: Current,
-    /// Required voltage.
     pub voltage: Voltage,
-    /// Fast role requried current.
     pub fast_role_req_current: Current,
-    /// Can be USB host and device.
     pub dual_role_data: bool,
-    /// USB data communication supported.
     pub communication: bool,
-    /// Unconstrained power.
     pub unconstrained_power: bool,
-    /// Has more capabilities if higher PDO is chosen.
     pub higher_capability: bool,
-    /// Can be power supply and sink.
     pub dual_role_power: bool,
+}
+
+impl From<super::FixedSinkPdo> for FixedSinkPdo {
+    fn from(pdo: super::FixedSinkPdo) -> Self {
+        Self {
+            operating_current: Current::from_ma(pdo.operating_current_ma),
+            voltage: Voltage::from_mv(pdo.voltage_mv),
+            fast_role_req_current: Current::from_ma(pdo.fast_role_req_current_ma),
+            dual_role_data: pdo.dual_role_data,
+            communication: pdo.communication,
+            unconstrained_power: pdo.unconstrained_power,
+            higher_capability: pdo.higher_capability,
+            dual_role_power: pdo.dual_role_power,
+        }
+    }
 }
 
 impl FixedSinkPdo {

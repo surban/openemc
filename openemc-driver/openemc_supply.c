@@ -14,6 +14,16 @@
 
 #include "openemc.h"
 
+#define OPENEMC_POWER_SUPPLY_UNKNOWN 0
+#define OPENEMC_POWER_SUPPLY_DISCONNECTED 1
+#define OPENEMC_POWER_SUPPLY_USB_SDP 2
+#define OPENEMC_POWER_SUPPLY_USB_DCP 3
+#define OPENEMC_POWER_SUPPLY_USB_CDP 4
+#define OPENEMC_POWER_SUPPLY_CC_PINS_5V_1500MA 5
+#define OPENEMC_POWER_SUPPLY_CC_PINS_5V_3000MA 6
+#define OPENEMC_POWER_SUPPLY_PDO_CONTRACT 7
+#define OPENEMC_POWER_SUPPLY_NEGOTIATING 8
+
 static const struct of_device_id openemc_supply_of_match[] = {
 	{ .compatible = "openemc,openemc_supply" },
 	{}
@@ -79,7 +89,8 @@ int openemc_supply_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
-		val->intval = sup->type != 1;
+		val->intval = sup->type != OPENEMC_POWER_SUPPLY_UNKNOWN &&
+			      sup->type != OPENEMC_POWER_SUPPLY_DISCONNECTED;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		val->intval = sup->supply_voltage * 1000;
@@ -95,19 +106,25 @@ int openemc_supply_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_USB_TYPE:
 		switch (sup->type) {
-		case 0:
-		case 1:
-		case 6:
+		case OPENEMC_POWER_SUPPLY_UNKNOWN:
+		case OPENEMC_POWER_SUPPLY_DISCONNECTED:
+		case OPENEMC_POWER_SUPPLY_NEGOTIATING:
 			val->intval = POWER_SUPPLY_USB_TYPE_UNKNOWN;
 			break;
-		case 2:
+		case OPENEMC_POWER_SUPPLY_USB_SDP:
 			val->intval = POWER_SUPPLY_USB_TYPE_SDP;
 			break;
-		case 3:
+		case OPENEMC_POWER_SUPPLY_USB_DCP:
+			val->intval = POWER_SUPPLY_USB_TYPE_DCP;
+			break;
+		case OPENEMC_POWER_SUPPLY_USB_CDP:
+			val->intval = POWER_SUPPLY_USB_TYPE_CDP;
+			break;
+		case OPENEMC_POWER_SUPPLY_PDO_CONTRACT:
 			val->intval = POWER_SUPPLY_USB_TYPE_PD;
 			break;
-		case 4:
-		case 5:
+		case OPENEMC_POWER_SUPPLY_CC_PINS_5V_1500MA:
+		case OPENEMC_POWER_SUPPLY_CC_PINS_5V_3000MA:
 			val->intval = POWER_SUPPLY_USB_TYPE_C;
 			break;
 		default:
@@ -144,10 +161,9 @@ static const enum power_supply_property openemc_supply_props[] = {
 };
 
 static const enum power_supply_usb_type openemc_supply_usb_types[] = {
-	POWER_SUPPLY_USB_TYPE_UNKNOWN,
-	POWER_SUPPLY_USB_TYPE_SDP,
-	POWER_SUPPLY_USB_TYPE_C,
-	POWER_SUPPLY_USB_TYPE_PD,
+	POWER_SUPPLY_USB_TYPE_UNKNOWN, POWER_SUPPLY_USB_TYPE_SDP,
+	POWER_SUPPLY_USB_TYPE_DCP,     POWER_SUPPLY_USB_TYPE_CDP,
+	POWER_SUPPLY_USB_TYPE_C,       POWER_SUPPLY_USB_TYPE_PD,
 };
 
 static const struct power_supply_desc openemc_supply_desc = {

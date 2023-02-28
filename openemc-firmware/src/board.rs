@@ -3,13 +3,7 @@
 use openemc_shared::BootInfo;
 use stm32f1xx_hal::{afio, i2c};
 
-use crate::{
-    boot,
-    bq25713::Bq25713Cfg,
-    i2c_reg_slave,
-    stusb4500::{Current, FixedSinkPdo, Voltage},
-    Delay, Duration, I2C_BUFFER_SIZE,
-};
+use crate::{boot, bq25713::Bq25713Cfg, i2c_reg_slave, supply::FixedSinkPdo, Delay, Duration, I2C_BUFFER_SIZE};
 
 /// Number of IO ports (PA, PB, PC, etc.).
 pub const PORTS: usize = 4;
@@ -47,9 +41,9 @@ pub trait Board {
     ///
     /// Must have voltage of 5 V.
     const USB_INITIAL_PDO: FixedSinkPdo = FixedSinkPdo {
-        operating_current: Current::from_ma(100),
-        voltage: Voltage::from_mv(5000),
-        fast_role_req_current: Current(0),
+        operating_current_ma: 100,
+        voltage_mv: 5000,
+        fast_role_req_current_ma: 0,
         dual_role_data: false,
         dual_role_power: false,
         communication: true,
@@ -57,8 +51,8 @@ pub trait Board {
         higher_capability: false,
     };
 
-    /// Maximum USB input voltage to request via USB PD.
-    const USB_MAXIMUM_VOLTAGE: Voltage = Voltage::from_mv(5000);
+    /// Maximum USB input voltage in mV to request via USB PD.
+    const USB_MAXIMUM_VOLTAGE: u32 = 5000;
 
     /// Battery voltage in mV that triggers immediate low voltage shutdown.
     const CRITICAL_LOW_BATTERY_VOLTAGE: Option<u32> = None;
