@@ -3,7 +3,13 @@
 use openemc_shared::BootInfo;
 use stm32f1xx_hal::{afio, i2c};
 
-use crate::{boot, bq25713::Bq25713Cfg, i2c_reg_slave, supply::FixedSinkPdo, Delay, Duration, I2C_BUFFER_SIZE};
+use crate::{
+    boot,
+    bq25713::Bq25713Cfg,
+    i2c_reg_slave,
+    supply::{max14636::Max14636, FixedSinkPdo},
+    Delay, Duration, I2C_BUFFER_SIZE,
+};
 
 /// Number of IO ports (PA, PB, PC, etc.).
 pub const PORTS: usize = 4;
@@ -110,6 +116,11 @@ pub trait Board {
 
     /// Reset STUSB4500 via reset pin.
     fn set_stusb4500_reset_pin(&mut self, _state: bool) {}
+
+    /// MAX14636 USB charger detector.
+    fn max14636(&mut self) -> Option<Max14636> {
+        None
+    }
 
     /// Sets the power LED to the specified state.
     fn set_power_led(&mut self, _state: bool) {}

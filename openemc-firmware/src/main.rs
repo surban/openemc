@@ -161,6 +161,8 @@ pub type IrqState = irq::IrqState<{ board::PORTS }>;
 
 #[rtic::app(device = stm32f1::stm32f103, peripherals = true, dispatchers = [SPI1, SPI2, SPI3])]
 mod app {
+    use supply::max14636::Max14636;
+
     use super::*;
 
     /// System timer.
@@ -190,6 +192,8 @@ mod app {
         i2c2: Option<I2c2Master>,
         /// STUSB4500 USB PD controller.
         stusb4500: Option<StUsb4500<I2c2Master>>,
+        /// MAX14636 USB charger detector.
+        max14636: Option<Max14636>,
         /// BQ25713 batter charge controller.
         bq25713: Option<Bq25713<I2c2Master>>,
         /// Latest power supply report.
@@ -373,7 +377,7 @@ mod app {
             None => None,
         };
 
-        // Initialize STUSB4500.
+        // Initialize power supplies.
         let stusb4500 = match ThisBoard::STUSB4500_I2C_ADDR {
             Some(addr) => {
                 defmt::unwrap!(stusb4500_periodic::spawn_after(1u64.secs()));
@@ -381,6 +385,8 @@ mod app {
             }
             None => None,
         };
+        let max14636 = board.max14636();
+        defmt::unwrap!(power_supply_update::spawn_after(500u64.millis()));
 
         // Initialize PWM timers.
         delay.release();
@@ -445,6 +451,7 @@ mod app {
                 board,
                 i2c2,
                 stusb4500,
+                max14636,
                 bq25713,
                 power_supply: None,
                 battery: None,
@@ -600,12 +607,8 @@ mod app {
         (cx.shared.i2c2, cx.shared.stusb4500, cx.shared.board).lock(|i2c2, stusb4500, board| {
             if let Some(stusb4500) = stusb4500.as_mut() {
                 stusb4500.alert(defmt::unwrap!(i2c2.as_mut()), board.check_stusb4500_attached());
-
-                if stusb4500.new_report_available() {
-                    defmt::unwrap!(stusb4500_handle_report::spawn());
-                }
-
                 board.set_stusb4500_reset_pin(stusb4500.reset_pin_level());
+                let _ = power_supply_update::spawn();
             }
         });
     }
@@ -616,11 +619,6 @@ mod app {
         (cx.shared.i2c2, cx.shared.stusb4500, cx.shared.board).lock(|i2c2, stusb4500, board| {
             if let Some(stusb4500) = stusb4500.as_mut() {
                 stusb4500.periodic(defmt::unwrap!(i2c2.as_mut()), board.check_stusb4500_attached());
-
-                if stusb4500.new_report_available() {
-                    defmt::unwrap!(stusb4500_handle_report::spawn());
-                }
-
                 board.set_stusb4500_reset_pin(stusb4500.reset_pin_level());
             }
         });
@@ -628,37 +626,57 @@ mod app {
         defmt::unwrap!(stusb4500_periodic::spawn_after(500u64.millis()));
     }
 
-    /// Handles a new power supply report from the STUSB4500.
-    #[task(shared = [i2c2, stusb4500, bq25713, power_supply, irq])]
-    fn stusb4500_handle_report(cx: stusb4500_handle_report::Context) {
-        (cx.shared.i2c2, cx.shared.stusb4500, cx.shared.bq25713, cx.shared.power_supply, cx.shared.irq).lock(
-            |i2c2, stusb4500, bq25713, power_supply, irq| {
-                let i2c2 = defmt::unwrap!(i2c2.as_mut());
-
-                let report = defmt::unwrap!(stusb4500.as_mut()).report();
-                defmt::info!("STUSB4500 power supply report: {:?}", &report);
-
-                if let Some(bq25713) = bq25713.as_mut() {
-                    defmt::info!("Setting BQ25713 maximum input current to {} mA", report.max_current_ma());
-                    if let Err(err) =
-                        bq25713.set_max_input_current(i2c2, report.max_current_ma()).and_then(|_| {
-                            if report.max_current_ma() > 0 && !bq25713.is_charge_enabled() {
-                                bq25713.set_charge_enable(i2c2, true)?;
-                            } else if report.max_current_ma() == 0 && bq25713.is_charge_enabled() {
-                                bq25713.set_charge_enable(i2c2, false)?;
-                            }
-                            Ok(())
-                        })
-                    {
-                        defmt::error!("Cannot configure BQ25713 charging: {}", err);
-                    }
+    /// Updates the power supply status.
+    #[task(shared = [i2c2, stusb4500, max14636, bq25713, power_supply, irq], capacity = 3)]
+    fn power_supply_update(cx: power_supply_update::Context) {
+        (
+            cx.shared.i2c2,
+            cx.shared.stusb4500,
+            cx.shared.max14636,
+            cx.shared.bq25713,
+            cx.shared.power_supply,
+            cx.shared.irq,
+        )
+            .lock(|i2c2, stusb4500, max14636, bq25713, power_supply, irq| {
+                // Merge power supply reports.
+                let mut report = PowerSupply::default();
+                if let Some(stusb4500) = stusb4500 {
+                    defmt::trace!("STUSB4500 power supply report: {:?}", stusb4500.report());
+                    report = report.merge(stusb4500.report());
+                }
+                if let Some(max14636) = max14636 {
+                    let max14636_report = max14636.report();
+                    defmt::trace!("MAX14636 power supply report: {:?}", max14636_report);
+                    report = report.merge(&max14636_report);
                 }
 
-                irq.pend_soft(IrqState::SUPPLY | IrqState::BATTERY);
+                if Some(&report) != power_supply.as_ref() {
+                    defmt::info!("Power supply: {:?}", report);
 
-                *power_supply = Some(report);
-            },
-        );
+                    // Configure battery charger.
+                    if let (Some(i2c2), Some(bq25713)) = (i2c2, bq25713) {
+                        defmt::info!("Setting BQ25713 maximum input current to {} mA", report.max_current_ma());
+                        if let Err(err) =
+                            bq25713.set_max_input_current(i2c2, report.max_current_ma()).and_then(|_| {
+                                if report.max_current_ma() > 0 && !bq25713.is_charge_enabled() {
+                                    bq25713.set_charge_enable(i2c2, true)?;
+                                } else if report.max_current_ma() == 0 && bq25713.is_charge_enabled() {
+                                    bq25713.set_charge_enable(i2c2, false)?;
+                                }
+                                Ok(())
+                            })
+                        {
+                            defmt::error!("Cannot configure BQ25713 charging: {}", err);
+                        }
+                    }
+
+                    // Store report and notify host.
+                    irq.pend_soft(IrqState::SUPPLY | IrqState::BATTERY);
+                    *power_supply = Some(report);
+                }
+            });
+
+        defmt::unwrap!(power_supply_update::spawn_after(500u64.millis()));
     }
 
     /// BQ25713 periodic task.

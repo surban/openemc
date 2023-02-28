@@ -123,7 +123,6 @@ pub struct StUsb4500<I2C> {
     last_soft_reset: Option<Instant>,
     best_pdo_requested: bool,
     report: PowerSupply,
-    last_queried_report: PowerSupply,
     started: Instant,
     _i2c: PhantomData<I2C>,
 }
@@ -186,21 +185,14 @@ where
             last_soft_reset: None,
             best_pdo_requested: false,
             report: Default::default(),
-            last_queried_report: Default::default(),
             started: monotonics::now(),
             _i2c: PhantomData,
         }
     }
 
     /// Returns the current power supply report and marks it as seen.
-    pub fn report(&mut self) -> PowerSupply {
-        self.last_queried_report = self.report.clone();
-        self.report.clone()
-    }
-
-    /// Returns whether a new power supply report is available.
-    pub fn new_report_available(&self) -> bool {
-        self.last_queried_report != self.report
+    pub fn report(&self) -> &PowerSupply {
+        &self.report
     }
 
     /// Initiates a pin reset.

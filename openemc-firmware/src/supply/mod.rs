@@ -20,6 +20,7 @@
 
 use defmt::Format;
 
+pub mod max14636;
 pub mod stusb4500;
 
 /// Power supply report.
@@ -30,6 +31,11 @@ pub enum PowerSupply {
     Unknown,
     /// No cable attached.
     Disconnected,
+    /// PS/2 port.
+    ///
+    /// Supply voltage is 5 V and current limit is 100 mA.
+    /// USB communication is unsupported.
+    Ps2,
     /// USB standard downstream port.
     ///
     /// Supply voltage is 5 V and current must be limited
@@ -73,7 +79,8 @@ impl PowerSupply {
     pub fn is_connected(&self) -> bool {
         match self {
             Self::Unknown | Self::Disconnected => false,
-            Self::UsbSdp
+            Self::Ps2
+            | Self::UsbSdp
             | Self::UsbDcp
             | Self::UsbCdp
             | Self::PdoContract { .. }
@@ -86,9 +93,8 @@ impl PowerSupply {
     /// Voltage in mV.
     pub fn voltage_mv(&self) -> u32 {
         match self {
-            Self::Unknown => 0,
-            Self::Disconnected => 0,
-            Self::UsbSdp | Self::UsbDcp | Self::UsbCdp => 5000,
+            Self::Unknown | Self::Disconnected => 0,
+            Self::Ps2 | Self::UsbSdp | Self::UsbDcp | Self::UsbCdp => 5000,
             Self::PdoContract { voltage_mv, .. } => *voltage_mv,
             Self::CcPins5V1500mA | Self::CcPins5V3000mA => 5000,
             Self::Negotiating => 5000,
@@ -98,9 +104,8 @@ impl PowerSupply {
     /// Returns the maximum current available in mA.
     pub fn max_current_ma(&self) -> u32 {
         match self {
-            Self::Unknown => 0,
-            Self::Disconnected => 0,
-            Self::UsbSdp => 100,
+            Self::Unknown | Self::Disconnected => 0,
+            Self::Ps2 | Self::UsbSdp => 100,
             Self::UsbDcp | Self::UsbCdp => 1500,
             Self::PdoContract { max_current_ma, .. } => *max_current_ma,
             Self::CcPins5V1500mA => 1500,
@@ -114,6 +119,7 @@ impl PowerSupply {
         match self {
             Self::Unknown => PowerSupplyUsbCommunication::Unknown,
             Self::Disconnected => PowerSupplyUsbCommunication::Unsupported,
+            Self::Ps2 => PowerSupplyUsbCommunication::Unsupported,
             Self::UsbSdp => PowerSupplyUsbCommunication::Supported,
             Self::UsbDcp => PowerSupplyUsbCommunication::Unsupported,
             Self::UsbCdp => PowerSupplyUsbCommunication::Supported,
@@ -136,13 +142,14 @@ impl From<&PowerSupply> for u8 {
         match supply {
             PowerSupply::Unknown => 0,
             PowerSupply::Disconnected => 1,
-            PowerSupply::UsbSdp => 2,
-            PowerSupply::UsbDcp => 3,
-            PowerSupply::UsbCdp => 4,
-            PowerSupply::CcPins5V1500mA => 5,
-            PowerSupply::CcPins5V3000mA => 6,
-            PowerSupply::PdoContract { .. } => 7,
-            PowerSupply::Negotiating => 8,
+            PowerSupply::Ps2 => 2,
+            PowerSupply::UsbSdp => 3,
+            PowerSupply::UsbDcp => 4,
+            PowerSupply::UsbCdp => 5,
+            PowerSupply::CcPins5V1500mA => 6,
+            PowerSupply::CcPins5V3000mA => 7,
+            PowerSupply::PdoContract { .. } => 8,
+            PowerSupply::Negotiating => 9,
         }
     }
 }
