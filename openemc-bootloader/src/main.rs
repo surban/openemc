@@ -41,7 +41,7 @@ use core::{ffi::c_void, mem::MaybeUninit, num::NonZeroU32};
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::entry;
 use defmt::unwrap;
-use openemc_shared::{BootInfo, ResetStatus};
+use openemc_shared::{BootInfo, ResetStatus, BootReason};
 use stm32f1::stm32f103::Peripherals;
 
 use crate::{
@@ -100,39 +100,6 @@ const BACKUP_REG_SIGNATURE: u8 = 0;
 
 /// Backup register for boot reason.
 const BACKUP_REG_BOOT_REASON: u8 = 1;
-
-/// Boot reason.
-#[repr(u16)]
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum BootReason {
-    /// Unknown boot reason.
-    /// Most likely caused by loss of power to backup domain.
-    Unknown = 0x0000,
-    /// Surprise reboot while in bootloader.
-    ///
-    /// This is set by the bootloader and prevents automatic start of user program.
-    SurpriseInBootloader = 0xb000,
-    /// Surprise reboot while in user program.
-    ///
-    /// This is set by the bootloader and prevents automatic start of user program.
-    SurpriseInUser = 0xb001,
-    /// Boot caused by invalid user program.
-    ///
-    /// This is set by the bootloader and prevents automatic start of user program.
-    InvalidUserProgram = 0xb003,
-    /// Power off system and go to standby mode.
-    ///
-    /// This prevents start of the watchdog timer and causes automatic start of user program.
-    PowerOff = 0xb011,
-    /// Restart into bootloader.
-    ///
-    /// This prevents automatic start of user program.
-    StartBootloader = 0xb014,
-    /// Boot caused by factory reset.
-    ///
-    /// This clears the backup domain and prevents automatic start of user program.
-    FactoryReset = 0xb020,
-}
 
 /// Board init result.
 #[derive(Clone, Copy, PartialEq, Eq, Format)]

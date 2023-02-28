@@ -8,7 +8,7 @@ use crate::{
     bq25713::Bq25713Cfg,
     i2c_reg_slave,
     supply::{max14636::Max14636, FixedSinkPdo},
-    Delay, Duration, I2C_BUFFER_SIZE,
+    Delay, Duration, PowerMode, I2C_BUFFER_SIZE,
 };
 
 /// Number of IO ports (PA, PB, PC, etc.).
@@ -82,6 +82,11 @@ pub trait Board {
     /// Board model.
     fn model() -> &'static [u8];
 
+    /// The mode for powering up.
+    fn power_mode(&mut self) -> PowerMode {
+        PowerMode::Full
+    }
+
     /// Powers on the system.
     fn power_on(&mut self, _delay: &mut Delay) {}
 
@@ -102,6 +107,11 @@ pub trait Board {
         &mut self, event: i2c_reg_slave::Event<'a, I2C_BUFFER_SIZE>,
     ) -> Result<(), UnknownEvent<'a>> {
         Err(UnknownEvent(event))
+    }
+
+    /// Checks whether power on during charging has been requested.
+    fn check_power_on_requested(&mut self) -> bool {
+        false
     }
 
     /// Checks whether STUSB4500 is alerting and clears the pending interrupt.

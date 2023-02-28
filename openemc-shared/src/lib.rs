@@ -153,3 +153,45 @@ impl ResetStatus {
         self.0 & Self::LOW_POWER != 0
     }
 }
+
+/// Boot reason.
+#[allow(dead_code)]
+#[repr(u16)]
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum BootReason {
+    /// Unknown boot reason.
+    /// Most likely caused by loss of power to backup domain.
+    Unknown = 0x0000,
+    /// Surprise reboot while in bootloader.
+    ///
+    /// This is set by the bootloader and prevents automatic start of user program.
+    SurpriseInBootloader = 0xb000,
+    /// Surprise reboot while in user program.
+    ///
+    /// This is set by the bootloader and prevents automatic start of user program.
+    SurpriseInUser = 0xb001,
+    /// Boot caused by invalid user program.
+    ///
+    /// This is set by the bootloader and prevents automatic start of user program.
+    InvalidUserProgram = 0xb003,
+    /// Boot caused by power on event.
+    ///
+    /// This prevents start of the watchdog timer and causes automatic start of user program.
+    PowerOn = 0xb010,
+    /// Power off system and go to standby mode.
+    PowerOff = 0xb011,
+    /// Power off system and then restart it.
+    Restart = 0xb012,
+    /// Reset of EMC.
+    Reset = 0xb013,
+    /// Restart into bootloader.
+    /// 
+    /// This prevents automatic start of user program.
+    StartBootloader = 0xb014,
+    /// Boot caused by factory reset.
+    /// 
+    /// This clears the backup domain and prevents automatic start of user program.
+    FactoryReset = 0xb020,
+    /// Timeout of user controlled watchdog.
+    WatchdogTimeout = 0xb030,
+}

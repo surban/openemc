@@ -44,7 +44,7 @@ use stm32f1xx_hal as _;
 
 use core::mem::size_of;
 use cortex_m::peripheral::NVIC;
-use defmt::unwrap;
+use defmt::{unwrap, Format};
 use stm32f1::stm32f103::Interrupt;
 use stm32f1xx_hal::{
     adc::Adc,
@@ -62,18 +62,18 @@ use crate::{
     adc::{AdcBuf, AdcInputs},
     backup::BackupReg,
     board::Board,
-    boot::{BootInfoExt, BootReason},
+    boot::{BootInfoExt, BootReasonExt},
     bq25713::{Battery, Bq25713},
     i2c_reg_slave::{Event, I2CRegSlave},
     i2c_slave::I2cSlave,
     pio::MaskedGpio,
     pwm::PwmTimer,
     rtc::{ClockSrc, Rtc},
-    supply::{stusb4500::StUsb4500, PowerSupply},
+    supply::{max14636::Max14636, stusb4500::StUsb4500, PowerSupply},
     util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64},
     watchman::Watchman,
 };
-use openemc_shared::BootInfo;
+use openemc_shared::{BootInfo, BootReason};
 
 /// OpenEMC firmware version.
 pub static VERSION: &[u8] = env!("CARGO_PKG_VERSION").as_bytes();
@@ -105,6 +105,15 @@ const ID_STANDALONE: u8 = 0xf0;
 
 /// I2C transfer buffer size.
 pub const I2C_BUFFER_SIZE: usize = 32;
+
+/// System power mode.
+#[derive(Clone, Copy, Format, PartialEq, Eq)]
+pub enum PowerMode {
+    /// Full power on.
+    Full,
+    /// Power only components required for charging.
+    Charging,
+}
 
 /// I2C register slave that may have remapped pins.
 #[allow(clippy::type_complexity)]
@@ -161,8 +170,6 @@ pub type IrqState = irq::IrqState<{ board::PORTS }>;
 
 #[rtic::app(device = stm32f1::stm32f103, peripherals = true, dispatchers = [SPI1, SPI2, SPI3])]
 mod app {
-    use supply::max14636::Max14636;
-
     use super::*;
 
     /// System timer.
@@ -202,6 +209,8 @@ mod app {
         battery: Option<Battery>,
         /// Board.
         board: ThisBoard,
+        /// Power mode.
+        power_mode: PowerMode,
     }
 
     /// Exclusive resources.
@@ -212,7 +221,7 @@ mod app {
         /// MFD cell index.
         mfd_cell_index: usize,
         /// I2C slave.
-        i2c_reg_slave: RemappableI2CRegSlave,
+        i2c_reg_slave: Option<RemappableI2CRegSlave>,
         /// AD converter.
         adc: Adc<ADC1>,
         /// AD converter inputs.
@@ -227,8 +236,6 @@ mod app {
         undervoltage_blink_state: bool,
         /// Undervoltage blink count.
         undervoltage_blink_count: usize,
-        /// Time when BQ25713 periodic handler first ran.
-        bq25713_first_periodic: Option<Instant>,
         /// Charge LED blink state.
         charge_blink_state: u8,
         /// Time when supply was attached, for charge LED.
@@ -276,6 +283,7 @@ mod app {
             &mut afio,
             &mut delay,
         );
+        let power_mode = board.power_mode();
         defmt::info!("board new done");
 
         // Print boot information.
@@ -318,7 +326,11 @@ mod app {
 
         // Start watchdog and its manager.
         let dog = IndependentWatchdog::new(cx.device.IWDG);
-        let watchman = Watchman::new(dog, 120u64.secs(), option_env!("DISABLE_WATCHDOG").is_none());
+        let watchman = Watchman::new(
+            dog,
+            120u64.secs(),
+            power_mode == PowerMode::Full && option_env!("DISABLE_WATCHDOG").is_none(),
+        );
         unwrap!(watchdog_petter::spawn());
 
         // Initialize RTC.
@@ -334,10 +346,10 @@ mod app {
         unwrap!(print_rtc_info::spawn());
 
         // Initializes board.
-        defmt::info!("board init");
-        board.set_power_led(true);
+        defmt::info!("board power on in mode {:?}", power_mode);
+        board.set_power_led(power_mode == PowerMode::Full);
         board.power_on(&mut delay);
-        defmt::info!("board init done");
+        defmt::info!("board power on done");
 
         // Configure user GPIO.
         let mut usable = [0xffff; board::PORTS];
@@ -409,30 +421,46 @@ mod app {
         }
 
         // Enable I2C register slave.
-        let i2c_reg_slave = match BootInfo::get().i2c_remap {
-            true => {
-                let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
-                let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
-                let mut i2c =
-                    I2cSlave::i2c1(cx.device.I2C1, (scl, sda), &mut afio.mapr, BootInfo::get().i2c_addr, clocks);
-                i2c.listen_buffer();
-                i2c.listen_error();
-                i2c.listen_event();
-                RemappableI2CRegSlave::Remapped(I2CRegSlave::<_, _, I2C_BUFFER_SIZE>::new(i2c))
+        let i2c_reg_slave = match power_mode {
+            PowerMode::Full => {
+                let slave = match BootInfo::get().i2c_remap {
+                    true => {
+                        let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
+                        let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
+                        let mut i2c = I2cSlave::i2c1(
+                            cx.device.I2C1,
+                            (scl, sda),
+                            &mut afio.mapr,
+                            BootInfo::get().i2c_addr,
+                            clocks,
+                        );
+                        i2c.listen_buffer();
+                        i2c.listen_error();
+                        i2c.listen_event();
+                        RemappableI2CRegSlave::Remapped(I2CRegSlave::<_, _, I2C_BUFFER_SIZE>::new(i2c))
+                    }
+                    false => {
+                        let scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);
+                        let sda = gpiob.pb7.into_alternate_open_drain(&mut gpiob.crl);
+                        let mut i2c = I2cSlave::i2c1(
+                            cx.device.I2C1,
+                            (scl, sda),
+                            &mut afio.mapr,
+                            BootInfo::get().i2c_addr,
+                            clocks,
+                        );
+                        i2c.listen_buffer();
+                        i2c.listen_error();
+                        i2c.listen_event();
+                        RemappableI2CRegSlave::Normal(I2CRegSlave::<_, _, I2C_BUFFER_SIZE>::new(i2c))
+                    }
+                };
+                unsafe { NVIC::unmask(Interrupt::I2C1_ER) };
+                unsafe { NVIC::unmask(Interrupt::I2C1_EV) };
+                Some(slave)
             }
-            false => {
-                let scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);
-                let sda = gpiob.pb7.into_alternate_open_drain(&mut gpiob.crl);
-                let mut i2c =
-                    I2cSlave::i2c1(cx.device.I2C1, (scl, sda), &mut afio.mapr, BootInfo::get().i2c_addr, clocks);
-                i2c.listen_buffer();
-                i2c.listen_error();
-                i2c.listen_event();
-                RemappableI2CRegSlave::Normal(I2CRegSlave::<_, _, I2C_BUFFER_SIZE>::new(i2c))
-            }
+            PowerMode::Charging => None,
         };
-        unsafe { NVIC::unmask(Interrupt::I2C1_ER) };
-        unsafe { NVIC::unmask(Interrupt::I2C1_EV) };
 
         // Drive charging LED.
         unwrap!(charge_led::spawn());
@@ -455,6 +483,7 @@ mod app {
                 bq25713,
                 power_supply: None,
                 battery: None,
+                power_mode,
             },
             Local {
                 copyright_offset: 0,
@@ -467,7 +496,6 @@ mod app {
                 rtc_reset_prescaler: false,
                 undervoltage_blink_state: false,
                 undervoltage_blink_count: 0,
-                bq25713_first_periodic: None,
                 charge_blink_state: 0,
                 supplying_since: None,
             },
@@ -627,8 +655,15 @@ mod app {
     }
 
     /// Updates the power supply status.
-    #[task(shared = [i2c2, stusb4500, max14636, bq25713, power_supply, irq], capacity = 3)]
+    #[task(
+        shared = [i2c2, stusb4500, max14636, bq25713, power_supply, irq, board, &power_mode],
+        local = [first: Option<Instant> = None],
+        capacity = 3
+    )]
     fn power_supply_update(cx: power_supply_update::Context) {
+        let grace_period: Duration = 10u64.secs();
+        let first = cx.local.first.get_or_insert_with(monotonics::now);
+
         (
             cx.shared.i2c2,
             cx.shared.stusb4500,
@@ -636,8 +671,9 @@ mod app {
             cx.shared.bq25713,
             cx.shared.power_supply,
             cx.shared.irq,
+            cx.shared.board,
         )
-            .lock(|i2c2, stusb4500, max14636, bq25713, power_supply, irq| {
+            .lock(|i2c2, stusb4500, max14636, bq25713, power_supply, irq, board| {
                 // Merge power supply reports.
                 let mut report = PowerSupply::default();
                 if let Some(stusb4500) = stusb4500 {
@@ -670,6 +706,19 @@ mod app {
                         }
                     }
 
+                    // Check for power on and shutdown in charging mode.
+                    if *cx.shared.power_mode == PowerMode::Charging {
+                        if board.check_power_on_requested() {
+                            defmt::info!("Power on requested");
+                            let _ = power_restart::spawn();
+                        }
+
+                        if !report.is_connected() && monotonics::now() - *first > grace_period {
+                            defmt::info!("Shutdown because power supply disconnected");
+                            let _ = power_off::spawn();
+                        }
+                    }
+
                     // Store report and notify host.
                     irq.pend_soft(IrqState::SUPPLY | IrqState::BATTERY);
                     *power_supply = Some(report);
@@ -680,10 +729,10 @@ mod app {
     }
 
     /// BQ25713 periodic task.
-    #[task(shared = [i2c2, bq25713, battery, irq], local = [bq25713_first_periodic])]
+    #[task(shared = [i2c2, bq25713, battery, irq, &power_mode], local = [first: Option<Instant> = None])]
     fn bq25713_periodic(cx: bq25713_periodic::Context) {
         let grace_period = 10u64.secs();
-        let first = cx.local.bq25713_first_periodic.get_or_insert_with(monotonics::now);
+        let first = cx.local.first.get_or_insert_with(monotonics::now);
 
         (cx.shared.i2c2, cx.shared.bq25713, cx.shared.battery, cx.shared.irq).lock(
             |i2c2, bq25713, battery, irq| {
@@ -699,8 +748,8 @@ mod app {
                         defmt::warn!("BQ25713 reported a fault: {:?}", bq25713.status());
                     }
 
-                    match (bq25713.measurement(), ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE) {
-                        (Some(m), Some(min_mv))
+                    match (bq25713.measurement(), ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE, cx.shared.power_mode) {
+                        (Some(m), Some(min_mv), PowerMode::Full)
                             if !status.ac_stat
                                 && m.v_bat_mv < min_mv
                                 && monotonics::now().checked_duration_since(*first) >= Some(grace_period) =>
@@ -803,11 +852,17 @@ mod app {
     }
 
     /// External interrupt handler 0, handling EXTI0 - EXTI15.
-    #[task(binds = EXTI0, shared = [irq, board, i2c2, stusb4500])]
+    #[task(binds = EXTI0, shared = [irq, board, i2c2, stusb4500, &power_mode])]
     fn exti0(mut cx: exti0::Context) {
         if cx.shared.board.lock(|board| board.check_stusb4500_alerting()) {
             defmt::trace!("STUSB4500 alert interrupt!");
             unwrap!(stusb4500_alert::spawn());
+        } else if *cx.shared.power_mode == PowerMode::Charging
+            && cx.shared.board.lock(|board| board.check_power_on_requested())
+        {
+            if power_restart::spawn().is_ok() {
+                defmt::info!("Power on requested");
+            }
         } else {
             cx.shared.irq.lock(|irq| {
                 irq.pend_gpio_exti();
@@ -863,7 +918,8 @@ mod app {
         shared = [start_bootloader, irq, ugpio, bkp, watchman, rtc, adc_buf, pwm_timers, board, power_supply, battery],
         priority = 2)]
     fn i2c1_ev(mut cx: i2c1_ev::Context) {
-        let res = cx.local.i2c_reg_slave.event();
+        let Some(i2c_reg_slave) = cx.local.i2c_reg_slave.as_mut() else { return };
+        let res = i2c_reg_slave.event();
 
         let evt = match res {
             Ok(evt) => {
