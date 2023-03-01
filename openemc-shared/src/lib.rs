@@ -38,14 +38,6 @@ pub struct BootInfo {
     pub board_model: *const u8,
     /// Length of board model.
     pub board_model_len: u8,
-    /// I2C address.
-    pub i2c_addr: u8,
-    /// True, if I2C1 pins are remapped.
-    pub i2c_remap: bool,
-    /// IRQ pin number (PA0, PA1, .., PA15, PB0, PB1, ...)
-    pub irq_pin: u8,
-    /// Configuration for IRQ pin.
-    pub irq_pin_cfg: u8,
     /// Boot reason.
     pub boot_reason: u16,
     /// Reset status.
@@ -56,6 +48,8 @@ pub struct BootInfo {
     pub id: u32,
     /// Reserved space.
     pub reserved: [u8; Self::RESERVED_SIZE],
+    /// Length of board data.
+    pub board_data_len: u8,
     /// Board-specific data.
     pub board_data: [u8; Self::BOARD_DATA_SIZE],
 }
@@ -75,6 +69,12 @@ impl BootInfo {
 
     /// Board data size.
     pub const BOARD_DATA_SIZE: usize = 64;
+
+    /// Valid board data.
+    pub fn board_data(&self) -> &[u8] {
+        let len = usize::from(self.board_data_len).min(Self::BOARD_DATA_SIZE);
+        &self.board_data[..len]
+    }
 }
 
 /// Program signature.
@@ -152,6 +152,21 @@ impl ResetStatus {
     pub fn is_low_power(&self) -> bool {
         self.0 & Self::LOW_POWER != 0
     }
+
+    /// Logs the reset status.
+    pub fn log(&self) {
+        defmt::info!(
+            "reset status:   0x{:02x} {}{}{}{}{}{}{}",
+            self.0,
+            if self.is_wakeup() { "wakeup " } else { "" },
+            if self.is_external() { "external " } else { "" },
+            if self.is_power_on() { "power-on " } else { "" },
+            if self.is_firmware() { "firmware " } else { "" },
+            if self.is_independent_watchdog() { "independent-watchdog " } else { "" },
+            if self.is_window_watchdog() { "window-watchdog " } else { "" },
+            if self.is_low_power() { "low-power " } else { "" },
+        );
+    }
 }
 
 /// Boot reason.
@@ -160,6 +175,7 @@ impl ResetStatus {
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum BootReason {
     /// Unknown boot reason.
+    ///
     /// Most likely caused by loss of power to backup domain.
     Unknown = 0x0000,
     /// Surprise reboot while in bootloader.
@@ -176,7 +192,7 @@ pub enum BootReason {
     InvalidUserProgram = 0xb003,
     /// Boot caused by power on event.
     ///
-    /// This prevents start of the watchdog timer and causes automatic start of user program.
+    /// This causes automatic start of user program.
     PowerOn = 0xb010,
     /// Power off system and go to standby mode.
     PowerOff = 0xb011,
@@ -185,13 +201,34 @@ pub enum BootReason {
     /// Reset of EMC.
     Reset = 0xb013,
     /// Restart into bootloader.
-    /// 
+    ///
     /// This prevents automatic start of user program.
     StartBootloader = 0xb014,
     /// Boot caused by factory reset.
-    /// 
+    ///
     /// This clears the backup domain and prevents automatic start of user program.
     FactoryReset = 0xb020,
     /// Timeout of user controlled watchdog.
     WatchdogTimeout = 0xb030,
+}
+
+impl BootReason {
+    /// Logs the boot reason.
+    pub fn log(boot_reason: u16) {
+        let reason = match boot_reason {
+            v if v == Self::Unknown as _ => "unknown",
+            v if v == Self::SurpriseInBootloader as _ => "surprise in boot loader",
+            v if v == Self::SurpriseInUser as _ => "surprise in user program",
+            v if v == Self::InvalidUserProgram as _ => "invalid user program",
+            v if v == Self::PowerOn as _ => "power on",
+            v if v == Self::PowerOff as _ => "power off",
+            v if v == Self::Restart as _ => "restart",
+            v if v == Self::Reset as _ => "reset",
+            v if v == Self::StartBootloader as _ => "start boot loader",
+            v if v == Self::FactoryReset as _ => "factory reset",
+            v if v == Self::WatchdogTimeout as _ => "watchdog timeout",
+            _ => "",
+        };
+        defmt::info!("boot reason:    0x{:04x} {}", boot_reason, reason,);
+    }
 }

@@ -9,9 +9,7 @@ use crate::{board::Board, Delay};
 pub struct BoardImpl;
 
 impl Board for BoardImpl {
-    fn new(
-        _board_data: Option<&[u8; BootInfo::BOARD_DATA_SIZE]>, _afio: &mut afio::Parts, _delay: &mut Delay,
-    ) -> BoardImpl {
+    fn new(_boot_info: &'static BootInfo, _afio: &mut afio::Parts, _delay: &mut Delay) -> BoardImpl {
         Self
     }
 

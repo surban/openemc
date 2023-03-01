@@ -105,10 +105,9 @@ impl Board for BoardImpl {
         dp.GPIOA.odr.modify(|_, w| w.odr5().high());
     }
 
-    fn board_data(&self) -> [u8; BootInfo::BOARD_DATA_SIZE] {
-        let mut data = [0; BootInfo::BOARD_DATA_SIZE];
-        data[0] = u8::from(self.development_mode);
-        data
+    fn write_board_data(&mut self, board_data: &mut [u8; BootInfo::BOARD_DATA_SIZE]) -> usize {
+        board_data[0] = u8::from(self.development_mode);
+        1
     }
 
     fn bootloader_request(&mut self, t: I2CRegTransaction) {

@@ -44,9 +44,11 @@ pub trait Board {
     /// Cleanup before start of user program.
     fn pre_start(&mut self) {}
 
-    /// Board-specific data to pass to user program.
-    fn board_data(&self) -> [u8; BootInfo::BOARD_DATA_SIZE] {
-        [0; BootInfo::BOARD_DATA_SIZE]
+    /// Write board-specific data to pass to user program.
+    ///
+    /// Return the size of the written data.
+    fn write_board_data(&mut self, _board_data: &mut [u8; BootInfo::BOARD_DATA_SIZE]) -> usize {
+        0
     }
 
     /// Turn system power on so that system can flash user program.

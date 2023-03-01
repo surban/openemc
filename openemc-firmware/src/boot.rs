@@ -47,15 +47,12 @@ static mut STANDALONE_BOOT_INFO: BootInfo = BootInfo {
     board_model_len: 0,
     bootloader_version: ptr::null(),
     bootloader_version_len: 0,
-    i2c_addr: ThisBoard::STANDALONE_I2C_ADDR,
-    i2c_remap: ThisBoard::STANDALONE_I2C_REMAP,
-    irq_pin: ThisBoard::STANDALONE_IRQ_PIN,
-    irq_pin_cfg: ThisBoard::STANDALONE_IRQ_PIN_CFG,
     boot_reason: 0,               // Obtained from backup registers.
     reset_status: ResetStatus(0), // Obtained from reset status register.
     start_reason: 0,
     id: 0,
     reserved: BootInfo::RESERVED,
+    board_data_len: 0,
     board_data: BootInfo::EMPTY_BOARD_DATA,
 };
 

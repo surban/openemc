@@ -41,7 +41,7 @@ use core::{ffi::c_void, mem::MaybeUninit, num::NonZeroU32};
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::entry;
 use defmt::unwrap;
-use openemc_shared::{BootInfo, ResetStatus, BootReason};
+use openemc_shared::{BootInfo, BootReason, ResetStatus};
 use stm32f1::stm32f103::Peripherals;
 
 use crate::{
@@ -298,6 +298,8 @@ fn main() -> ! {
 
             // Write boot info.
             let board_model = board.model();
+            let mut board_data = [0; BootInfo::BOARD_DATA_SIZE];
+            let board_data_len: u8 = unwrap!(board.write_board_data(&mut board_data).try_into());
             let boot_info = BootInfo {
                 signature: BootInfo::SIGNATURE,
                 bootloader_version: VERSION.as_ptr(),
@@ -305,16 +307,13 @@ fn main() -> ! {
                 emc_model: emc_model(),
                 board_model: board_model.as_ptr(),
                 board_model_len: board_model.len() as _,
-                i2c_addr: ThisBoard::I2C_ADDR,
-                i2c_remap: ThisBoard::I2C_REMAP,
-                irq_pin: ThisBoard::IRQ_PIN,
-                irq_pin_cfg: ThisBoard::IRQ_PIN_CFG,
                 boot_reason,
                 reset_status,
                 start_reason: bootloader_result.map(|blr| blr as u8).unwrap_or_default(),
                 id: program.id,
                 reserved: Default::default(),
-                board_data: board.board_data(),
+                board_data_len,
+                board_data,
             };
             unsafe {
                 BOOT_INFO.write(boot_info);

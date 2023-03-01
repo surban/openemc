@@ -16,17 +16,17 @@ pub const PORTS: usize = 4;
 
 /// Board-specific functionality.
 pub trait Board {
-    /// I2C slave address of the bootloader. (only for standalone firmware)
-    const STANDALONE_I2C_ADDR: u8 = 0x10;
+    /// I2C slave address.
+    const I2C_ADDR: u8 = 0x10;
 
-    /// I2C pins remapped? (only for standalone firmware)
-    const STANDALONE_I2C_REMAP: bool = true;
+    /// I2C pins remapped?
+    const I2C_REMAP: bool = true;
 
-    /// IRQ pin number (PA0, PA1, .., PA15, PB0, PB1, ...) (only for standalone firmware)
-    const STANDALONE_IRQ_PIN: u8 = 6; // PA6
+    /// IRQ pin number (PA0, PA1, .., PA15, PB0, PB1, ...)
+    const IRQ_PIN: u8 = 6; // PA6
 
-    /// IRQ pin configuration. (only for standalone firmware)
-    const STANDALONE_IRQ_PIN_CFG: u8 = 0b0010; // 2 MHz push-pull output
+    /// IRQ pin configuration.
+    const IRQ_PIN_CFG: u8 = 0b0010; // 2 MHz push-pull output
 
     /// Simulates interrupts on PD0 and PD1 with the specified polling interval.
     ///
@@ -70,9 +70,7 @@ pub trait Board {
     const CHARGING_LED_MIN_CURRENT: i32 = 0;
 
     /// Create a new instance.
-    fn new(
-        board_data: Option<&[u8; BootInfo::BOARD_DATA_SIZE]>, afio: &mut afio::Parts, delay: &mut Delay,
-    ) -> Self;
+    fn new(boot_info: &'static BootInfo, afio: &mut afio::Parts, delay: &mut Delay) -> Self;
 
     /// Returns whether the board id is supported.
     fn is_supported(&self, model: &[u8]) -> bool {

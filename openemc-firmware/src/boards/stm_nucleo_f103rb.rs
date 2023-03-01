@@ -31,15 +31,13 @@ pub struct BoardImpl {
 }
 
 impl Board for BoardImpl {
-    const STANDALONE_I2C_REMAP: bool = true;
-    const STANDALONE_IRQ_PIN: u8 = 6;
+    const I2C_REMAP: bool = true;
+    const IRQ_PIN: u8 = 6;
     const I2C2_MODE: Option<i2c::Mode> = Some(i2c::Mode::Standard { frequency: Rate::<u32, 1, 1>::Hz(300_000) });
     const STUSB4500_I2C_ADDR: Option<u8> = Some(0x28);
     const USB_MAXIMUM_VOLTAGE: u32 = 10_000;
 
-    fn new(
-        board_data: Option<&[u8; BootInfo::BOARD_DATA_SIZE]>, afio: &mut afio::Parts, delay: &mut Delay,
-    ) -> BoardImpl {
+    fn new(boot_info: &'static BootInfo, afio: &mut afio::Parts, delay: &mut Delay) -> BoardImpl {
         let mut dp = unsafe { Peripherals::steal() };
         let mut gpioa = dp.GPIOA.split();
         let mut gpiob = dp.GPIOB.split();
@@ -61,7 +59,7 @@ impl Board for BoardImpl {
         stusb4500_alert.enable_interrupt(&mut dp.EXTI);
 
         Self {
-            development_mode: board_data.map(|bd| bd[0] != 0).unwrap_or_default(),
+            development_mode: boot_info.board_data().get(0).map(|dev_mode| *dev_mode != 0).unwrap_or_default(),
             stusb4500_alert,
             _stusb4500_reset: stusb4500_reset,
         }

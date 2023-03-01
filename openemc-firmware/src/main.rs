@@ -260,11 +260,7 @@ mod app {
 
         // Create board handler.
         defmt::info!("board new");
-        let mut board = ThisBoard::new(
-            if BootInfo::is_from_bootloader() { Some(&bi.board_data) } else { None },
-            &mut afio,
-            &mut delay,
-        );
+        let mut board = ThisBoard::new(bi, &mut afio, &mut delay);
         let power_mode = board.power_mode();
         defmt::info!("board new done");
 
@@ -274,10 +270,10 @@ mod app {
         }
         defmt::info!("EMC model:      0x{:02x}", bi.emc_model);
         defmt::info!("board model:    {:a}", bi.board_model());
-        defmt::info!("I2C address:    0x{:02x} (pins remapped: {:?})", bi.i2c_addr, bi.i2c_remap);
-        defmt::info!("IRQ pin:        {} (mode: 0b{:04b})", bi.irq_pin, bi.irq_pin_cfg);
-        defmt::info!("boot reason:    0x{:04x}", bi.boot_reason);
-        defmt::info!("reset status:   0x{:02x}", bi.reset_status.0);
+        defmt::info!("I2C address:    0x{:02x} (pins remapped: {:?})", ThisBoard::I2C_ADDR, ThisBoard::I2C_REMAP);
+        defmt::info!("IRQ pin:        {} (mode: 0b{:04b})", ThisBoard::IRQ_PIN, ThisBoard::IRQ_PIN_CFG);
+        BootReason::log(bi.boot_reason);
+        bi.reset_status.log();
         defmt::info!("start reason:   0x{:02x}", bi.start_reason);
 
         // Verify compatibility.
@@ -336,12 +332,12 @@ mod app {
         // Configure user GPIO.
         let mut usable = [0xffff; board::PORTS];
         board.limit_usable(&mut usable);
-        if bi.i2c_remap {
+        if ThisBoard::I2C_REMAP {
             usable[1] &= !(1 << 8 | 1 << 9);
         } else {
             usable[1] &= !(1 << 6 | 1 << 7);
         }
-        usable[bi.irq_pin as usize / 16] &= !(1 << (bi.irq_pin % 16));
+        usable[ThisBoard::IRQ_PIN as usize / 16] &= !(1 << (ThisBoard::IRQ_PIN % 16));
         let ugpio = MaskedGpio::new(usable);
 
         // Initialize I2C bus 2 master.
@@ -394,7 +390,7 @@ mod app {
         // Configure IRQ pin.
         let mut usable_exti = 0b0000_0000_0000_1111_1111_1111_1111_1111;
         board.limit_usable_exti(&mut usable_exti);
-        let irq = IrqState::new(bi.irq_pin, bi.irq_pin_cfg, usable_exti);
+        let irq = IrqState::new(ThisBoard::IRQ_PIN, ThisBoard::IRQ_PIN_CFG, usable_exti);
         unsafe { irq::unmask_exti() };
 
         // Simulate PD IRQs.
@@ -405,7 +401,7 @@ mod app {
         // Enable I2C register slave.
         let i2c_reg_slave = match power_mode {
             PowerMode::Full => {
-                let slave = match BootInfo::get().i2c_remap {
+                let slave = match ThisBoard::I2C_REMAP {
                     true => {
                         let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
                         let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
@@ -413,7 +409,7 @@ mod app {
                             cx.device.I2C1,
                             (scl, sda),
                             &mut afio.mapr,
-                            BootInfo::get().i2c_addr,
+                            ThisBoard::I2C_ADDR,
                             clocks,
                         );
                         i2c.listen_buffer();
@@ -428,7 +424,7 @@ mod app {
                             cx.device.I2C1,
                             (scl, sda),
                             &mut afio.mapr,
-                            BootInfo::get().i2c_addr,
+                            ThisBoard::I2C_ADDR,
                             clocks,
                         );
                         i2c.listen_buffer();
