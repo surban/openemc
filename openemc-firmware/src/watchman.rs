@@ -117,6 +117,11 @@ impl Watchman {
                 self.dog.feed();
                 true
             }
+            _ if option_env!("DISABLE_WATCHDOG").is_some() => {
+                defmt::warn!("petting hardware watchdog because watchdog is disabled");
+                self.dog.feed();
+                true
+            }
             _ => {
                 defmt::error!("cannot pet hardware watchdog");
                 false

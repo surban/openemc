@@ -304,11 +304,7 @@ mod app {
 
         // Start watchdog and its manager.
         let dog = IndependentWatchdog::new(cx.device.IWDG);
-        let watchman = Watchman::new(
-            dog,
-            120u64.secs(),
-            power_mode == PowerMode::Full && option_env!("DISABLE_WATCHDOG").is_none(),
-        );
+        let watchman = Watchman::new(dog, 120u64.secs(), power_mode == PowerMode::Full);
         unwrap!(watchdog_petter::spawn());
 
         // Initialize RTC.
@@ -475,7 +471,7 @@ mod app {
     }
 
     /// Pets the independent hardware watchdog.
-    #[task(shared = [watchman, bkp], priority = 3)]
+    #[task(shared = [watchman, bkp], priority = 1)]
     fn watchdog_petter(mut cx: watchdog_petter::Context) {
         if !cx.shared.watchman.lock(|watchman| watchman.pet_hardware_watchdog()) {
             cx.shared.bkp.lock(|bkp| BootReason::WatchdogTimeout.set(bkp));

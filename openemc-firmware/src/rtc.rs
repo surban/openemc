@@ -239,7 +239,7 @@ impl Rtc {
 
     /// Clears the alarm.
     pub fn silence_alarm(&mut self) -> Result<(), RtcNotReady> {
-        defmt::info!("silenting RTC alarm");
+        defmt::info!("silencing RTC alarm");
         self.modify(|rtc| rtc.crl.modify(|_, w| w.alrf().clear()))
     }
 
