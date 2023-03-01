@@ -179,7 +179,7 @@ where
             snk_ready_since: None,
             fsm_attached_since: None,
             last_fsm_reset: None,
-            reset: ResetState::Off,
+            reset: ResetState::None,
             last_pin_reset: None,
             last_register_reset: None,
             last_soft_reset: None,
