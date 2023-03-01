@@ -341,7 +341,7 @@ mod app {
         let ugpio = MaskedGpio::new(usable);
 
         // Initialize I2C bus 2 master.
-        let mut i2c2 = ThisBoard::I2C2_MODE.map(|mode| {
+        let i2c2 = ThisBoard::I2C2_MODE.map(|mode| {
             // Required for I2C timeouts to work.
             cx.core.DCB.enable_trace();
             cx.core.DWT.enable_cycle_counter();
@@ -354,16 +354,10 @@ mod app {
 
         // Initialize BQ25713.
         let bq25713 = match ThisBoard::BQ25713_CFG {
-            Some(cfg) => match Bq25713::new(defmt::unwrap!(i2c2.as_mut()), cfg) {
-                Ok(bq) => {
-                    defmt::unwrap!(bq25713_periodic::spawn_after(1u64.secs()));
-                    Some(bq)
-                }
-                Err(err) => {
-                    defmt::warn!("Cannot initialize BQ25713: {:?}", err);
-                    None
-                }
-            },
+            Some(cfg) => {
+                defmt::unwrap!(bq25713_periodic::spawn_after(1u64.secs()));
+                Some(Bq25713::new(cfg))
+            }
             None => None,
         };
 
@@ -495,7 +489,7 @@ mod app {
         // Shut down charger, if we are running from battery.
         (cx.shared.i2c2, cx.shared.bq25713).lock(|i2c2, bq25713| {
             if let (Some(i2c2), Some(bq25713)) = (i2c2.as_mut(), bq25713.take()) {
-                if !bq25713.status().ac_stat {
+                if !bq25713.status().map(|s| s.ac_stat).unwrap_or(true) {
                     defmt::info!("Shutting down BQ25713");
                     if let Err(err) = bq25713.shutdown(i2c2) {
                         defmt::error!("Cannot shutdown BQ25713: {}", err);
@@ -705,19 +699,27 @@ mod app {
             |i2c2, bq25713, battery, irq| {
                 if let Some(bq25713) = bq25713.as_mut() {
                     let i2c2 = defmt::unwrap!(i2c2.as_mut());
+                    bq25713.periodic(i2c2);
 
-                    if let Err(err) = bq25713.periodic(i2c2) {
-                        defmt::error!("BQ25713 periodic handling failed: {:?}", err);
-                    }
+                    let mut ac = false;
+                    if let Some(status) = bq25713.status().cloned() {
+                        if status.has_any_fault() {
+                            defmt::warn!("BQ25713 reported a fault: {:?}", bq25713.status());
+                        }
 
-                    let status = bq25713.status();
-                    if status.has_any_fault() {
-                        defmt::warn!("BQ25713 reported a fault: {:?}", bq25713.status());
+                        if status.has_clearable_fault() {
+                            defmt::info!("Clearing BQ25713 fault");
+                            if let Err(err) = bq25713.clear_faults(i2c2) {
+                                defmt::error!("Clearing BQ25713 faults failed: {}", err);
+                            }
+                        }
+
+                        ac = status.ac_stat;
                     }
 
                     match (bq25713.measurement(), ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE, cx.shared.power_mode) {
                         (Some(m), Some(min_mv), PowerMode::Full)
-                            if !status.ac_stat
+                            if !ac
                                 && m.v_bat_mv < min_mv
                                 && monotonics::now().checked_duration_since(*first) >= Some(grace_period) =>
                         {
@@ -732,18 +734,15 @@ mod app {
                         _ => (),
                     }
 
-                    if status.has_clearable_fault() {
-                        defmt::info!("Clearing BQ25713 fault");
-                        if let Err(err) = bq25713.clear_faults(i2c2) {
-                            defmt::error!("Clearing BQ25713 faults failed: {}", err);
-                        }
-                    }
-
                     let report = bq25713.battery();
-                    if battery.as_ref().map(|b| report.changed_significantly(b)).unwrap_or(true) {
+                    let changed = match (&battery, &report) {
+                        (Some(battery), Some(report)) => report.changed_significantly(battery),
+                        (None, None) => false,
+                        _ => true,
+                    };
+                    if changed {
                         defmt::info!("Battery report: {:?}", &report);
-                        *battery = Some(report);
-
+                        *battery = report;
                         irq.pend_soft(IrqState::SUPPLY | IrqState::BATTERY);
                     }
                 }
@@ -1248,6 +1247,12 @@ mod app {
                     if let Some(battery) = battery {
                         value.set_u32(battery.system_voltage_mv);
                     }
+                });
+            }
+            Event::Read { reg: reg::BATTERY_STATUS, value } => {
+                cx.shared.battery.lock(|battery| match battery {
+                    Some(battery) => value.set_u8(if battery.present { 2 } else { 1 }),
+                    None => value.set_u8(0),
                 });
             }
             Event::Read { reg: reg::SUPPLY_TYPE, value } => {

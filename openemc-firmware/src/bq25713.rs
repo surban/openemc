@@ -30,6 +30,8 @@ pub enum Error {
     I2c,
     /// Device responded with wrong id.
     WrongId,
+    /// Device is not initialized.
+    Uninitialized,
 }
 
 /// BQ25713 result.
@@ -157,6 +159,8 @@ impl Bq25713Status {
 /// Battery status.
 #[derive(Format, Default, Clone, PartialEq, Eq)]
 pub struct Battery {
+    /// Battery present?
+    pub present: bool,
     /// Battery voltage in mV.
     pub voltage_mv: u32,
     /// Battery current in mA.
@@ -182,7 +186,8 @@ impl Battery {
     pub fn changed_significantly(&self, other: &Battery) -> bool {
         const DIFF: u32 = 75;
 
-        self.voltage_mv.abs_diff(other.voltage_mv) >= DIFF
+        self.present != other.present
+            || self.voltage_mv.abs_diff(other.voltage_mv) >= DIFF
             || self.current_ma.abs_diff(other.current_ma) >= DIFF
             || self.system_voltage_mv.abs_diff(other.system_voltage_mv) >= DIFF
             || self.input_voltage_mv.abs_diff(other.input_voltage_mv) >= DIFF
@@ -229,6 +234,7 @@ impl From<Charging> for u8 {
 pub struct Bq25713<I2C> {
     addr: u8,
     cfg: Bq25713Cfg,
+    initialized: bool,
     adc_triggered: bool,
     measurement: Option<Bq25713Measurement>,
     status: Bq25713Status,
@@ -272,79 +278,88 @@ where
     /// Creates a new charger instance.
     ///
     /// `cfg` specifies configuration.
-    pub fn new(i2c: &mut I2C, cfg: Bq25713Cfg) -> Result<Self> {
-        let mut this = Self {
+    pub fn new(cfg: Bq25713Cfg) -> Self {
+        defmt::info!("BQ25713 at 0x{:x} created", cfg.addr);
+
+        Self {
             addr: cfg.addr,
             cfg: cfg.clone(),
+            initialized: false,
             adc_triggered: false,
             measurement: None,
             status: Default::default(),
             charge_enabled: false,
             _i2c: PhantomData,
-        };
+        }
+    }
+
+    /// Initialize the charger.
+    fn init(&mut self, i2c: &mut I2C) -> Result<()> {
+        defmt::info!("BQ25713 init");
 
         // Reset.
-        if cfg.reset {
+        if self.cfg.reset {
             defmt::info!("BQ25713 reset");
-            this.modify(i2c, REG_CHARGE_OPTION_3_HI, |v| v | 1 << 6)?;
+            self.modify(i2c, REG_CHARGE_OPTION_3_HI, |v| v | 1 << 6)?;
             for _ in 0..10 {
-                this.read(i2c, REG_CHARGE_OPTION_3_HI, 1)?;
+                self.read(i2c, REG_CHARGE_OPTION_3_HI, 1)?;
             }
-            while this.read(i2c, REG_CHARGE_OPTION_3_HI, 1)?[0] & (1 << 6) != 0 {
+            while self.read(i2c, REG_CHARGE_OPTION_3_HI, 1)?[0] & (1 << 6) != 0 {
                 defmt::trace!("BQ25713 reset in progress");
             }
             for _ in 0..10 {
-                this.read(i2c, REG_CHARGE_OPTION_3_HI, 1)?;
+                self.read(i2c, REG_CHARGE_OPTION_3_HI, 1)?;
             }
         }
 
         // Verify id.
-        defmt::debug!("read BQ25713 id at address 0x{:x}", cfg.addr);
-        let manufacture_id = this.read(i2c, REG_MANUFACTURE_ID, 1)?;
-        let device_id = this.read(i2c, REG_DEVICE_ID, 1)?;
+        defmt::debug!("read BQ25713 id at address 0x{:x}", self.cfg.addr);
+        let manufacture_id = self.read(i2c, REG_MANUFACTURE_ID, 1)?;
+        let device_id = self.read(i2c, REG_DEVICE_ID, 1)?;
         defmt::debug!(
             "BQ25713 at 0x{:x} has manufacture id 0x{:x} and device id 0x{:x}",
-            cfg.addr,
+            self.addr,
             manufacture_id[0],
             device_id[0]
         );
         if !(manufacture_id[0] == MANUFACTURE_ID && DEVICE_IDS.contains(&device_id[0])) {
             return Err(Error::WrongId);
         }
+        self.initialized = true;
 
         // Print minimum system voltage.
-        let min_sys_mv = this.get_min_system_voltage(i2c)?;
+        let min_sys_mv = self.get_min_system_voltage(i2c)?;
         defmt::debug!("Default minimum system voltage is {} mV", min_sys_mv);
 
         // Disable Hi-Z mode.
-        this.modify(i2c, REG_CHARGE_OPTION_3_HI, |v| v & !(1 << 7))?;
+        self.modify(i2c, REG_CHARGE_OPTION_3_HI, |v| v & !(1 << 7))?;
 
         // Disable low power mode.
-        this.modify(i2c, REG_CHARGE_OPTION_0_HI, |v| v & !(1 << 7))?;
+        self.modify(i2c, REG_CHARGE_OPTION_0_HI, |v| v & !(1 << 7))?;
 
         // Disable charging.
-        this.set_charge_enable(i2c, false)?;
+        self.set_charge_enable(i2c, false)?;
 
         // Set watchdog timer to 5s.
-        this.modify(i2c, REG_CHARGE_OPTION_0_HI, |v| v & !(0b11 << 5) | (0b01 << 5))?;
+        self.modify(i2c, REG_CHARGE_OPTION_0_HI, |v| v & !(0b11 << 5) | (0b01 << 5))?;
 
         // Set current limit through registers.
-        this.modify(i2c, REG_CHARGE_OPTION_2_LO, |v| v & !(1 << 7))?;
+        self.modify(i2c, REG_CHARGE_OPTION_2_LO, |v| v & !(1 << 7))?;
 
         // Enable IBAT and PSYS measurements.
-        this.modify(i2c, REG_CHARGE_OPTION_1_HI, |v| v | (1 << 7) | (1 << 4))?;
+        self.modify(i2c, REG_CHARGE_OPTION_1_HI, |v| v | (1 << 7) | (1 << 4))?;
 
         // Set configuration.
-        this.set_sys_short_hiccup(i2c, cfg.sys_short)?;
-        this.set_min_system_voltage(i2c, cfg.min_sys_mv)?;
-        this.set_min_input_voltage(i2c, cfg.min_input_mv)?;
-        this.set_max_charge_voltage(i2c, cfg.max_battery_mv)?;
+        self.set_sys_short_hiccup(i2c, self.cfg.sys_short)?;
+        self.set_min_system_voltage(i2c, self.cfg.min_sys_mv)?;
+        self.set_min_input_voltage(i2c, self.cfg.min_input_mv)?;
+        self.set_max_charge_voltage(i2c, self.cfg.max_battery_mv)?;
 
-        // Update status.
-        this.update_status(i2c)?;
+        // Read initial status.
+        self.update_status(i2c)?;
 
         defmt::info!("BQ25713 initialized");
-        Ok(this)
+        Ok(())
     }
 
     /// Enters low power and Hi-Z mode.
@@ -360,6 +375,11 @@ where
         self.modify(i2c, REG_CHARGE_OPTION_3_HI, |v| v | (1 << 7))?;
 
         Ok(())
+    }
+
+    /// Whether the charger is initiailzied and ready.
+    pub fn initialized(&self) -> bool {
+        self.initialized
     }
 
     /// Updates the values from the ADC converter.
@@ -406,14 +426,24 @@ where
         Ok(())
     }
 
+    /// Checks whether the device is initiailzied.
+    fn check_initialized(&self) -> Result<()> {
+        match self.initialized {
+            true => Ok(()),
+            false => Err(Error::Uninitialized),
+        }
+    }
+
     /// Clear the fault status.
     pub fn clear_faults(&mut self, i2c: &mut I2C) -> Result<()> {
+        self.check_initialized()?;
         defmt::debug!("Clearing BQ25713 fault status");
         self.write(i2c, REG_CHARGER_STATUS_LO, &[0x00])
     }
 
     /// Sets the input current limit.
     pub fn set_max_input_current(&mut self, i2c: &mut I2C, ma: u32) -> Result<()> {
+        self.check_initialized()?;
         defmt::debug!("Setting maximum input current to {} mA", ma);
         let v = (ma / 50) as u8 & 0b01111111;
         self.write(i2c, REG_IIN_HOST, &[v])
@@ -461,6 +491,7 @@ where
 
     /// Enables or disables charging.
     pub fn set_charge_enable(&mut self, i2c: &mut I2C, enable: bool) -> Result<()> {
+        self.check_initialized()?;
         defmt::debug!("Setting charge enabled to {}", enable);
         self.modify(i2c, REG_CHARGE_OPTION_0_LO, |v| if enable { v & !(1 << 0) } else { v | (1 << 0) })?;
         self.charge_enabled = enable;
@@ -469,22 +500,27 @@ where
 
     /// Whether charging is enabled.
     pub fn is_charge_enabled(&self) -> bool {
-        self.charge_enabled
+        self.initialized && self.charge_enabled
     }
 
     /// The current status.
-    pub fn status(&self) -> &Bq25713Status {
-        &self.status
+    pub fn status(&self) -> Option<&Bq25713Status> {
+        self.initialized.then_some(&self.status)
     }
 
     /// The current AD converter measurement.
     pub fn measurement(&self) -> Option<&Bq25713Measurement> {
-        self.measurement.as_ref()
+        if self.initialized {
+            self.measurement.as_ref()
+        } else {
+            None
+        }
     }
 
     /// The battery status.
-    pub fn battery(&self) -> Battery {
-        Battery {
+    pub fn battery(&self) -> Option<Battery> {
+        self.initialized.then(|| Battery {
+            present: true,
             voltage_mv: self.measurement.as_ref().map(|m| m.v_bat_mv).unwrap_or_default(),
             current_ma: self
                 .measurement
@@ -517,16 +553,27 @@ where
             } else {
                 Charging::Off
             },
-        }
+        })
     }
 
-    /// Call this periodically (approx. every second) to handle communication with the device.
-    pub fn periodic(&mut self, i2c: &mut I2C) -> Result<()> {
+    fn do_periodic(&mut self, i2c: &mut I2C) -> Result<()> {
+        if !self.initialized {
+            self.init(i2c)?;
+        }
+
         self.update_status(i2c)?;
         self.update_adc(i2c)?;
         self.set_charge_current(i2c, self.cfg.max_charge_ma)?;
 
         Ok(())
+    }
+
+    /// Call this periodically (approx. every second) to handle communication with the device.
+    pub fn periodic(&mut self, i2c: &mut I2C) {
+        if let Err(err) = self.do_periodic(i2c) {
+            defmt::warn!("BQ25713 failed: {}", err);
+            self.initialized = false;
+        }
     }
 }
 

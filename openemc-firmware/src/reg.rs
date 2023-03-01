@@ -232,6 +232,10 @@ pub const BATTERY_CURRENT: u8 = 0x86;
 /// System voltage measured by the battery charger in mV. (read-only, u32)
 pub const BATTERY_SYSTEM_VOLTAGE: u8 = 0x87;
 
+/// Battery status. (read-only, u8)
+/// 0=unknown, 1=not present, 2=present.
+pub const BATTERY_STATUS: u8 = 0x88;
+
 /// External power supply present. (read-only, u8)
 /// 0=unknown, 1=disconnected, 2=USB default, 3=USB PD contract, 4=USB 1.5A, 5=USB 3.0A, 6=negotiating.
 pub const SUPPLY_TYPE: u8 = 0x90;
