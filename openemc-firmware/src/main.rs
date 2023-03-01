@@ -216,30 +216,12 @@ mod app {
     /// Exclusive resources.
     #[local]
     struct Local {
-        /// Offset in copyright string.
-        copyright_offset: usize,
-        /// MFD cell index.
-        mfd_cell_index: usize,
         /// I2C slave.
         i2c_reg_slave: Option<RemappableI2CRegSlave>,
         /// AD converter.
         adc: Adc<ADC1>,
         /// AD converter inputs.
         adc_inp: AdcInputs,
-        /// Index of PWM timer.
-        pwm_timer_index: u8,
-        /// Index of PWM channel.
-        pwm_channel_index: u8,
-        /// Reset the RTC prescaler.
-        rtc_reset_prescaler: bool,
-        /// Undervoltage blink LED state.
-        undervoltage_blink_state: bool,
-        /// Undervoltage blink count.
-        undervoltage_blink_count: usize,
-        /// Charge LED blink state.
-        charge_blink_state: u8,
-        /// Time when supply was attached, for charge LED.
-        supplying_since: Option<Instant>,
     }
 
     /// Initialization (entry point).
@@ -485,20 +467,7 @@ mod app {
                 battery: None,
                 power_mode,
             },
-            Local {
-                copyright_offset: 0,
-                mfd_cell_index: 0,
-                i2c_reg_slave,
-                adc,
-                adc_inp,
-                pwm_timer_index: 0,
-                pwm_channel_index: 0,
-                rtc_reset_prescaler: false,
-                undervoltage_blink_state: false,
-                undervoltage_blink_count: 0,
-                charge_blink_state: 0,
-                supplying_since: None,
-            },
+            Local { i2c_reg_slave, adc, adc_inp },
             init::Monotonics(mono),
         )
     }
@@ -559,7 +528,7 @@ mod app {
     }
 
     /// Check RTC clock source and change if necessary.
-    #[task(shared = [rtc, bkp], local = [rtc_reset_prescaler])]
+    #[task(shared = [rtc, bkp], local = [reset_prescaler: bool = false])]
     fn check_rtc_src(cx: check_rtc_src::Context) {
         (cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| {
             let lse_ready = ClockSrc::Lse.is_ready();
@@ -577,16 +546,16 @@ mod app {
                 let new_src = if lse_ready { ClockSrc::Lse } else { ClockSrc::Lsi };
                 defmt::info!("changing RTC source from {} to {}", cur_src, new_src);
                 rtc.set_clock_src(bkp, new_src);
-                *cx.local.rtc_reset_prescaler = true;
+                *cx.local.reset_prescaler = true;
             }
 
             match rtc.clock_src() {
-                Some(clock_src) if *cx.local.rtc_reset_prescaler => {
+                Some(clock_src) if *cx.local.reset_prescaler => {
                     let prescaler = unwrap!(clock_src.prescaler()) - Rtc::PRESCALER_NEG_OFFSET;
                     match rtc.set_prescalar(prescaler) {
                         Ok(()) => {
                             rtc.set_slowdown(bkp, 64);
-                            *cx.local.rtc_reset_prescaler = false;
+                            *cx.local.reset_prescaler = false;
                         }
                         Err(_) => {
                             defmt::warn!("cannot set RTC prescaler");
@@ -787,12 +756,12 @@ mod app {
     }
 
     /// Performs power off when battery has reached lower voltage limit.
-    #[task(shared = [board], local = [undervoltage_blink_state, undervoltage_blink_count], capacity = 1)]
+    #[task(shared = [board], local = [blink_state: bool = false, blink_count: u8 = 0], capacity = 1)]
     fn undervoltage_power_off(mut cx: undervoltage_power_off::Context) {
-        if *cx.local.undervoltage_blink_count < 100 {
-            *cx.local.undervoltage_blink_state = !*cx.local.undervoltage_blink_state;
-            *cx.local.undervoltage_blink_count += 1;
-            cx.shared.board.lock(|board| board.set_power_led(*cx.local.undervoltage_blink_state));
+        if *cx.local.blink_count < 100 {
+            *cx.local.blink_state = !*cx.local.blink_state;
+            *cx.local.blink_count += 1;
+            cx.shared.board.lock(|board| board.set_power_led(*cx.local.blink_state));
             defmt::unwrap!(undervoltage_power_off::spawn_after(100u64.millis()));
         } else {
             defmt::warn!("Undervoltage power off");
@@ -801,7 +770,10 @@ mod app {
     }
 
     /// Controls the charging LED.
-    #[task(shared = [battery, power_supply, board], local = [charge_blink_state, supplying_since])]
+    #[task(
+        shared = [battery, power_supply, board],
+        local = [blink_state: u8 = 0, supplying_since: Option<Instant> = None],
+    )]
     fn charge_led(cx: charge_led::Context) {
         (cx.shared.battery, cx.shared.power_supply, cx.shared.board).lock(|battery, power_supply, board| {
             let supplying = power_supply.as_ref().map(|s| s.is_connected()).unwrap_or_default();
@@ -832,14 +804,14 @@ mod app {
 
             let led = match (supplying, should_charge, charging_error) {
                 (false, _, _) => false,
-                (true, true, false) => *cx.local.charge_blink_state / 10 == 1,
+                (true, true, false) => *cx.local.blink_state / 10 == 1,
                 (true, true, true) if grace => true,
-                (true, true, true) => *cx.local.charge_blink_state % 2 == 1,
+                (true, true, true) => *cx.local.blink_state % 2 == 1,
                 (true, false, _) => true,
             };
             board.set_charging_led(led);
 
-            *cx.local.charge_blink_state = (*cx.local.charge_blink_state + 1) % 20;
+            *cx.local.blink_state = (*cx.local.blink_state + 1) % 20;
         });
         defmt::unwrap!(charge_led::spawn_after(100u64.millis()));
     }
@@ -913,10 +885,18 @@ mod app {
     }
 
     /// I2C event interrupt handler.
-    #[task(binds = I2C1_EV,
-        local = [i2c_reg_slave, copyright_offset, mfd_cell_index, pwm_timer_index, pwm_channel_index],
+    #[task(
+        binds = I2C1_EV,
+        local = [
+            i2c_reg_slave,
+            copyright_offset: usize = 0,
+            mfd_cell_index: usize = 0,
+            pwm_timer_index: u8 = 0,
+            pwm_channel_index: u8 = 0,
+        ],
         shared = [start_bootloader, irq, ugpio, bkp, watchman, rtc, adc_buf, pwm_timers, board, power_supply, battery],
-        priority = 2)]
+        priority = 2,
+    )]
     fn i2c1_ev(mut cx: i2c1_ev::Context) {
         let Some(i2c_reg_slave) = cx.local.i2c_reg_slave.as_mut() else { return };
         let res = i2c_reg_slave.event();
