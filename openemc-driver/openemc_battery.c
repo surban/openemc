@@ -27,6 +27,7 @@ struct openemc_battery {
 	struct power_supply *psy;
 	unsigned int irq;
 
+	u8 status;
 	u32 voltage;
 	u32 min_voltage;
 	u32 max_voltage;
@@ -41,6 +42,13 @@ struct openemc_battery {
 static int openemc_battery_update(struct openemc_battery *bat)
 {
 	int ret;
+
+	ret = openemc_read_u8(bat->emc, OPENEMC_BATTERY_STATUS, &bat->status);
+	if (ret < 0)
+		return ret;
+
+	if (bat->status == 0)
+		return 0;
 
 	ret = openemc_read_u32(bat->emc, OPENEMC_BATTERY_VOLTAGE,
 			       &bat->voltage);
@@ -100,7 +108,9 @@ int openemc_battery_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
-		if (bat->charging == 0)
+		if (bat->status != 2)
+			val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
+		else if (bat->charging == 0)
 			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
 		else if (bat->voltage < bat->max_voltage - 100)
 			val->intval = POWER_SUPPLY_STATUS_CHARGING;
