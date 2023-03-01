@@ -259,5 +259,8 @@ pub const SUPPLY_CURRENT: u8 = 0x95;
 /// Resets the system.
 pub const RESET: u8 = 0xf0;
 
+/// Read/write the same data.
+pub const ECHO: u8 = 0xfe;
+
 /// Restarts the bootloader.
 pub const START_BOOTLOADER: u8 = 0xff;

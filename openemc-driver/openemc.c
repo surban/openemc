@@ -1076,6 +1076,36 @@ static ssize_t openemc_cells_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(openemc_cells);
 
+static ssize_t openemc_echo_show(struct device *dev,
+				 struct device_attribute *attr, char *buf)
+{
+	struct openemc *emc = dev_get_drvdata(dev);
+	int ret;
+
+	ret = openemc_read_data(emc, OPENEMC_ECHO, OPENEMC_MAX_DATA_SIZE, buf);
+	if (ret < 0)
+		return 0;
+
+	return OPENEMC_MAX_DATA_SIZE;
+}
+static ssize_t openemc_echo_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct openemc *emc = dev_get_drvdata(dev);
+	int ret;
+
+	if (count > OPENEMC_MAX_DATA_SIZE)
+		count = OPENEMC_MAX_DATA_SIZE;
+
+	ret = openemc_write_data(emc, OPENEMC_ECHO, count, buf);
+	if (ret < 0)
+		return 0;
+
+	return count;
+}
+static DEVICE_ATTR_RW(openemc_echo);
+
 static struct attribute *openemc_attrs[] = {
 	&dev_attr_openemc_version.attr,
 	&dev_attr_openemc_bootloader_version.attr,
@@ -1088,6 +1118,7 @@ static struct attribute *openemc_attrs[] = {
 	&dev_attr_openemc_start_reason.attr,
 	&dev_attr_openemc_program_id.attr,
 	&dev_attr_openemc_cells.attr,
+	&dev_attr_openemc_echo.attr,
 	NULL
 };
 ATTRIBUTE_GROUPS(openemc);

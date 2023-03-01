@@ -886,6 +886,7 @@ mod app {
             mfd_cell_index: usize = 0,
             pwm_timer_index: u8 = 0,
             pwm_channel_index: u8 = 0,
+            echo: [u8; I2C_BUFFER_SIZE] = [0; I2C_BUFFER_SIZE],
         ],
         shared = [start_bootloader, irq, ugpio, bkp, watchman, rtc, adc_buf, pwm_timers, board, power_supply, battery],
         priority = 2,
@@ -1296,6 +1297,13 @@ mod app {
             Event::Write { reg: reg::RESET, .. } => {
                 defmt::info!("reset");
                 cx.shared.bkp.lock(|bkp| boot::reset(bkp));
+            }
+            Event::Read { reg: reg::ECHO, value } => {
+                value.set(cx.local.echo);
+            }
+            Event::Write { reg: reg::ECHO, value } => {
+                cx.local.echo[..value.len()].copy_from_slice(&value);
+                cx.local.echo[value.len()..].fill(0);
             }
             Event::Write { reg: reg::START_BOOTLOADER, .. } => {
                 defmt::info!("requesting start of bootloader");

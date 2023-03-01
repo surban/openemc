@@ -107,8 +107,9 @@
 #define OPENEMC_SUPPLY_VOLTAGE 0x94
 #define OPENEMC_SUPPLY_CURRENT 0x95
 
-/* Reset register definitions */
+/* Misc register definitions */
 #define OPENEMC_RESET 0xf0
+#define OPENEMC_ECHO 0xfe
 #define OPENEMC_START_BOOTLOADER 0xff
 
 /* Bootloader register definitions */
