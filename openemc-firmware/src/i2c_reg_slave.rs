@@ -94,7 +94,7 @@ where
                     self.pos = 0;
                     Ok(Event::Read {
                         reg: self.reg,
-                        value: Reader { state: &mut self.state, buf: &mut self.buf },
+                        value: Reader { was_set: false, state: &mut self.state, buf: &mut self.buf },
                     })
                 }
                 _ => defmt::unreachable!(),
@@ -149,9 +149,10 @@ where
                 }
                 _ => defmt::unreachable!(),
             },
-            State::StartSend => {
-                Ok(Event::Read { reg: self.reg, value: Reader { state: &mut self.state, buf: &mut self.buf } })
-            }
+            State::StartSend => Ok(Event::Read {
+                reg: self.reg,
+                value: Reader { was_set: false, state: &mut self.state, buf: &mut self.buf },
+            }),
             State::Sending => {
                 let to_send = self.buf.get(self.pos).cloned().unwrap_or_default();
                 match self.i2c_event()? {
@@ -265,18 +266,20 @@ impl<'a> Value<'a> {
 pub struct Reader<'a, const BUFFER: usize> {
     state: &'a mut State,
     buf: &'a mut [u8; BUFFER],
+    was_set: bool,
 }
 
 impl<'a, const BUFFER: usize> Reader<'a, BUFFER> {
     /// Provides the register value.
     ///
     /// The length of the value must not exceed `BUFFER`.
-    pub fn set(self, value: &[u8]) {
+    pub fn set(mut self, value: &[u8]) {
         defmt::assert!(value.len() <= BUFFER);
         defmt::debug!("I2C read value: {=[u8]:#x}", value);
         self.buf[..value.len()].copy_from_slice(value);
         self.buf[value.len()..].fill(0);
         *self.state = State::Sending;
+        self.was_set = true;
     }
 
     /// Provides the register value, clipping the provided value as necessary.
@@ -320,5 +323,15 @@ impl<'a, const BUFFER: usize> Reader<'a, BUFFER> {
             ((value >> 48) & 0xff) as u8,
             ((value >> 56) & 0xff) as u8,
         ]);
+    }
+}
+
+impl<'a, const BUFFER: usize> Drop for Reader<'a, BUFFER> {
+    fn drop(&mut self) {
+        if !self.was_set {
+            defmt::warn!("I2C reader dropped");
+            self.buf.fill(0);
+            *self.state = State::Sending;
+        }
     }
 }
