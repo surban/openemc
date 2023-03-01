@@ -75,6 +75,11 @@ impl PowerSupply {
         self.max(other).clone()
     }
 
+    /// Whether the power supply state is unknown.
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown)
+    }
+
     /// Returns whether a power supply is surely detected.
     pub fn is_connected(&self) -> bool {
         match self {

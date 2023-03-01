@@ -655,20 +655,22 @@ mod app {
                     defmt::info!("Power supply: {:?}", report);
 
                     // Configure battery charger.
-                    if let (Some(i2c2), Some(bq25713)) = (i2c2, bq25713) {
-                        defmt::info!("Setting BQ25713 maximum input current to {} mA", report.max_current_ma());
-                        if let Err(err) =
-                            bq25713.set_max_input_current(i2c2, report.max_current_ma()).and_then(|_| {
-                                if report.max_current_ma() > 0 && !bq25713.is_charge_enabled() {
+                    match (i2c2, bq25713) {
+                        (Some(i2c2), Some(bq25713)) if !report.is_unknown() => {
+                            let max_current = report.max_current_ma();
+                            defmt::info!("Setting BQ25713 maximum input current to {} mA", max_current);
+                            if let Err(err) = bq25713.set_max_input_current(i2c2, max_current).and_then(|_| {
+                                if max_current > 0 && !bq25713.is_charge_enabled() {
                                     bq25713.set_charge_enable(i2c2, true)?;
-                                } else if report.max_current_ma() == 0 && bq25713.is_charge_enabled() {
+                                } else if max_current == 0 && bq25713.is_charge_enabled() {
                                     bq25713.set_charge_enable(i2c2, false)?;
                                 }
                                 Ok(())
-                            })
-                        {
-                            defmt::error!("Cannot configure BQ25713 charging: {}", err);
+                            }) {
+                                defmt::error!("Cannot configure BQ25713 charging: {}", err);
+                            }
                         }
+                        _ => (),
                     }
 
                     // Check for power on and shutdown in charging mode.
