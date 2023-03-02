@@ -450,6 +450,8 @@ static int openemc_start_firmware(struct openemc *emc, const char *filename)
 			 "using firmware %s with id %08x (installed: %08x)\n",
 			 filename, firmware_id, emc->program_id);
 
+		strncpy(emc->firmware, filename, ARRAY_SIZE(emc->firmware));
+
 		if (emc->program_id == 0 || emc->program_id != firmware_id) {
 			if (emc->id != OPENEMC_ID_BOOTLOADER) {
 				dev_info(emc->dev, "starting bootloader\n");
@@ -884,11 +886,24 @@ static irqreturn_t openemc_irq_handler(int irq, void *ptr)
 	if (ret < 0)
 		return IRQ_NONE;
 
+	if (pending & BIT(OPENEMC_IRQ_LOG)) {
+		sysfs_notify(&emc->dev->kobj, NULL, "openemc_log");
+
+		emc->log_outstanding_irq++;
+		if (emc->log_outstanding_irq > 100) {
+			dev_dbg(emc->dev, "disabling log interrupt\n");
+			emc->irq_mask &= ~BIT(OPENEMC_IRQ_LOG);
+			openemc_write_u32(emc, OPENEMC_IRQ_MASK, emc->irq_mask);
+		}
+
+		pending &= ~BIT(OPENEMC_IRQ_LOG);
+	}
+
 	for (n = 0; n < OPENEMC_IRQS; n++) {
 		if (pending & BIT(n)) {
 			irq = irq_find_mapping(emc->irq_domain, n);
 			if (irq) {
-				dev_dbg(emc->dev, "Handling HWIRQ %d\n", n);
+				dev_dbg(emc->dev, "handling HWIRQ %d\n", n);
 				handle_nested_irq(irq);
 				handled = true;
 			} else {
@@ -955,6 +970,14 @@ static struct irq_domain_ops openemc_irq_domain_ops = {
 	.alloc = openemc_irq_alloc,
 	.free = openemc_irq_free,
 };
+
+static ssize_t openemc_firmware_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	struct openemc *emc = dev_get_drvdata(dev);
+	return sprintf(buf, "%s", emc->firmware);
+}
+static DEVICE_ATTR_RO(openemc_firmware);
 
 static ssize_t openemc_version_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
@@ -1106,7 +1129,70 @@ static ssize_t openemc_echo_store(struct device *dev,
 }
 static DEVICE_ATTR_RW(openemc_echo);
 
+static ssize_t openemc_log_read(struct file *filp, struct kobject *kobj,
+				struct bin_attribute *bin_attr, char *buf,
+				loff_t off, size_t count)
+{
+	struct openemc *emc = dev_get_drvdata(kobj_to_dev(kobj));
+	int ret;
+
+	if (count < OPENEMC_LOG_LEN)
+		return -EINVAL;
+
+	emc->log_outstanding_irq = 0;
+	if (!(emc->irq_mask & BIT(OPENEMC_IRQ_LOG))) {
+		dev_dbg(emc->dev, "enabling log interrupt\n");
+		emc->irq_mask |= BIT(OPENEMC_IRQ_LOG);
+		openemc_write_u32(emc, OPENEMC_IRQ_MASK, emc->irq_mask);
+	}
+
+	if (emc->log_data[0] == 0) {
+		ret = openemc_read_data(emc, OPENEMC_LOG_READ,
+					OPENEMC_MAX_DATA_SIZE, emc->log_data);
+		if (ret < 0)
+			return ret;
+	}
+
+	if (emc->log_data[0] & OPENEMC_LOG_LOST) {
+		emc->log_data[0] &= ~OPENEMC_LOG_LOST;
+		return -EPIPE;
+	}
+
+	count = emc->log_data[0] & OPENEMC_LOG_LEN;
+	memcpy(buf, emc->log_data + 1, count);
+
+	emc->log_data[0] = 0;
+
+	return count;
+}
+static BIN_ATTR_ADMIN_RO(openemc_log, S32_MAX - 1);
+
+static ssize_t openemc_bootloader_log_read(struct file *filp,
+					   struct kobject *kobj,
+					   struct bin_attribute *bin_attr,
+					   char *buf, loff_t off, size_t count)
+{
+	struct openemc *emc = dev_get_drvdata(kobj_to_dev(kobj));
+	u8 tmp[OPENEMC_MAX_DATA_SIZE];
+	int ret;
+
+	if (count < OPENEMC_LOG_LEN)
+		return -EINVAL;
+
+	ret = openemc_read_data(emc, OPENEMC_BOOTLOADER_LOG_READ,
+				OPENEMC_MAX_DATA_SIZE, tmp);
+	if (ret < 0)
+		return ret;
+
+	count = tmp[0] & OPENEMC_LOG_LEN;
+	memcpy(buf, tmp + 1, count);
+
+	return count;
+}
+static BIN_ATTR_ADMIN_RO(openemc_bootloader_log, 65536);
+
 static struct attribute *openemc_attrs[] = {
+	&dev_attr_openemc_firmware.attr,
 	&dev_attr_openemc_version.attr,
 	&dev_attr_openemc_bootloader_version.attr,
 	&dev_attr_openemc_copyright.attr,
@@ -1121,7 +1207,15 @@ static struct attribute *openemc_attrs[] = {
 	&dev_attr_openemc_echo.attr,
 	NULL
 };
-ATTRIBUTE_GROUPS(openemc);
+
+static struct bin_attribute *openemc_bin_attrs[] = {
+	&bin_attr_openemc_log, &bin_attr_openemc_bootloader_log, NULL
+};
+
+static const struct attribute_group openemc_group = {
+	.attrs = openemc_attrs,
+	.bin_attrs = openemc_bin_attrs
+};
 
 static int openemc_get_mfd_cells(struct openemc *emc)
 {
@@ -1319,7 +1413,7 @@ static int openemc_i2c_probe(struct i2c_client *i2c)
 		return ret;
 	}
 
-	ret = devm_device_add_groups(&i2c->dev, openemc_groups);
+	ret = devm_device_add_group(&i2c->dev, &openemc_group);
 	if (ret < 0)
 		return ret;
 

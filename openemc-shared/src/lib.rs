@@ -22,6 +22,12 @@
 
 use defmt::Format;
 
+/// Bootloader log size.
+pub const BOOTLOADER_LOG_SIZE: usize = 1024;
+
+/// Log buffer size.
+pub const LOG_SIZE: usize = 8192;
+
 /// Information about the boot for the user program.
 #[repr(C)]
 #[derive(Clone, Copy)]

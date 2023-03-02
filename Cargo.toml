@@ -1,18 +1,13 @@
 [workspace]
-members = ["xtask"]
-
+members = ["openemc-log", "openemc-pack", "xtask"]
 exclude = [
+    "defmt-ringbuf",
     "openemc-bootloader",
     "openemc-firmware",
-    "openemc-pack",
     "openemc-shared",
 ]
-
-[profile.devrel]
-inherits = "release"
-lto = false
 
 [profile.release]
 opt-level = 'z'
 lto = 'fat'
-debug = 2
+strip = 'symbols'

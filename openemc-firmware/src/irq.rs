@@ -46,6 +46,9 @@ impl<const PORTS: usize> IrqState<PORTS> {
     /// Supply interrupt flag.
     pub const SUPPLY: u32 = 1 << 21;
 
+    /// Log interrupt flag.
+    pub const LOG: u32 = 1 << 22;
+
     /// Initializes the IRQ state.
     pub fn new(irq_pin: u8, irq_pin_cfg: u8, controlled: u32) -> Self {
         // Configure IRQ pin.
@@ -111,7 +114,7 @@ impl<const PORTS: usize> IrqState<PORTS> {
 
     /// Sets the IRQ mask (0=disabled, 1=enabled).
     pub fn set_mask(&mut self, mask: u32) {
-        defmt::info!("IRQ mask: {:b}", mask);
+        defmt::debug!("IRQ mask: {:b}", mask);
         self.mask = mask;
 
         let dp = unsafe { Peripherals::steal() };
@@ -129,7 +132,7 @@ impl<const PORTS: usize> IrqState<PORTS> {
     /// Sets the EXTI rising edge trigger mask (0=disabled, 1=enabled).
     pub fn set_exti_trigger_raising_edge(&mut self, mask: u32) {
         let dp = unsafe { Peripherals::steal() };
-        defmt::info!("IRQ trigger raising edge: {:b}", mask);
+        defmt::debug!("IRQ trigger raising edge: {:b}", mask);
         free(|_| dp.EXTI.rtsr.modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
     }
 
@@ -142,7 +145,7 @@ impl<const PORTS: usize> IrqState<PORTS> {
     /// Sets the EXTI falling edge trigger mask (0=disabled, 1=enabled).
     pub fn set_exti_trigger_falling_edge(&mut self, mask: u32) {
         let dp = unsafe { Peripherals::steal() };
-        defmt::info!("IRQ trigger falling edge: {:b}", mask);
+        defmt::debug!("IRQ trigger falling edge: {:b}", mask);
         free(|_| dp.EXTI.ftsr.modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
     }
 
@@ -192,7 +195,7 @@ impl<const PORTS: usize> IrqState<PORTS> {
             let current = self.get_exti_gpio_source();
             let new = current & !controlled | (src & controlled);
 
-            defmt::info!("EXTI GPIO source: {:b}", new);
+            defmt::debug!("EXTI GPIO source: {:b}", new);
 
             dp.AFIO.exticr1.write(|w| unsafe { w.bits(new as u32 & Self::EXTI_GPIO_MASK) });
             dp.AFIO.exticr2.write(|w| unsafe { w.bits((new >> 16) as u32 & Self::EXTI_GPIO_MASK) });

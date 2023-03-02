@@ -7,15 +7,20 @@ version = "0.1.0"
 publish = false
 edition = "2021"
 
+[features]
+default = ["defmt-rtt"]
+#defmt-ringbuf = ["dep:defmt-ringbuf", "panic-probe/print-defmt"]
+
 [dependencies]
 openemc-shared = { path = "../openemc-shared" }
+defmt-ringbuf = { path = "../defmt-ringbuf", optional = true }
 
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7", features = ["device"] }
 stm32f1 = { version = "0.15", features = ["stm32f103", "rt"] }
 panic-probe = "0.3"
 defmt = "0.3"
-defmt-rtt = "0.4"
+defmt-rtt = { version = "0.4", optional = true }
 
 [dev-dependencies]
 defmt-test = "0.3"

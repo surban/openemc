@@ -1,0 +1,13 @@
+[package]
+name = "defmt-ringbuf"
+description = "defmt persistent ring buffer transport"
+authors = ["Sebastian Urban <surban@surban.net>"]
+categories = ["embedded", "no-std"]
+keywords = ["defmt", "defmt-transport"]
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+defmt = "0.3"
+critical-section = "1"

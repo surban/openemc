@@ -133,8 +133,8 @@ pub fn init() {
     cp.SCB.clear_sleeponexit();
 
     // Apply workaround to make logging work when device is sleeping.
-    match option_env!("DEFMT_LOG") {
-        Some("off") | None => {
+    match (cfg!(feature = "defmt-rtt"), option_env!("DEFMT_LOG")) {
+        (false, _) | (true, Some("off") | None) => {
             dp.DBGMCU
                 .cr
                 .modify(|_, w| w.dbg_sleep().clear_bit().dbg_stop().clear_bit().dbg_standby().clear_bit());
@@ -155,6 +155,8 @@ pub fn start_bootloader() -> ! {
 
     let mut cp = unsafe { cortex_m::Peripherals::steal() };
     cortex_m::interrupt::disable();
+
+    defmt::warn!("starting bootloader");
 
     // Disable and clear SysTick interrupt.
     cp.SYST.disable_interrupt();
@@ -181,20 +183,23 @@ pub fn start_bootloader() -> ! {
     }
 }
 
-/// Powers off system and enter standby mode after reset.
+/// Powers off system by entering standby mode after reset.
 pub fn power_off(bkp: &mut BackupDomain) -> ! {
+    defmt::warn!("resetting for power off");
     BootReason::PowerOff.set(bkp);
     SCB::sys_reset();
 }
 
 /// Restart system by powering it off and then on again.
 pub fn restart(bkp: &mut BackupDomain) -> ! {
+    defmt::warn!("resetting for restart");
     BootReason::Restart.set(bkp);
     SCB::sys_reset();
 }
 
 /// Reset the EMC.
 pub fn reset(bkp: &mut BackupDomain) -> ! {
+    defmt::warn!("resetting");
     BootReason::Reset.set(bkp);
     SCB::sys_reset();
 }
@@ -232,6 +237,7 @@ pub fn enter_standby() -> ! {
     cp.SCB.set_sleepdeep();
 
     // Enter standby mode.
+    defmt::warn!("entering standby mode");
     loop {
         rtic::export::wfi()
     }

@@ -522,7 +522,7 @@ where
                                     .into_iter()
                                     .map(SupplyPdo::parse)
                                     .collect();
-                                defmt::debug!("USB PDOs received: {:?}", self.supply_pdos.as_slice());
+                                defmt::info!("USB PDOs received: {:?}", self.supply_pdos.as_slice());
                             } else {
                                 defmt::warn!("USB PD message length does not match number of PDOs");
                             }

@@ -38,7 +38,12 @@ mod supply;
 mod util;
 mod watchman;
 
+// Logging provider.
+#[cfg(feature = "defmt-ringbuf")]
+use defmt_ringbuf as _;
+#[cfg(feature = "defmt-rtt")]
 use defmt_rtt as _;
+
 use panic_probe as _;
 use stm32f1xx_hal as _;
 
@@ -105,6 +110,23 @@ const ID_STANDALONE: u8 = 0xf0;
 
 /// I2C transfer buffer size.
 pub const I2C_BUFFER_SIZE: usize = 32;
+
+/// Bootloader log buffer.
+#[cfg(feature = "defmt-ringbuf")]
+#[no_mangle]
+#[used]
+#[link_section = ".defmt_log"]
+pub static mut BOOTLOADER_LOG: core::mem::MaybeUninit<
+    defmt_ringbuf::RingBuffer<{ openemc_shared::BOOTLOADER_LOG_SIZE }>,
+> = core::mem::MaybeUninit::uninit();
+
+/// Firmware log buffer.
+#[cfg(feature = "defmt-ringbuf")]
+#[no_mangle]
+#[used]
+#[link_section = ".defmt_log"]
+pub static mut LOG: core::mem::MaybeUninit<defmt_ringbuf::RingBuffer<{ openemc_shared::LOG_SIZE }>> =
+    core::mem::MaybeUninit::uninit();
 
 /// System power mode.
 #[derive(Clone, Copy, Format, PartialEq, Eq)]
@@ -227,6 +249,12 @@ mod app {
     /// Initialization (entry point).
     #[init]
     fn init(mut cx: init::Context) -> (Shared, Local, init::Monotonics) {
+        // Initialize logging.
+        #[cfg(feature = "defmt-ringbuf")]
+        unsafe {
+            defmt_ringbuf::init(LOG.assume_init_mut(), || NVIC::pend(Interrupt::USART3));
+        }
+
         defmt::info!("OpenEMC version {:a}", VERSION);
         defmt::info!("{:a}", COPYRIGHT);
 
@@ -294,6 +322,7 @@ mod app {
             || bi.boot_reason == BootReason::Restart as _
         {
             // Make sure system is powered off for at least one second.
+            defmt::info!("Board off delay");
             delay.delay(1u32.secs());
         }
         if bi.boot_reason == BootReason::PowerOff as _ {
@@ -806,7 +835,14 @@ mod app {
 
             *cx.local.blink_state = (*cx.local.blink_state + 1) % 20;
         });
+
         defmt::unwrap!(charge_led::spawn_after(100u64.millis()));
+    }
+
+    /// Log data avilable.
+    #[task(binds = USART3, shared = [irq])]
+    fn log_available(mut cx: log_available::Context) {
+        cx.shared.irq.lock(|irq| irq.pend_soft(IrqState::LOG))
     }
 
     /// Simulates interrupts on PD0 and PD1.
@@ -1297,6 +1333,33 @@ mod app {
             Event::Write { reg: reg::RESET, .. } => {
                 defmt::info!("reset");
                 cx.shared.bkp.lock(|bkp| boot::reset(bkp));
+            }
+            Event::Read { reg: reg::LOG_READ, value } => {
+                #[cfg(feature = "defmt-ringbuf")]
+                {
+                    let mut buf = [0; I2C_BUFFER_SIZE];
+                    let (len, lost) = defmt_ringbuf::read(&mut buf[1..]);
+                    buf[0] = len as u8;
+                    if lost {
+                        buf[0] |= 1 << 7;
+                    }
+                    value.set(&buf);
+                }
+                #[cfg(not(feature = "defmt-ringbuf"))]
+                value.set(&[0]);
+            }
+            Event::Read { reg: reg::BOOTLOADER_LOG_READ, value } => {
+                #[cfg(feature = "defmt-ringbuf")]
+                {
+                    use defmt_ringbuf::RingBuf;
+                    let mut buf = [0; I2C_BUFFER_SIZE];
+                    let bootloader_log = unsafe { BOOTLOADER_LOG.assume_init_mut() };
+                    let (len, _lost) = bootloader_log.read(&mut buf[1..]);
+                    buf[0] = len as u8;
+                    value.set(&buf);
+                }
+                #[cfg(not(feature = "defmt-ringbuf"))]
+                value.set(&[0]);
             }
             Event::Read { reg: reg::ECHO, value } => {
                 value.set(cx.local.echo);

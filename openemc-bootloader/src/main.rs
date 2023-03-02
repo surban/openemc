@@ -1,6 +1,6 @@
 //
 // OpenEMC bootloader for embedded controllers
-// Copyright (C) 2022 Sebastian Urban <surban@surban.net>
+// Copyright (C) 2022-2023 Sebastian Urban <surban@surban.net>
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -33,15 +33,18 @@ mod timer;
 mod util;
 mod watchdog;
 
-use defmt::Format;
+// Logging provider.
+#[cfg(feature = "defmt-ringbuf")]
+use defmt_ringbuf as _;
+#[cfg(feature = "defmt-rtt")]
 use defmt_rtt as _;
+
 use panic_probe as _;
 
 use core::{ffi::c_void, mem::MaybeUninit, num::NonZeroU32};
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::entry;
-use defmt::unwrap;
-use openemc_shared::{BootInfo, BootReason, ResetStatus};
+use defmt::{unwrap, Format};
 use stm32f1::stm32f103::Peripherals;
 
 use crate::{
@@ -51,6 +54,7 @@ use crate::{
     i2c_slave::I2CSlave,
     util::delay_ms,
 };
+use openemc_shared::{BootInfo, BootReason, ResetStatus};
 
 /// OpenEMC bootloader version.
 pub static VERSION: &[u8] = env!("CARGO_PKG_VERSION").as_bytes();
@@ -92,6 +96,23 @@ fn emc_model() -> u8 {
     }
 }
 
+/// Bootloader log buffer.
+#[cfg(feature = "defmt-ringbuf")]
+#[no_mangle]
+#[used]
+#[link_section = ".defmt_log"]
+pub static mut BOOTLOADER_LOG: core::mem::MaybeUninit<
+    defmt_ringbuf::RingBuffer<{ openemc_shared::BOOTLOADER_LOG_SIZE }>,
+> = core::mem::MaybeUninit::uninit();
+
+/// Firmware log buffer.
+#[cfg(feature = "defmt-ringbuf")]
+#[no_mangle]
+#[used]
+#[link_section = ".defmt_log"]
+pub static mut LOG: core::mem::MaybeUninit<defmt_ringbuf::RingBuffer<{ openemc_shared::LOG_SIZE }>> =
+    core::mem::MaybeUninit::uninit();
+
 /// Signature value for backup register.
 const BACKUP_REG_SIGNATURE_VALUE: u16 = 0xb001;
 
@@ -124,6 +145,12 @@ fn main() -> ! {
     // instead of a system reset.
     bootloader::disable_interrupts();
     bootloader::clean_and_invalidate_caches();
+
+    // Initialize logging.
+    #[cfg(feature = "defmt-ringbuf")]
+    unsafe {
+        defmt_ringbuf::init(BOOTLOADER_LOG.assume_init_mut(), || ());
+    }
 
     // Enable backup domain and check for valid signature.
     backup::enable();

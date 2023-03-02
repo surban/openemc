@@ -98,6 +98,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0db23d29972d99baa3de2ee2ae3f104c10564a6d05a346eb3f4c4f2c0525a06e"
 
 [[package]]
+name = "defmt-ringbuf"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "defmt",
+]
+
+[[package]]
 name = "defmt-rtt"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -162,6 +170,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "defmt",
+ "defmt-ringbuf",
  "defmt-rtt",
  "defmt-test",
  "openemc-shared",

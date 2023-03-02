@@ -9,13 +9,23 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const ARCH: &str = "thumbv7m-none-eabi";
+
 /// Build OpenEMC images.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Build big bootloader for bootloader debugging.
-    #[arg(short, long)]
+    #[arg(long)]
     big_bootloader: bool,
+
+    /// Bootloader log level.
+    #[arg(short, long, default_value = "info")]
+    bootloader_log: String,
+
+    /// Firmware log level.
+    #[arg(short, long, default_value = "info")]
+    log: String,
 
     /// Board to build.
     #[arg(default_value = "generic")]
@@ -42,27 +52,71 @@ fn main() -> anyhow::Result<()> {
 
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
 
-    cmd!(&cargo, "build", "--release")
+    cmd!(&cargo, "build", "--release", "--no-default-features", "--features", "defmt-ringbuf")
         .current_dir(project_root().join("openemc-bootloader"))
         .env("OPENEMC_BOARD", board)
         .env("OPENEMC_BOOTLOADER", bootloader_variant)
+        .env("DEFMT_LOG", &args.bootloader_log)
         .run()?;
-    cmd!(&cargo, "objcopy", "--release", "--", "-O", "binary", format!("../image/{bootloader}.bin"))
-        .current_dir(project_root().join("openemc-bootloader"))
-        .env("OPENEMC_BOARD", board)
-        .env("OPENEMC_BOOTLOADER", bootloader_variant)
-        .run()?;
+    fs::copy(
+        project_root()
+            .join("openemc-bootloader")
+            .join("target")
+            .join(ARCH)
+            .join("release")
+            .join("openemc-bootloader"),
+        project_root().join("image").join(format!("{bootloader}.elf")),
+    )?;
+    cmd!(
+        &cargo,
+        "objcopy",
+        "--release",
+        "--no-default-features",
+        "--features",
+        "defmt-ringbuf",
+        "--",
+        "-O",
+        "binary",
+        format!("../image/{bootloader}.bin")
+    )
+    .current_dir(project_root().join("openemc-bootloader"))
+    .env("OPENEMC_BOARD", board)
+    .env("OPENEMC_BOOTLOADER", bootloader_variant)
+    .env("DEFMT_LOG", &args.bootloader_log)
+    .run()?;
 
-    cmd!(&cargo, "build", "--release")
+    cmd!(&cargo, "build", "--release", "--no-default-features", "--features", "defmt-ringbuf")
         .current_dir(project_root().join("openemc-firmware"))
         .env("OPENEMC_BOARD", board)
         .env("OPENEMC_BOOTLOADER", bootloader_variant)
+        .env("DEFMT_LOG", &args.log)
         .run()?;
-    cmd!(&cargo, "objcopy", "--release", "--", "-O", "binary", format!("../image/{firmware}.bin"))
-        .current_dir(project_root().join("openemc-firmware"))
-        .env("OPENEMC_BOARD", board)
-        .env("OPENEMC_BOOTLOADER", bootloader_variant)
-        .run()?;
+    fs::copy(
+        project_root()
+            .join("openemc-firmware")
+            .join("target")
+            .join(ARCH)
+            .join("release")
+            .join("openemc-firmware"),
+        project_root().join("image").join(format!("{firmware}.elf")),
+    )?;
+    cmd!(
+        &cargo,
+        "objcopy",
+        "--release",
+        "--no-default-features",
+        "--features",
+        "defmt-ringbuf",
+        "--",
+        "-O",
+        "binary",
+        format!("../image/{firmware}.bin")
+    )
+    .current_dir(project_root().join("openemc-firmware"))
+    .env("OPENEMC_BOARD", board)
+    .env("OPENEMC_BOOTLOADER", bootloader_variant)
+    .env("DEFMT_LOG", &args.log)
+    .run()?;
 
     cmd!(
         &cargo,
@@ -79,11 +133,34 @@ fn main() -> anyhow::Result<()> {
 
     fs::remove_file(project_root().join("image").join(format!("{firmware}.bin")))?;
 
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let files = [
+            project_root().join("image").join(format!("{bootloader}.bin")),
+            project_root().join("image").join(format!("{bootloader}.elf")),
+            project_root().join("image").join(format!("{firmware}.emc")),
+            project_root().join("image").join(format!("{firmware}.elf")),
+        ];
+        for file in files {
+            let mut perms = fs::metadata(&file)?.permissions();
+            perms.set_mode(perms.mode() & !0o111);
+            fs::set_permissions(&file, perms)?;
+        }
+    }
+
     println!();
+    println!("Board {board}:");
     println!(
-        "Built {}bootloader image/{bootloader}.bin and OpenEMC firmware image/{firmware}.emc for board {board}",
-        if emc_model == 0xd1 { "debug " } else { "" }
+        "Built {}bootloader image/{bootloader}.{{bin,elf}} with log level {}",
+        if emc_model == 0xd1 { "debug " } else { "" },
+        &args.bootloader_log
     );
+    println!(
+        "Built OpenEMC firmware image/{firmware}.{{emc,elf}} with log level {}",
+        &args.log
+    );
+    println!();
 
     Ok(())
 }

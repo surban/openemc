@@ -259,6 +259,16 @@ pub const SUPPLY_CURRENT: u8 = 0x95;
 /// Resets the system.
 pub const RESET: u8 = 0xf0;
 
+/// Read log.
+/// 32 bytes.
+/// First byte: length with MSB set if data was lost.
+pub const LOG_READ: u8 = 0xfa;
+
+/// Read bootloader log.
+/// 32 bytes.
+/// First byte: length
+pub const BOOTLOADER_LOG_READ: u8 = 0xfb;
+
 /// Read/write the same data.
 pub const ECHO: u8 = 0xfe;
 

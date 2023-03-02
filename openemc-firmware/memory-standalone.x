@@ -12,5 +12,12 @@ SECTIONS
     KEEP(*(.boot_info .boot_info.*));
     . = ALIGN(4);
   } > RAM
+
+  /* Log buffer. */
+  .defmt_log (NOLOAD) : ALIGN(4)
+  {
+    KEEP(*(.defmt_log .defmt_log.*));
+    . = ALIGN(4);
+  } > RAM
 }
 INSERT BEFORE .data;

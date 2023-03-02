@@ -109,6 +109,8 @@
 
 /* Misc register definitions */
 #define OPENEMC_RESET 0xf0
+#define OPENEMC_LOG_READ 0xfa
+#define OPENEMC_BOOTLOADER_LOG_READ 0xfb
 #define OPENEMC_ECHO 0xfe
 #define OPENEMC_START_BOOTLOADER 0xff
 
@@ -145,10 +147,15 @@
 #define OPENEMC_RESET_WINDOW_WATCHDOG BIT(6)
 #define OPENEMC_RESET_LOW_POWER BIT(7)
 
+/* Log data */
+#define OPENEMC_LOG_LEN (OPENEMC_MAX_DATA_SIZE - 1)
+#define OPENEMC_LOG_LOST BIT(7)
+
 /* Interrupts */
 #define OPENEMC_IRQ_RTC_ALARM 17
 #define OPENEMC_IRQ_BATTERY 20
 #define OPENEMC_IRQ_SUPPLY 21
+#define OPENEMC_IRQ_LOG 22
 
 enum openemc_pin_mode {
 	OPENEMC_PIN_MODE_GPIO,
@@ -200,6 +207,7 @@ struct openemc {
 	struct mutex lock;
 
 	u8 id;
+	char firmware[128 + OPENEMC_MAX_DATA_SIZE];
 	char version[OPENEMC_MAX_DATA_SIZE + 1];
 	char bootloader_version[OPENEMC_MAX_DATA_SIZE + 1];
 	char copyright[8 * OPENEMC_MAX_DATA_SIZE];
@@ -220,6 +228,9 @@ struct openemc {
 	struct module *pinctrl_mod;
 
 	u32 wdt_pet_code;
+
+	u8 log_data[OPENEMC_MAX_DATA_SIZE];
+	u8 log_outstanding_irq;
 
 	unsigned int irq;
 	struct irq_domain *irq_domain;

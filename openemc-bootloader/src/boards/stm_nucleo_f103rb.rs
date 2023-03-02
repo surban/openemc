@@ -69,7 +69,7 @@ impl Board for BoardImpl {
 
         // Check for development mode.
         let mut i = 0;
-        while dp.GPIOC.idr.read().idr13().is_low() {
+        while dp.GPIOC.idr.read().idr13().is_low() || option_env!("DEV_MODE").is_some() {
             watchdog::pet();
 
             i += 1;
