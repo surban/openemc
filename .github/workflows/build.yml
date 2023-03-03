@@ -42,7 +42,7 @@ jobs:
       - name: Build firmware
         run: cd openemc-firmware ; cargo build --release --quiet
       - name: Build logger
-        run: cd openemc-log ; cargo build --release --quiet ; cp -fv ../target/release/openemc-log ../image/openemc-log.amd64
+        run: cd openemc-log ; cargo build --release --quiet
       - name: Build packer
         run: cd openemc-pack ; cargo build --quiet
       - name: Build generic firmware package
@@ -52,7 +52,9 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: firmware-images
-          path: image/*
+          path: |
+            image/*
+            target/release/openemc-log
       - name: Show firmware size
         run: ls -l image/
 
