@@ -13,6 +13,7 @@ The following features are implemented:
 
   - communication with the host over I2C and one interrupt line
   - field-upgradable firmware
+  - full logging to host over I2C in production system 
   - power control: system on/off and restart
   - watchdog
   - real-time clock (RTC) with alarm and system wake-up
@@ -20,7 +21,8 @@ The following features are implemented:
   - pin control
   - analog digital converter (ADC)
   - battery charger (BQ25713)
-  - external power supply with USB PD (STUSB4500)
+  - external power supply with USB PD (STUSB4500) and USB charger detector (MAX14636)
+  - charging mode with system power off
   - full devicetree integration
 
 Due to its open-source nature, modular design and usage of the Rust programming
@@ -65,12 +67,14 @@ They will be placed into the `image` directory.
 Here `<BOARD_NAME>` specifies the name of the board; see `openemc-bootloader/src/boards` for a list
 of supported boards. If no board is specified a generic board image will be generated.
 
-This crates two files:
+This crates four files:
 
   - `openemc_bootloader_*.bin` is the bootloader image and should be flashed onto the device,
-  - `openemc_*.emc` is the main firmware and should be placed into the `/lib/firmware` 
-    directory on the target device, where it will be picked up by the driver and 
-    sent to the device.
+  - `openemc_*.emc` is the main firmware and should be placed into the `/lib/firmware`
+    directory on the target device, where it will be picked up by the driver and
+    sent to the device,
+  - `*.elf` are ELF images of the firmware and used for formatting of log messages;
+    they should be placed in `/lib/firmware` on the target device if logging is used.
 
 ### Flashing the bootloader image
 
@@ -84,6 +88,12 @@ Use `st-flash` from STLINK tools to flash the bootloader image:
 Run `scripts/driver-build.sh` to build the drivers as kernel modules.
 You can install them using `scripts/driver-install.sh`.
 
+### Logging
+
+Reading logs over I2C and forwarding to syslog is done by `openemc-log`,
+which should be built for and placed on the target device.
+Example files for systemd integration are located in the `systemd` directory.
+
 ### Devicetree
 
 The driver will only be loaded if it is referenced in the system's devicetree.
@@ -93,8 +103,8 @@ to dynamically load a devicetree overlay into a running system.
 
 ## Development and testing
 
-For development and testing, both the bootloader and main firmware can be flashed 
-and executed directly by invoking 
+For development and testing, both the bootloader and main firmware can be flashed
+and executed directly by invoking
 
     OPENEMC_BOARD=<BOARD_NAME> DEFMT_LOG=info cargo run --release -- --connect-under-reset
 
@@ -106,7 +116,7 @@ The OpenEMC firmware is released under the [GNU GPL version 3],
 meaning that you must release the full source code of your modifications
 if you adapt OpenEMC to your application and/or board.
 
-The OpenEMC drivers are released under the [GNU GPL version 2] or later, 
+The OpenEMC drivers are released under the [GNU GPL version 2] or later,
 following the standard license of the Linux kernel.
 This also requires you to publish all changes you make to the OpenEMC drivers.
 
