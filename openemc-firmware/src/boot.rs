@@ -50,6 +50,7 @@ static mut STANDALONE_BOOT_INFO: BootInfo = BootInfo {
     boot_reason: 0,               // Obtained from backup registers.
     reset_status: ResetStatus(0), // Obtained from reset status register.
     start_reason: 0,
+    powered_on: false,
     id: 0,
     reserved: BootInfo::RESERVED,
     board_data_len: 0,

@@ -50,6 +50,8 @@ pub struct BootInfo {
     pub reset_status: ResetStatus,
     /// Start reason.
     pub start_reason: u8,
+    /// Whether system power is on.
+    pub powered_on: bool,
     /// Id of booted firmware.
     pub id: u32,
     /// Reserved space.

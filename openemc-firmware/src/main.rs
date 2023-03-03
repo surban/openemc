@@ -255,8 +255,8 @@ mod app {
             defmt_ringbuf::init(LOG.assume_init_mut(), || NVIC::pend(Interrupt::USART3));
         }
 
-        defmt::info!("OpenEMC version {:a}", VERSION);
-        defmt::info!("{:a}", COPYRIGHT);
+        defmt::warn!("OpenEMC version {:a}", VERSION);
+        defmt::warn!("{:a}", COPYRIGHT);
 
         boot::init();
 
@@ -291,6 +291,7 @@ mod app {
         let mut board = ThisBoard::new(bi, &mut afio, &mut delay);
         let power_mode = board.power_mode();
         defmt::info!("board new done");
+        board.set_power_led(bi.powered_on);
 
         // Print boot information.
         if !BootInfo::is_from_bootloader() {
@@ -303,6 +304,7 @@ mod app {
         BootReason::log(bi.boot_reason);
         bi.reset_status.log();
         defmt::info!("start reason:   0x{:02x}", bi.start_reason);
+        defmt::info!("powered on:     {}", bi.powered_on);
 
         // Verify compatibility.
         if BootInfo::is_from_bootloader() {

@@ -59,9 +59,6 @@ use openemc_shared::{BootInfo, BootReason, ResetStatus};
 /// OpenEMC bootloader version.
 pub static VERSION: &[u8] = env!("CARGO_PKG_VERSION").as_bytes();
 
-/// Force starting of user program at boot.
-const FORCE_START: bool = false;
-
 /// Boot info block.
 #[no_mangle]
 #[link_section = ".boot_info"]
@@ -180,7 +177,7 @@ fn main() -> ! {
     let mut board = ThisBoard::new();
 
     // Print header.
-    defmt::info!("OpenEMC bootloader version {:a}", VERSION);
+    defmt::warn!("OpenEMC bootloader version {:a}", VERSION);
     defmt::info!("EMC model:    0x{:02x}", emc_model());
     defmt::info!("board model:  {:a}", board.model());
     defmt::info!("I2C address:  0x{:02x} (remap: {:?})", ThisBoard::I2C_ADDR, ThisBoard::I2C_REMAP);
@@ -254,7 +251,8 @@ fn main() -> ! {
 
     // Enter bootloader if required.
     let mut bootloader_result = None;
-    if (bl_board || bl_program || bl_boot_reason || bl_reset_cause) && !FORCE_START {
+    let mut powered_on = false;
+    if (bl_board || bl_program || bl_boot_reason || bl_reset_cause) && option_env!("FORCE_START").is_none() {
         defmt::info!("entering bootloader");
         watchdog::pet();
 
@@ -266,6 +264,7 @@ fn main() -> ! {
 
         defmt::info!("system power on");
         board.system_power_on();
+        powered_on = true;
 
         // Run bootloader.
         loop {
@@ -337,6 +336,7 @@ fn main() -> ! {
                 boot_reason,
                 reset_status,
                 start_reason: bootloader_result.map(|blr| blr as u8).unwrap_or_default(),
+                powered_on,
                 id: program.id,
                 reserved: Default::default(),
                 board_data_len,
@@ -346,9 +346,7 @@ fn main() -> ! {
                 BOOT_INFO.write(boot_info);
             }
 
-            // Disable all peripherals that we can disable.
-            dp.RCC.apb2enr.modify(|_, w| w.afioen().disabled());
-            dp.RCC.apb1enr.modify(|_, w| w.pwren().disabled());
+            // Prepare board for starting.
             board.pre_start();
 
             // Start user program.
