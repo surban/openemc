@@ -1,9 +1,11 @@
 [package]
 name = "defmt-ringbuf"
-description = "defmt persistent ring buffer transport"
+description = "defmt persistent ring buffer logger"
 authors = ["Sebastian Urban <surban@surban.net>"]
 categories = ["embedded", "no-std"]
 keywords = ["defmt", "defmt-transport"]
+readme = "README.md"
+repository = "https://github.com/surban/openemc"
 license = "MIT OR Apache-2.0"
 version = "0.1.0"
 edition = "2021"
