@@ -1,3 +1,4 @@
+defmt-ringbuf/target
 openemc-bootloader/target
 openemc-pack/target
 openemc-firmware/target
