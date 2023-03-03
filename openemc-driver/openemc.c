@@ -18,6 +18,7 @@
 #include <linux/firmware.h>
 #include <linux/crc32.h>
 #include <linux/random.h>
+#include <linux/version.h>
 
 #include "openemc.h"
 
@@ -1165,7 +1166,12 @@ static ssize_t openemc_log_read(struct file *filp, struct kobject *kobj,
 
 	return count;
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
 static BIN_ATTR_ADMIN_RO(openemc_log, S32_MAX - 1);
+#else
+static BIN_ATTR_RO(openemc_log, S32_MAX - 1);
+#endif
 
 static ssize_t openemc_bootloader_log_read(struct file *filp,
 					   struct kobject *kobj,
@@ -1189,7 +1195,12 @@ static ssize_t openemc_bootloader_log_read(struct file *filp,
 
 	return count;
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
 static BIN_ATTR_ADMIN_RO(openemc_bootloader_log, 65536);
+#else
+static BIN_ATTR_RO(openemc_bootloader_log, 65536);
+#endif
 
 static struct attribute *openemc_attrs[] = {
 	&dev_attr_openemc_firmware.attr,
