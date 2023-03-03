@@ -32,7 +32,7 @@ use std::{
     ffi::{c_int, OsString},
     fmt::Write,
     fs::{self, File},
-    io::{ErrorKind, Read, Seek, SeekFrom},
+    io::{ErrorKind, Read, Seek},
     os::{fd::AsRawFd, unix::prelude::OsStringExt},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
@@ -189,7 +189,7 @@ fn perform(opts: &Opts) -> Result<bool> {
 
     while !STOP.load(Ordering::SeqCst) {
         // Read from OpenEMC firmware.
-        log.seek(SeekFrom::Start(0))?;
+        log.rewind()?;
         match log.read(&mut buf) {
             Ok(0) if is_dev && !opts.oneshot && !opts.bootloader => {
                 // Wait for data to arrive.
@@ -214,7 +214,7 @@ fn perform(opts: &Opts) -> Result<bool> {
         loop {
             match stream_decoder.decode() {
                 Ok(frame) => {
-                    let loc = locs.as_ref().map(|locs| locs.get(&frame.index())).flatten();
+                    let loc = locs.as_ref().and_then(|locs| locs.get(&frame.index()));
                     forward_to_logger(&frame, loc, opts.lines);
                 }
                 Err(DecodeError::UnexpectedEof) => break,
@@ -242,9 +242,7 @@ fn main() -> Result<()> {
         env_logger::builder().target(Target::Stdout).filter_level(opts.level).init();
     } else {
         let ident =
-            opts.ident
-                .as_deref()
-                .unwrap_or_else(|| if opts.bootloader { "OpenEMC-bootloader" } else { "OpenEMC" });
+            opts.ident.as_deref().unwrap_or(if opts.bootloader { "OpenEMC-bootloader" } else { "OpenEMC" });
         log::set_boxed_logger(Box::new(syslog::Syslog::new(ident)))?;
         log::set_max_level(LevelFilter::Trace);
     }

@@ -164,7 +164,7 @@ where
 
         Self {
             addr,
-            initial_pdo: initial_pdo.clone(),
+            initial_pdo,
             maximum_voltage: Voltage::from_mv(maximum_voltage_mv),
             port_status: Default::default(),
             monitoring_status: Default::default(),
@@ -694,7 +694,7 @@ where
     }
 
     /// Call this periodically (approx. every second) to handle communication with the device.
-    pub fn periodic(&mut self, i2c: &mut I2C, attach_pin_level: bool) -> () {
+    pub fn periodic(&mut self, i2c: &mut I2C, attach_pin_level: bool) {
         self.do_call(i2c, attach_pin_level, Self::do_periodic)
     }
 

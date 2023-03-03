@@ -58,6 +58,7 @@ impl Board for BoardImpl {
         stusb4500_alert.clear_interrupt_pending_bit();
         stusb4500_alert.enable_interrupt(&mut dp.EXTI);
 
+        #[allow(clippy::get_first)]
         Self {
             development_mode: boot_info.board_data().get(0).map(|dev_mode| *dev_mode != 0).unwrap_or_default(),
             stusb4500_alert,

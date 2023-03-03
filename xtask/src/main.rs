@@ -156,10 +156,7 @@ fn main() -> anyhow::Result<()> {
         if emc_model == 0xd1 { "debug " } else { "" },
         &args.bootloader_log
     );
-    println!(
-        "Built OpenEMC firmware image/{firmware}.{{emc,elf}} with log level {}",
-        &args.log
-    );
+    println!("Built OpenEMC firmware image/{firmware}.{{emc,elf}} with log level {}", &args.log);
     println!();
 
     Ok(())

@@ -283,7 +283,7 @@ where
 
         Self {
             addr: cfg.addr,
-            cfg: cfg.clone(),
+            cfg,
             initialized: false,
             adc_triggered: false,
             measurement: None,
