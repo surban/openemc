@@ -270,10 +270,10 @@ mod app {
         let adc = Adc::adc1(cx.device.ADC1, clocks);
         let adc_inp = AdcInputs::new();
         let mut delay = cx.device.TIM4.delay_ms(&clocks);
-        let gpioa = cx.device.GPIOA.split();
-        let mut gpiob = cx.device.GPIOB.split();
-        let _gpioc = cx.device.GPIOC.split();
-        let mut _gpiod = cx.device.GPIOD.split();
+        let gpioa = cx.device.GPIOA.split_without_reset();
+        let mut gpiob = cx.device.GPIOB.split_without_reset();
+        let _gpioc = cx.device.GPIOC.split_without_reset();
+        let mut _gpiod = cx.device.GPIOD.split_without_reset();
 
         // Configure GPIO remapping.
         let (_pa15, _pb3, _pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);

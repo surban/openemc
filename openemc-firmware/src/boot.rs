@@ -211,7 +211,7 @@ pub fn enter_standby() -> ! {
     let dp = unsafe { Peripherals::steal() };
 
     // Check if WKUP pin is low.
-    let mut gpioa = dp.GPIOA.split();
+    let mut gpioa = dp.GPIOA.split_without_reset();
     let wkup = gpioa.pa0.into_floating_input(&mut gpioa.crl);
     if wkup.is_high() {
         // Device should stay awake, convert shutdown into reset.

@@ -20,7 +20,12 @@ cortex-m-rt = { version = "0.7", features = ["device"] }
 cortex-m-rtic = "1.1"
 embedded-hal = "0.2"
 stm32f1 = { version = "0.15", features = ["stm32f103", "rt"] }
-stm32f1xx-hal = { version = "0.10", features = ["stm32f103", "medium", "rt"] }
+#stm32f1xx-hal = { version = "0.10", features = ["stm32f103", "medium", "rt"] }
+stm32f1xx-hal = { git = "https://github.com/surban/stm32f1xx-hal.git", rev = "b524a47374c642ecc7a2bc05e3941b285847c5e7", features = [
+    "stm32f103",
+    "medium",
+    "rt",
+] }
 panic-probe = "0.3"
 systick-monotonic = "1.0"
 defmt = { version = "0.3", features = ["encoding-rzcobs"] }
