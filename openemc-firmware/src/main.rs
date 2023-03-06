@@ -128,6 +128,12 @@ pub static mut BOOTLOADER_LOG: core::mem::MaybeUninit<
 pub static mut LOG: core::mem::MaybeUninit<defmt_ringbuf::RingBuffer<{ openemc_shared::LOG_SIZE }>> =
     core::mem::MaybeUninit::uninit();
 
+/// Bootloader log reader.
+#[cfg(feature = "defmt-ringbuf")]
+static mut BOOTLOADER_LOG_REF: Option<
+    &'static mut defmt_ringbuf::RingBuffer<{ openemc_shared::BOOTLOADER_LOG_SIZE }>,
+> = None;
+
 /// System power mode.
 #[derive(Clone, Copy, Format, PartialEq, Eq)]
 pub enum PowerMode {
@@ -253,6 +259,7 @@ mod app {
         #[cfg(feature = "defmt-ringbuf")]
         unsafe {
             defmt_ringbuf::init(&mut LOG, || NVIC::pend(Interrupt::USART3));
+            BOOTLOADER_LOG_REF = Some(defmt_ringbuf::RingBuffer::init(&mut BOOTLOADER_LOG));
         }
 
         defmt::warn!("OpenEMC version {:a}", VERSION);
@@ -946,7 +953,7 @@ mod app {
                 return;
             }
             Err(nb::Error::Other(_err)) => {
-                defmt::error!("I2C error");
+                defmt::error!("I2C error on OpenEMC control bus");
                 return;
             }
         };
@@ -1333,8 +1340,7 @@ mod app {
                 {
                     use defmt_ringbuf::RingBuf;
                     let mut buf = [0; I2C_BUFFER_SIZE];
-                    let bootloader_log = unsafe { BOOTLOADER_LOG.assume_init_mut() };
-                    let (len, _lost) = bootloader_log.read(&mut buf[1..]);
+                    let (len, _lost) = unsafe { unwrap!(BOOTLOADER_LOG_REF.as_mut()).read(&mut buf[1..]) };
                     buf[0] = len as u8;
                     value.set(&buf);
                 }
