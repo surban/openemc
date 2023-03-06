@@ -9,7 +9,6 @@ edition = "2021"
 
 [features]
 default = ["defmt-rtt"]
-#defmt-ringbuf = ["dep:defmt-ringbuf", "panic-probe/print-defmt"]
 
 [dependencies]
 openemc-shared = { path = "../openemc-shared" }

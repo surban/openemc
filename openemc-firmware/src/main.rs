@@ -252,7 +252,7 @@ mod app {
         // Initialize logging.
         #[cfg(feature = "defmt-ringbuf")]
         unsafe {
-            defmt_ringbuf::init(LOG.assume_init_mut(), || NVIC::pend(Interrupt::USART3));
+            defmt_ringbuf::init(&mut LOG, || NVIC::pend(Interrupt::USART3));
         }
 
         defmt::warn!("OpenEMC version {:a}", VERSION);

@@ -160,8 +160,9 @@ checksum = "0db23d29972d99baa3de2ee2ae3f104c10564a6d05a346eb3f4c4f2c0525a06e"
 
 [[package]]
 name = "defmt-ringbuf"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "cortex-m",
  "critical-section",
  "defmt",
 ]
@@ -495,7 +496,7 @@ dependencies = [
 [[package]]
 name = "stm32f1xx-hal"
 version = "0.10.0"
-source = "git+https://github.com/surban/stm32f1xx-hal.git?rev=b524a47374c642ecc7a2bc05e3941b285847c5e7#b524a47374c642ecc7a2bc05e3941b285847c5e7"
+source = "git+https://github.com/stm32-rs/stm32f1xx-hal.git?rev=4e902d2cd68100d17b5e2116d99bfcc5326983fd#4e902d2cd68100d17b5e2116d99bfcc5326983fd"
 dependencies = [
  "bitflags",
  "bxcan",

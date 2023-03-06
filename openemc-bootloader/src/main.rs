@@ -146,7 +146,7 @@ fn main() -> ! {
     // Initialize logging.
     #[cfg(feature = "defmt-ringbuf")]
     unsafe {
-        defmt_ringbuf::init(BOOTLOADER_LOG.assume_init_mut(), || ());
+        defmt_ringbuf::init(&mut BOOTLOADER_LOG, || ());
     }
 
     // Enable backup domain and check for valid signature.
