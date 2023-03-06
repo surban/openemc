@@ -1,6 +1,6 @@
 //! Board.
 
-use openemc_shared::BootInfo;
+use defmt::Format;
 use stm32f1xx_hal::{afio, i2c};
 
 use crate::{
@@ -10,6 +10,7 @@ use crate::{
     supply::{max14636::Max14636, FixedSinkPdo},
     Delay, Duration, PowerMode, I2C_BUFFER_SIZE,
 };
+use openemc_shared::BootInfo;
 
 /// Number of IO ports (PA, PB, PC, etc.).
 pub const PORTS: usize = 4;
@@ -100,11 +101,16 @@ pub trait Board {
     /// Limit usable EXTI lines.
     fn limit_usable_exti(&mut self, _exti: &mut u32) {}
 
-    /// Handle board-specific I2C event.
-    fn i2c_event<'a>(
-        &mut self, event: i2c_reg_slave::Event<'a, I2C_BUFFER_SIZE>,
-    ) -> Result<(), UnknownEvent<'a>> {
-        Err(UnknownEvent(event))
+    /// Read from board-specific I2C register.
+    fn i2c_read(&mut self, _reg: u8) -> Result<i2c_reg_slave::Response<I2C_BUFFER_SIZE>, UnknownI2cRegister> {
+        Err(UnknownI2cRegister)
+    }
+
+    /// Write to board-specific I2C register.
+    fn i2c_write(
+        &mut self, _reg: u8, _value: i2c_reg_slave::Value<I2C_BUFFER_SIZE>,
+    ) -> Result<(), UnknownI2cRegister> {
+        Err(UnknownI2cRegister)
     }
 
     /// Checks whether power on during charging has been requested.
@@ -138,4 +144,5 @@ pub trait Board {
 }
 
 /// Unknown I2C event.
-pub struct UnknownEvent<'a>(pub i2c_reg_slave::Event<'a, I2C_BUFFER_SIZE>);
+#[derive(Format)]
+pub struct UnknownI2cRegister;

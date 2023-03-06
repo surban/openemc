@@ -1,6 +1,7 @@
 //! I2C register slave.
 
 use core::ops::Deref;
+use heapless::Vec;
 
 use crate::i2c_slave::{self, Event as I2cEvent, I2cSlave, Instance};
 
@@ -83,138 +84,128 @@ where
 
     /// Gets the next event.
     pub fn event(&mut self) -> nb::Result<Event<BUFFER>, Error> {
-        match &mut self.state {
-            State::Idle => match self.i2c_event()? {
-                I2cEvent::StartRead => {
-                    self.state = State::ReceiveReg;
-                    Err(nb::Error::WouldBlock)
-                }
-                I2cEvent::StartWrite => {
-                    self.state = State::StartSend;
-                    self.pos = 0;
-                    Ok(Event::Read {
-                        reg: self.reg,
-                        value: Reader { was_set: false, state: &mut self.state, buf: &mut self.buf },
-                    })
-                }
-                _ => defmt::unreachable!(),
-            },
-            State::ReceiveReg => match self.i2c_event()? {
-                I2cEvent::Read(value) => {
-                    self.reg = value;
-                    self.state = State::ReceivedReg;
-                    Err(nb::Error::WouldBlock)
-                }
-                I2cEvent::End | I2cEvent::Restart => {
-                    self.state = State::Idle;
-                    Err(nb::Error::WouldBlock)
-                }
-                _ => defmt::unreachable!(),
-            },
-            State::ReceivedReg => match self.i2c_event()? {
-                I2cEvent::Read(value) => {
-                    if !self.buf.is_empty() {
-                        self.buf[0] = value;
-                        self.pos = 1;
-                        self.state = State::Receiving;
-                        Err(nb::Error::WouldBlock)
-                    } else {
-                        self.state = State::Clear;
-                        Err(nb::Error::Other(Error::BufferOverrun))
+        loop {
+            match &mut self.state {
+                State::Idle => match self.i2c_event()? {
+                    I2cEvent::StartRead => self.state = State::ReceiveReg,
+                    I2cEvent::StartWrite => {
+                        self.state = State::StartSend;
+                        self.pos = 0;
+                        return Ok(Event::Read { reg: self.reg });
                     }
-                }
-                I2cEvent::End => {
-                    self.state = State::Idle;
-                    Ok(Event::Write { reg: self.reg, value: Value(&[]) })
-                }
-                I2cEvent::Restart => {
-                    self.state = State::Idle;
-                    Err(nb::Error::WouldBlock)
-                }
-                _ => defmt::unreachable!(),
-            },
-            State::Receiving => match self.i2c_event()? {
-                I2cEvent::Read(value) => {
-                    if self.pos < self.buf.len() {
-                        self.buf[self.pos] = value;
-                        self.pos += 1;
-                        Err(nb::Error::WouldBlock)
-                    } else {
-                        Err(nb::Error::Other(Error::BufferOverrun))
+                    _ => defmt::unreachable!(),
+                },
+                State::ReceiveReg => match self.i2c_event()? {
+                    I2cEvent::Read(value) => {
+                        self.reg = value;
+                        self.state = State::ReceivedReg;
                     }
-                }
-                I2cEvent::End | I2cEvent::Restart => {
-                    self.state = State::Idle;
-                    Ok(Event::Write { reg: self.reg, value: Value(&self.buf[..self.pos]) })
-                }
-                _ => defmt::unreachable!(),
-            },
-            State::StartSend => Ok(Event::Read {
-                reg: self.reg,
-                value: Reader { was_set: false, state: &mut self.state, buf: &mut self.buf },
-            }),
-            State::Sending => {
-                let to_send = self.buf.get(self.pos).cloned().unwrap_or_default();
-                match self.i2c_event()? {
-                    I2cEvent::Write(w) => {
-                        w.write(to_send);
-                        self.pos += 1;
-                        Err(nb::Error::WouldBlock)
+                    I2cEvent::End | I2cEvent::Restart => self.state = State::Idle,
+                    _ => defmt::unreachable!(),
+                },
+                State::ReceivedReg => match self.i2c_event()? {
+                    I2cEvent::Read(value) => {
+                        if !self.buf.is_empty() {
+                            self.buf[0] = value;
+                            self.pos = 1;
+                            self.state = State::Receiving;
+                        } else {
+                            self.state = State::Clear;
+                            return Err(nb::Error::Other(Error::BufferOverrun));
+                        }
+                    }
+                    I2cEvent::End => {
+                        self.state = State::Idle;
+                        return Ok(Event::Write { reg: self.reg, value: Value(Vec::new()) });
+                    }
+                    I2cEvent::Restart => self.state = State::Idle,
+                    _ => defmt::unreachable!(),
+                },
+                State::Receiving => match self.i2c_event()? {
+                    I2cEvent::Read(value) => {
+                        if self.pos < self.buf.len() {
+                            self.buf[self.pos] = value;
+                            self.pos += 1;
+                        } else {
+                            return Err(nb::Error::Other(Error::BufferOverrun));
+                        }
                     }
                     I2cEvent::End | I2cEvent::Restart => {
                         self.state = State::Idle;
-                        Err(nb::Error::WouldBlock)
+                        return Ok(Event::Write {
+                            reg: self.reg,
+                            value: Value(defmt::unwrap!(Vec::try_from(&self.buf[..self.pos]))),
+                        });
                     }
                     _ => defmt::unreachable!(),
+                },
+                State::StartSend => return Ok(Event::Read { reg: self.reg }),
+                State::Sending => {
+                    let to_send = self.buf.get(self.pos).cloned().unwrap_or_default();
+                    match self.i2c_event()? {
+                        I2cEvent::Write(w) => {
+                            w.write(to_send);
+                            self.pos += 1;
+                        }
+                        I2cEvent::End | I2cEvent::Restart => self.state = State::Idle,
+                        _ => defmt::unreachable!(),
+                    }
                 }
-            }
-            State::Clear => {
-                match self.i2c_event()? {
-                    I2cEvent::End => {
-                        self.state = State::Idle;
-                    }
-                    I2cEvent::Write(w) => {
-                        w.write(0);
-                    }
+                State::Clear => match self.i2c_event()? {
+                    I2cEvent::End => self.state = State::Idle,
+                    I2cEvent::Write(w) => w.write(0),
                     _ => (),
-                }
-                Err(nb::Error::WouldBlock)
+                },
             }
+        }
+    }
+
+    /// Responds to a read register event.
+    pub fn respond(&mut self, response: Response<BUFFER>) {
+        if let State::StartSend = &self.state {
+            let n = response.0.len();
+            self.buf[..n].copy_from_slice(&response.0);
+            self.buf[n..].fill(0);
+
+            self.pos = 0;
+            self.state = State::Sending;
+        } else {
+            defmt::panic!("I2C register slave had no read register event")
         }
     }
 }
 
 /// I2C register slave event.
-pub enum Event<'a, const BUFFER: usize> {
+pub enum Event<const BUFFER: usize> {
     /// Write register.
     Write {
         /// Register.
         reg: u8,
         /// Register value written by I2C master.
-        value: Value<'a>,
+        value: Value<BUFFER>,
     },
     /// Read register.
+    ///
+    /// Call [`I2CRegSlave`] with your reply.
     Read {
         /// Register.
         reg: u8,
-        /// Register value I2C master will read.
-        value: Reader<'a, BUFFER>,
     },
 }
 
 /// The value written into an I2C register.
-#[derive(Clone, Copy)]
-pub struct Value<'a>(&'a [u8]);
+#[derive(Clone)]
+pub struct Value<const BUFFER: usize>(Vec<u8, BUFFER>);
 
-impl<'a> Deref for Value<'a> {
+impl<const BUFFER: usize> Deref for Value<BUFFER> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        self.0
+        &self.0
     }
 }
 
-impl<'a> Value<'a> {
+impl<const BUFFER: usize> Value<BUFFER> {
     fn get_or_zero(&self, idx: usize) -> u8 {
         self.get(idx).cloned().unwrap_or_default()
     }
@@ -262,58 +253,58 @@ impl<'a> Value<'a> {
     }
 }
 
-/// Register reader.
-pub struct Reader<'a, const BUFFER: usize> {
-    state: &'a mut State,
-    buf: &'a mut [u8; BUFFER],
-    was_set: bool,
+/// Response to register read request.
+pub struct Response<const BUFFER: usize>(Vec<u8, BUFFER>);
+
+impl<const BUFFER: usize> Deref for Response<BUFFER> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
-impl<'a, const BUFFER: usize> Reader<'a, BUFFER> {
+impl<const BUFFER: usize> Response<BUFFER> {
     /// Provides the register value.
     ///
     /// The length of the value must not exceed `BUFFER`.
-    pub fn set(mut self, value: &[u8]) {
+    pub fn set(value: &[u8]) -> Self {
         defmt::assert!(value.len() <= BUFFER);
-        defmt::debug!("I2C read value: {=[u8]:#x}", value);
-        self.buf[..value.len()].copy_from_slice(value);
-        self.buf[value.len()..].fill(0);
-        *self.state = State::Sending;
-        self.was_set = true;
+        Self(defmt::unwrap!(value.try_into()))
     }
 
     /// Provides the register value, clipping the provided value as necessary.
-    pub fn set_clipped(self, value: &[u8]) {
+    pub fn set_clipped(value: &[u8]) -> Self {
         if value.len() <= BUFFER {
-            self.set(value)
+            Self::set(value)
         } else {
-            self.set(&value[..BUFFER])
+            Self::set(&value[..BUFFER])
         }
     }
 
     /// Sets the register value to an u8.
-    pub fn set_u8(self, value: u8) {
-        self.set(&[value])
+    pub fn set_u8(value: u8) -> Self {
+        Self::set(&[value])
     }
 
     /// Sets the register value to an u16 with LSB first.
-    pub fn set_u16(self, value: u16) {
-        self.set(&[(value & 0xff) as u8, ((value >> 8) & 0xff) as u8]);
+    pub fn set_u16(value: u16) -> Self {
+        Self::set(&[(value & 0xff) as u8, ((value >> 8) & 0xff) as u8])
     }
 
     /// Sets the register value to an u32 with LSB first.
-    pub fn set_u32(self, value: u32) {
-        self.set(&[
+    pub fn set_u32(value: u32) -> Self {
+        Self::set(&[
             (value & 0xff) as u8,
             ((value >> 8) & 0xff) as u8,
             ((value >> 16) & 0xff) as u8,
             ((value >> 24) & 0xff) as u8,
-        ]);
+        ])
     }
 
     /// Sets the register value to an u64 with LSB first.
-    pub fn set_u64(self, value: u64) {
-        self.set(&[
+    pub fn set_u64(value: u64) -> Self {
+        Self::set(&[
             (value & 0xff) as u8,
             ((value >> 8) & 0xff) as u8,
             ((value >> 16) & 0xff) as u8,
@@ -322,16 +313,6 @@ impl<'a, const BUFFER: usize> Reader<'a, BUFFER> {
             ((value >> 40) & 0xff) as u8,
             ((value >> 48) & 0xff) as u8,
             ((value >> 56) & 0xff) as u8,
-        ]);
-    }
-}
-
-impl<'a, const BUFFER: usize> Drop for Reader<'a, BUFFER> {
-    fn drop(&mut self) {
-        if !self.was_set {
-            defmt::warn!("I2C reader dropped");
-            self.buf.fill(0);
-            *self.state = State::Sending;
-        }
+        ])
     }
 }

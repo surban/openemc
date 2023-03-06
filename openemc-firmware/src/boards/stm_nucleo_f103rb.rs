@@ -12,8 +12,8 @@ use stm32f1xx_hal::{
 use systick_monotonic::fugit::Rate;
 
 use crate::{
-    board::{Board, UnknownEvent, PORTS},
-    i2c_reg_slave::Event,
+    board::{Board, UnknownI2cRegister, PORTS},
+    i2c_reg_slave::Response,
     Delay, I2C_BUFFER_SIZE,
 };
 
@@ -102,13 +102,10 @@ impl Board for BoardImpl {
         *exti &= !(1 << 15);
     }
 
-    fn i2c_event<'a>(&mut self, event: Event<'a, I2C_BUFFER_SIZE>) -> Result<(), UnknownEvent<'a>> {
-        match event {
-            Event::Read { reg: REG_DEVELOPMENT_MODE, value } => {
-                value.set_u8(u8::from(self.development_mode));
-                Ok(())
-            }
-            unknown => Err(UnknownEvent(unknown)),
+    fn i2c_read(&mut self, reg: u8) -> Result<Response<I2C_BUFFER_SIZE>, UnknownI2cRegister> {
+        match reg {
+            REG_DEVELOPMENT_MODE => Ok(Response::set_u8(u8::from(self.development_mode))),
+            _ => Err(UnknownI2cRegister),
         }
     }
 

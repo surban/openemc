@@ -51,6 +51,7 @@ enum State {
     Idle,
     Receiving,
     Sending,
+    WriteWaiting,
 }
 
 pub trait Instance: Deref<Target = stm32f1xx_hal::pac::i2c1::RegisterBlock> + Enable + Reset + BusClock {}
@@ -153,11 +154,13 @@ where
                     self.state = State::Idle;
                     Ok(Event::End)
                 } else if sr1.tx_e().is_empty() {
+                    self.state = State::WriteWaiting;
                     Ok(Event::Write(Writer(self)))
                 } else {
                     Err(nb::Error::WouldBlock)
                 }
             }
+            State::WriteWaiting => defmt::panic!("write event was not handled"),
             State::Receiving => {
                 if sr1.rx_ne().is_not_empty() {
                     let value = self.i2c.dr.read().dr().bits();
@@ -253,5 +256,6 @@ where
     /// Sends the specified value to the I2C master.
     pub fn write(self, value: u8) {
         self.0.i2c.dr.write(|w| w.dr().bits(value));
+        self.0.state = State::Sending;
     }
 }

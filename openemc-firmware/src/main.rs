@@ -47,7 +47,10 @@ use defmt_rtt as _;
 use panic_probe as _;
 use stm32f1xx_hal as _;
 
-use core::mem::size_of;
+use core::{
+    cell::Cell,
+    mem::{replace, size_of},
+};
 use cortex_m::peripheral::NVIC;
 use defmt::{unwrap, Format};
 use stm32f1::stm32f103::Interrupt;
@@ -170,6 +173,26 @@ impl RemappableI2CRegSlave {
             Self::Normal(i2c) => i2c.event(),
         }
     }
+
+    /// Responds to a read register event.
+    pub fn respond(&mut self, response: i2c_reg_slave::Response<I2C_BUFFER_SIZE>) {
+        match self {
+            Self::Remapped(i2c) => i2c.respond(response),
+            Self::Normal(i2c) => i2c.respond(response),
+        }
+    }
+}
+
+/// I2C request handling status.
+pub enum I2cReqHandling {
+    /// No request is being handled.
+    Idle,
+    /// The response to a read request is being computed.
+    Read(u8),
+    /// The response to a read request is ready.
+    ReadResponse { reg: u8, response: i2c_reg_slave::Response<I2C_BUFFER_SIZE> },
+    /// A write request is being handled.
+    Write(u8),
 }
 
 /// I2C 2 master.
@@ -207,6 +230,8 @@ mod app {
     /// Shared resources.
     #[shared]
     struct Shared {
+        /// I2C slave request handling status.
+        i2c_req: I2cReqHandling,
         /// If true, idle task starts bootloader.
         start_bootloader: bool,
         /// IRQ state.
@@ -474,6 +499,7 @@ mod app {
         defmt::debug!("init done");
         (
             Shared {
+                i2c_req: I2cReqHandling::Idle,
                 start_bootloader: false,
                 irq,
                 bkp,
@@ -915,16 +941,64 @@ mod app {
     }
 
     /// I2C error interrupt handler.
-    #[task(binds = I2C1_ER, priority = 2)]
+    #[task(binds = I2C1_ER, priority = 3)]
     fn i2c1_er(_cx: i2c1_er::Context) {
         NVIC::pend(Interrupt::I2C1_EV);
     }
 
     /// I2C event interrupt handler.
+    #[task(binds = I2C1_EV, local = [i2c_reg_slave], shared = [i2c_req], priority = 3)]
+    fn i2c1_ev(mut cx: i2c1_ev::Context) {
+        let Some(i2c_reg_slave) = cx.local.i2c_reg_slave.as_mut() else { return };
+
+        cx.shared.i2c_req.lock(|i2c_req| loop {
+            match i2c_req {
+                I2cReqHandling::Idle => match i2c_reg_slave.event() {
+                    Ok(evt) => {
+                        match &evt {
+                            Event::Read { reg, .. } => {
+                                defmt::debug!("I2C read  0x{:02x} pending", reg);
+                                *i2c_req = I2cReqHandling::Read(*reg);
+                            }
+                            Event::Write { reg, value } => {
+                                defmt::debug!("I2C write 0x{:02x}: {=[u8]:#x}", reg, value);
+                                *i2c_req = I2cReqHandling::Write(*reg);
+                            }
+                        }
+                        NVIC::mask(Interrupt::I2C1_EV);
+                        NVIC::mask(Interrupt::I2C1_ER);
+                        if i2c_slave_req::spawn(evt).is_err() {
+                            defmt::panic!("I2C request handler busy");
+                        }
+                        break;
+                    }
+                    Err(nb::Error::WouldBlock) => {
+                        defmt::trace!("I2C event internal processing");
+                        break;
+                    }
+                    Err(nb::Error::Other(_err)) => defmt::error!("I2C error on OpenEMC control bus"),
+                },
+                I2cReqHandling::ReadResponse { reg, response } => {
+                    defmt::debug!("I2C read  0x{:02x}: {=[u8]:#x}", reg, &response);
+                    let I2cReqHandling::ReadResponse { response, ..} = replace(i2c_req, I2cReqHandling::Idle)
+                        else { defmt::unreachable!() };
+                    i2c_reg_slave.respond(response);
+                }
+                I2cReqHandling::Read(reg) => {
+                    defmt::warn!("I2C event while processing read request for register 0x{:02x}", reg);
+                    break;
+                }
+                I2cReqHandling::Write(reg) => {
+                    defmt::warn!("I2C event while processing write request for register 0x{:02x}", reg);
+                    break;
+                }
+            }
+        })
+    }
+
+    /// I2C slave request handler.
     #[task(
-        binds = I2C1_EV,
         local = [
-            i2c_reg_slave,
             copyright_offset: usize = 0,
             mfd_cell_index: usize = 0,
             ugpio,
@@ -933,90 +1007,85 @@ mod app {
             pwm_channel_index: u8 = 0,
             echo: [u8; I2C_BUFFER_SIZE] = [0; I2C_BUFFER_SIZE],
         ],
-        shared = [start_bootloader, irq, bkp, watchman, rtc, adc_buf, board, power_supply, battery],
+        shared = [i2c_req, start_bootloader, irq, bkp, watchman, rtc, adc_buf, board, power_supply, battery],
         priority = 2,
     )]
-    fn i2c1_ev(mut cx: i2c1_ev::Context) {
-        let Some(i2c_reg_slave) = cx.local.i2c_reg_slave.as_mut() else { return };
-        let res = i2c_reg_slave.event();
-
-        let evt = match res {
-            Ok(evt) => {
-                match &evt {
-                    Event::Read { reg, .. } => defmt::debug!("I2C read  0x{:02x}", reg),
-                    Event::Write { reg, value } => defmt::debug!("I2C write 0x{:02x}: {=[u8]:#x}", reg, value),
-                }
-                evt
-            }
-            Err(nb::Error::WouldBlock) => {
-                defmt::trace!("I2C event");
-                return;
-            }
-            Err(nb::Error::Other(_err)) => {
-                defmt::error!("I2C error on OpenEMC control bus");
-                return;
+    fn i2c_slave_req(mut cx: i2c_slave_req::Context, evt: i2c_reg_slave::Event<I2C_BUFFER_SIZE>) {
+        let is_read = matches!(&evt, Event::Read { .. });
+        let i2c_slave_response = Cell::new(None);
+        let respond = |response: i2c_reg_slave::Response<I2C_BUFFER_SIZE>| {
+            if is_read {
+                i2c_slave_response.set(Some(response));
+            } else {
+                defmt::panic!("Response to I2C write event");
             }
         };
+        let respond_slice = |response: &[u8]| respond(i2c_reg_slave::Response::set(response));
+        let respond_clipped = |response: &[u8]| respond(i2c_reg_slave::Response::set_clipped(response));
+        let respond_u8 = |response: u8| respond(i2c_reg_slave::Response::set_u8(response));
+        let respond_u16 = |response: u16| respond(i2c_reg_slave::Response::set_u16(response));
+        let respond_u32 = |response: u32| respond(i2c_reg_slave::Response::set_u32(response));
+        let respond_u64 = |response: u64| respond(i2c_reg_slave::Response::set_u64(response));
 
         match evt {
-            Event::Read { reg: reg::ID, value } => {
-                value.set_u8(if BootInfo::is_from_bootloader() { ID_WITH_BOOTLOADER } else { ID_STANDALONE })
+            Event::Read { reg: reg::ID } => {
+                respond_u8(if BootInfo::is_from_bootloader() { ID_WITH_BOOTLOADER } else { ID_STANDALONE })
             }
-            Event::Read { reg: reg::VERSION, value } => value.set(VERSION),
-            Event::Read { reg: reg::EMC_MODEL, value } => value.set_u8(BootInfo::get().emc_model),
-            Event::Read { reg: reg::BOARD_MODEL, value } => value.set(BootInfo::get().board_model()),
-            Event::Read { reg: reg::BOOTLOADER_VERSION, value } => match BootInfo::get().bootloader_version() {
-                Some(v) => value.set(v),
-                None => value.set(&[0]),
+            Event::Read { reg: reg::VERSION } => respond_slice(VERSION),
+            Event::Read { reg: reg::EMC_MODEL } => respond_u8(BootInfo::get().emc_model),
+            Event::Read { reg: reg::BOARD_MODEL } => respond_slice(BootInfo::get().board_model()),
+            Event::Read { reg: reg::BOOTLOADER_VERSION } => match BootInfo::get().bootloader_version() {
+                Some(v) => respond_slice(v),
+                None => respond_slice(&[0]),
             },
-            Event::Read { reg: reg::COPYRIGHT, value } => {
-                value.set_clipped(COPYRIGHT.get(*cx.local.copyright_offset..).unwrap_or_default())
+            Event::Read { reg: reg::COPYRIGHT } => {
+                respond_clipped(COPYRIGHT.get(*cx.local.copyright_offset..).unwrap_or_default())
             }
             Event::Write { reg: reg::COPYRIGHT, value } => {
                 *cx.local.copyright_offset = value.as_u8() as usize;
             }
-            Event::Read { reg: reg::MFD_CELL, value } => match MFD_CELLS.get(*cx.local.mfd_cell_index) {
-                Some(cell) => value.set(cell),
-                None => value.set(&[0]),
+            Event::Read { reg: reg::MFD_CELL } => match MFD_CELLS.get(*cx.local.mfd_cell_index) {
+                Some(cell) => respond_slice(cell),
+                None => respond_slice(&[0]),
             },
             Event::Write { reg: reg::MFD_CELL, value } => {
                 *cx.local.mfd_cell_index = value.as_u8() as usize;
             }
-            Event::Read { reg: reg::BOOT_REASON, value } => value.set_u16(BootInfo::get().boot_reason),
-            Event::Read { reg: reg::RESET_STATUS, value } => value.set_u8(BootInfo::get().reset_status.0),
-            Event::Read { reg: reg::START_REASON, value } => value.set_u8(BootInfo::get().start_reason),
-            Event::Read { reg: reg::PROGRAM_ID, value } => value.set_u32(BootInfo::get().id),
-            Event::Read { reg: reg::IRQ_MASK, value } => cx.shared.irq.lock(|irq| value.set_u32(irq.get_mask())),
+            Event::Read { reg: reg::BOOT_REASON } => respond_u16(BootInfo::get().boot_reason),
+            Event::Read { reg: reg::RESET_STATUS } => respond_u8(BootInfo::get().reset_status.0),
+            Event::Read { reg: reg::START_REASON } => respond_u8(BootInfo::get().start_reason),
+            Event::Read { reg: reg::PROGRAM_ID } => respond_u32(BootInfo::get().id),
+            Event::Read { reg: reg::IRQ_MASK } => respond_u32(cx.shared.irq.lock(|irq| irq.get_mask())),
             Event::Write { reg: reg::IRQ_MASK, value } => cx.shared.irq.lock(|irq| irq.set_mask(value.as_u32())),
-            Event::Read { reg: reg::IRQ_PENDING, value } => {
-                cx.shared.irq.lock(|irq| value.set_u32(irq.get_pending_and_clear()))
+            Event::Read { reg: reg::IRQ_PENDING } => {
+                respond_u32(cx.shared.irq.lock(|irq| irq.get_pending_and_clear()))
             }
-            Event::Read { reg: reg::IRQ_EXTI_TRIGGER_RISING_EDGE, value } => {
-                cx.shared.irq.lock(|irq| value.set_u32(irq.get_exti_trigger_raising_edge()))
+            Event::Read { reg: reg::IRQ_EXTI_TRIGGER_RISING_EDGE } => {
+                respond_u32(cx.shared.irq.lock(|irq| irq.get_exti_trigger_raising_edge()))
             }
             Event::Write { reg: reg::IRQ_EXTI_TRIGGER_RISING_EDGE, value } => {
                 cx.shared.irq.lock(|irq| irq.set_exti_trigger_raising_edge(value.as_u32()))
             }
-            Event::Read { reg: reg::IRQ_EXTI_TRIGGER_FALLING_EDGE, value } => {
-                cx.shared.irq.lock(|irq| value.set_u32(irq.get_exti_trigger_falling_edge()))
+            Event::Read { reg: reg::IRQ_EXTI_TRIGGER_FALLING_EDGE } => {
+                respond_u32(cx.shared.irq.lock(|irq| irq.get_exti_trigger_falling_edge()))
             }
             Event::Write { reg: reg::IRQ_EXTI_TRIGGER_FALLING_EDGE, value } => {
                 cx.shared.irq.lock(|irq| irq.set_exti_trigger_falling_edge(value.as_u32()))
             }
-            Event::Read { reg: reg::IRQ_EXTI_TRIGGER_HIGH_LEVEL, value } => {
-                cx.shared.irq.lock(|irq| value.set_u16(irq.get_exti_gpio_trigger_high_level()))
+            Event::Read { reg: reg::IRQ_EXTI_TRIGGER_HIGH_LEVEL } => {
+                respond_u16(cx.shared.irq.lock(|irq| irq.get_exti_gpio_trigger_high_level()))
             }
             Event::Write { reg: reg::IRQ_EXTI_TRIGGER_HIGH_LEVEL, value } => {
                 cx.shared.irq.lock(|irq| irq.set_exti_gpio_trigger_high_level(value.as_u16()))
             }
-            Event::Read { reg: reg::IRQ_EXTI_TRIGGER_LOW_LEVEL, value } => {
-                cx.shared.irq.lock(|irq| value.set_u16(irq.get_exti_gpio_trigger_low_level()))
+            Event::Read { reg: reg::IRQ_EXTI_TRIGGER_LOW_LEVEL } => {
+                respond_u16(cx.shared.irq.lock(|irq| irq.get_exti_gpio_trigger_low_level()))
             }
             Event::Write { reg: reg::IRQ_EXTI_TRIGGER_LOW_LEVEL, value } => {
                 cx.shared.irq.lock(|irq| irq.set_exti_gpio_trigger_low_level(value.as_u16()))
             }
-            Event::Read { reg: reg::IRQ_EXTI_GPIO_SRC, value } => {
-                cx.shared.irq.lock(|irq| value.set_u64(irq.get_exti_gpio_source()))
+            Event::Read { reg: reg::IRQ_EXTI_GPIO_SRC } => {
+                respond_u64(cx.shared.irq.lock(|irq| irq.get_exti_gpio_source()))
             }
             Event::Write { reg: reg::IRQ_EXTI_GPIO_SRC, value } => {
                 cx.shared.irq.lock(|irq| irq.set_exti_gpio_source(value.as_u64()))
@@ -1024,20 +1093,20 @@ mod app {
             Event::Write { reg: reg::IRQ_EXTI_DO_TRIGGER_LEVEL, .. } => {
                 cx.shared.irq.lock(|irq| irq.do_trigger_exti(&cx.local.ugpio.get_in()))
             }
-            Event::Read { reg: reg::WDG_UNLOCK, value } => {
-                cx.shared.watchman.lock(|watchman| value.set_u8(u8::from(watchman.unlocked())))
+            Event::Read { reg: reg::WDG_UNLOCK } => {
+                respond_u8(cx.shared.watchman.lock(|watchman| u8::from(watchman.unlocked())))
             }
             Event::Write { reg: reg::WDG_UNLOCK, value } => {
                 cx.shared.watchman.lock(|watchman| watchman.unlock(value.as_u64()))
             }
-            Event::Read { reg: reg::WDG_INTERVAL, value } => {
-                cx.shared.watchman.lock(|watchman| value.set_u32(watchman.interval().to_millis() as u32))
+            Event::Read { reg: reg::WDG_INTERVAL } => {
+                respond_u32(cx.shared.watchman.lock(|watchman| watchman.interval().to_millis() as u32))
             }
             Event::Write { reg: reg::WDG_INTERVAL, value } => {
                 cx.shared.watchman.lock(|watchman| watchman.set_interval((value.as_u32() as u64).millis()))
             }
-            Event::Read { reg: reg::WDG_ACTIVE, value } => {
-                cx.shared.watchman.lock(|watchman| value.set_u8(u8::from(watchman.active())))
+            Event::Read { reg: reg::WDG_ACTIVE } => {
+                respond_u8(cx.shared.watchman.lock(|watchman| u8::from(watchman.active())))
             }
             Event::Write { reg: reg::WDG_ACTIVE, value } => {
                 cx.shared.watchman.lock(|watchman| watchman.set_active(value.as_u8() != 0))
@@ -1048,25 +1117,23 @@ mod app {
             Event::Write { reg: reg::WDG_PET_CODE, value } => {
                 cx.shared.watchman.lock(|watchman| watchman.set_pet_code(value.as_u32()))
             }
-            Event::Read { reg: reg::RTC_READY, value } => {
-                cx.shared.rtc.lock(|rtc| value.set_u8(u8::from(rtc.is_ready())))
+            Event::Read { reg: reg::RTC_READY } => respond_u8(cx.shared.rtc.lock(|rtc| u8::from(rtc.is_ready()))),
+            Event::Read { reg: reg::RTC_SRC } => {
+                respond_u8(cx.shared.rtc.lock(|rtc| rtc.clock_src().map(|src| src as u8).unwrap_or_default()))
             }
-            Event::Read { reg: reg::RTC_SRC, value } => {
-                cx.shared.rtc.lock(|rtc| value.set_u8(rtc.clock_src().map(|src| src as u8).unwrap_or_default()))
+            Event::Read { reg: reg::RTC_PRESCALER } => {
+                respond_u32(cx.shared.rtc.lock(|rtc| rtc.prescaler().unwrap_or_default()))
             }
-            Event::Read { reg: reg::RTC_PRESCALER, value } => {
-                cx.shared.rtc.lock(|rtc| value.set_u32(rtc.prescaler().unwrap_or_default()))
-            }
-            Event::Read { reg: reg::RTC_SLOWDOWN, value } => {
-                (cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| value.set_u8(rtc.slowdown(bkp)))
+            Event::Read { reg: reg::RTC_SLOWDOWN } => {
+                respond_u8((cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| rtc.slowdown(bkp)))
             }
             Event::Write { reg: reg::RTC_SLOWDOWN, value } => {
                 (cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| rtc.set_slowdown(bkp, value.as_u8()))
             }
-            Event::Read { reg: reg::RTC_CLOCK, value } => {
+            Event::Read { reg: reg::RTC_CLOCK } => {
                 cx.shared.rtc.lock(|rtc| {
                     if let Ok(clock) = rtc.clock() {
-                        value.set_u64((clock.secs() as u64) << 32 | clock.millis() as u64);
+                        respond_u64((clock.secs() as u64) << 32 | clock.millis() as u64);
                     }
                 });
             }
@@ -1075,16 +1142,16 @@ mod app {
                     defmt::error!("setting RTC clock failed");
                 }
             }
-            Event::Read { reg: reg::RTC_ALARM, value } => {
-                (cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| value.set_u32(rtc.alarm(bkp)))
+            Event::Read { reg: reg::RTC_ALARM } => {
+                respond_u32((cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| rtc.alarm(bkp)))
             }
             Event::Write { reg: reg::RTC_ALARM, value } => {
                 if (cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| rtc.set_alarm(value.as_u32(), bkp)).is_err() {
                     defmt::error!("setting RTC alarm failed");
                 }
             }
-            Event::Read { reg: reg::RTC_ALARM_ARMED, value } => {
-                cx.shared.rtc.lock(|rtc| value.set_u8(u8::from(rtc.is_alarm_listened())));
+            Event::Read { reg: reg::RTC_ALARM_ARMED } => {
+                respond_u8(cx.shared.rtc.lock(|rtc| u8::from(rtc.is_alarm_listened())))
             }
             Event::Write { reg: reg::RTC_ALARM_ARMED, value } => {
                 cx.shared.rtc.lock(|rtc| {
@@ -1094,8 +1161,8 @@ mod app {
                     }
                 });
             }
-            Event::Read { reg: reg::RTC_ALARM_OCCURRED, value } => {
-                cx.shared.rtc.lock(|rtc| value.set_u8(u8::from(rtc.is_alarming().unwrap_or_default())));
+            Event::Read { reg: reg::RTC_ALARM_OCCURRED } => {
+                respond_u8(cx.shared.rtc.lock(|rtc| u8::from(rtc.is_alarming().unwrap_or_default())));
             }
             Event::Write { reg: reg::RTC_ALARM_OCCURRED, .. } => {
                 cx.shared.rtc.lock(|rtc| {
@@ -1104,39 +1171,37 @@ mod app {
                     }
                 });
             }
-            Event::Read { reg: reg::RTC_ALARM_AT_BOOT, value } => {
-                cx.shared.rtc.lock(|rtc| {
-                    value.set_u8(match rtc.was_alarming_at_init() {
-                        Ok(true) => 0x01,
-                        Ok(false) => 0x00,
-                        Err(_) => 0xff,
-                    })
-                });
+            Event::Read { reg: reg::RTC_ALARM_AT_BOOT } => {
+                respond_u8(cx.shared.rtc.lock(|rtc| match rtc.was_alarming_at_init() {
+                    Ok(true) => 0x01,
+                    Ok(false) => 0x00,
+                    Err(_) => 0xff,
+                }))
             }
-            Event::Read { reg: reg::GPIO_COUNT, value } => value.set_u8(cx.local.ugpio.gpios() as u8),
-            Event::Read { reg: reg::GPIO_CFG, value } => {
+            Event::Read { reg: reg::GPIO_COUNT } => respond_u8(cx.local.ugpio.gpios() as u8),
+            Event::Read { reg: reg::GPIO_CFG } => {
                 let v: [u8; board::PORTS * size_of::<u64>()] = array_from_u64(&cx.local.ugpio.get_cfg());
-                value.set(&v);
+                respond_slice(&v);
             }
             Event::Write { reg: reg::GPIO_CFG, value } if value.len() == board::PORTS * size_of::<u64>() => {
                 let v: [u64; board::PORTS] = array_to_u64(&value);
                 cx.local.ugpio.set_cfg(&v);
             }
-            Event::Read { reg: reg::GPIO_OUT, value } => {
+            Event::Read { reg: reg::GPIO_OUT } => {
                 let v: [u8; board::PORTS * size_of::<u16>()] = array_from_u16(&cx.local.ugpio.get_out());
-                value.set(&v);
+                respond_slice(&v);
             }
             Event::Write { reg: reg::GPIO_OUT, value } if value.len() == board::PORTS * size_of::<u16>() => {
                 let v: [u16; board::PORTS] = array_to_u16(&value);
                 cx.local.ugpio.set_out(&v);
             }
-            Event::Read { reg: reg::GPIO_IN, value } => {
+            Event::Read { reg: reg::GPIO_IN } => {
                 let v: [u8; board::PORTS * size_of::<u16>()] = array_from_u16(&cx.local.ugpio.get_in());
-                value.set(&v);
+                respond_slice(&v);
             }
-            Event::Read { reg: reg::GPIO_USABLE, value } => {
+            Event::Read { reg: reg::GPIO_USABLE } => {
                 let v: [u8; board::PORTS * size_of::<u16>()] = array_from_u16(cx.local.ugpio.usable());
-                value.set(&v);
+                respond_slice(&v);
             }
             Event::Write { reg: reg::ADC_CONVERT, .. } => {
                 cx.shared.adc_buf.lock(|adc_buf| match adc_convert::spawn() {
@@ -1144,25 +1209,21 @@ mod app {
                     Err(()) => defmt::warn!("ADC conversion already in progress"),
                 });
             }
-            Event::Read { reg: reg::ADC_READY, value } => {
-                cx.shared.adc_buf.lock(|adc_buf| value.set_u8(u8::from(adc_buf.is_some())));
+            Event::Read { reg: reg::ADC_READY } => {
+                respond_u8(cx.shared.adc_buf.lock(|adc_buf| u8::from(adc_buf.is_some())))
             }
-            Event::Read { reg: reg::ADC_VREF, value } => {
-                cx.shared
-                    .adc_buf
-                    .lock(|adc_buf| value.set_u16(adc_buf.as_ref().map(|b| b.vref).unwrap_or_default()));
-            }
-            Event::Read { reg: reg::ADC_VALUES, value } => cx.shared.adc_buf.lock(|adc_buf| {
+            Event::Read { reg: reg::ADC_VREF } => respond_u16(
+                cx.shared.adc_buf.lock(|adc_buf| adc_buf.as_ref().map(|b| b.vref).unwrap_or_default()),
+            ),
+            Event::Read { reg: reg::ADC_VALUES } => cx.shared.adc_buf.lock(|adc_buf| {
                 if let Some(adc_buf) = &adc_buf {
                     let v: [u8; AdcInputs::CHANNELS * size_of::<u16>()] = array_from_u16(&adc_buf.voltages());
-                    value.set(&v);
+                    respond_slice(&v);
                 }
             }),
-            Event::Read { reg: reg::ADC_TEMPERATURE, value } => {
-                cx.shared
-                    .adc_buf
-                    .lock(|adc_buf| value.set_u32(adc_buf.as_ref().map(|b| b.temp as u32).unwrap_or_default()));
-            }
+            Event::Read { reg: reg::ADC_TEMPERATURE } => respond_u32(
+                cx.shared.adc_buf.lock(|adc_buf| adc_buf.as_ref().map(|b| b.temp as u32).unwrap_or_default()),
+            ),
             Event::Write { reg: reg::POWER_OFF, value } => {
                 let delay = value.as_u16();
                 defmt::info!("requesting power off in {} ms", delay);
@@ -1173,14 +1234,14 @@ mod app {
                 defmt::info!("requesting restart in {} ms", delay);
                 unwrap!(power_restart::spawn_after((delay as u64).millis()));
             }
-            Event::Read { reg: reg::PWM_TIMERS, value } => value.set_u8(cx.local.pwm_timers.len() as u8),
-            Event::Read { reg: reg::PWM_TIMER, value } => value.set_u8(*cx.local.pwm_timer_index),
+            Event::Read { reg: reg::PWM_TIMERS } => respond_u8(cx.local.pwm_timers.len() as u8),
+            Event::Read { reg: reg::PWM_TIMER } => respond_u8(*cx.local.pwm_timer_index),
             Event::Write { reg: reg::PWM_TIMER, value } => {
                 *cx.local.pwm_timer_index = value.as_u8();
             }
-            Event::Read { reg: reg::PWM_TIMER_CHANNELS, value } => {
+            Event::Read { reg: reg::PWM_TIMER_CHANNELS } => {
                 if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                    value.set_u8(pwm_timer.channel_count());
+                    respond_u8(pwm_timer.channel_count());
                 }
             }
             Event::Write { reg: reg::PWM_TIMER_REMAP, value } => {
@@ -1193,7 +1254,7 @@ mod app {
                     pwm_timer.set_frequency(value.as_u32().Hz());
                 }
             }
-            Event::Read { reg: reg::PWM_CHANNEL, value } => value.set_u8(*cx.local.pwm_channel_index),
+            Event::Read { reg: reg::PWM_CHANNEL } => respond_u8(*cx.local.pwm_channel_index),
             Event::Write { reg: reg::PWM_CHANNEL, value } => {
                 let channel = value.as_u8();
                 if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
@@ -1217,103 +1278,103 @@ mod app {
                     pwm_timer.set_output(*cx.local.pwm_channel_index, value.as_u8() != 0);
                 }
             }
-            Event::Read { reg: reg::BATTERY_VOLTAGE, value } => {
+            Event::Read { reg: reg::BATTERY_VOLTAGE } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        value.set_u32(battery.voltage_mv);
+                        respond_u32(battery.voltage_mv);
                     }
                 });
             }
-            Event::Read { reg: reg::BATTERY_MIN_VOLTAGE, value } => {
-                value.set_u32(ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE.unwrap_or_default());
+            Event::Read { reg: reg::BATTERY_MIN_VOLTAGE } => {
+                respond_u32(ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE.unwrap_or_default())
             }
-            Event::Read { reg: reg::BATTERY_MAX_VOLTAGE, value } => {
+            Event::Read { reg: reg::BATTERY_MAX_VOLTAGE } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        value.set_u32(battery.max_voltage_mv);
+                        respond_u32(battery.max_voltage_mv);
                     }
                 });
             }
-            Event::Read { reg: reg::BATTERY_CHARGING, value } => {
+            Event::Read { reg: reg::BATTERY_CHARGING } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        value.set_u8(battery.charging.into());
+                        respond_u8(battery.charging.into());
                     }
                 });
             }
-            Event::Read { reg: reg::BATTERY_CONSTANT_CHARGE_VOLTAGE, value } => {
+            Event::Read { reg: reg::BATTERY_CONSTANT_CHARGE_VOLTAGE } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        value.set_u32(battery.max_voltage_mv);
+                        respond_u32(battery.max_voltage_mv);
                     }
                 });
             }
-            Event::Read { reg: reg::BATTERY_CONSTANT_CHARGE_CURRENT, value } => {
+            Event::Read { reg: reg::BATTERY_CONSTANT_CHARGE_CURRENT } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        value.set_u32(battery.max_charge_current_ma);
+                        respond_u32(battery.max_charge_current_ma);
                     }
                 });
             }
-            Event::Read { reg: reg::BATTERY_CURRENT, value } => {
+            Event::Read { reg: reg::BATTERY_CURRENT } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        value.set_u32(battery.current_ma as u32);
+                        respond_u32(battery.current_ma as u32);
                     }
                 });
             }
-            Event::Read { reg: reg::BATTERY_SYSTEM_VOLTAGE, value } => {
+            Event::Read { reg: reg::BATTERY_SYSTEM_VOLTAGE } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        value.set_u32(battery.system_voltage_mv);
+                        respond_u32(battery.system_voltage_mv);
                     }
                 });
             }
-            Event::Read { reg: reg::BATTERY_STATUS, value } => {
+            Event::Read { reg: reg::BATTERY_STATUS } => {
                 cx.shared.battery.lock(|battery| match battery {
-                    Some(battery) => value.set_u8(if battery.present { 2 } else { 1 }),
-                    None => value.set_u8(0),
+                    Some(battery) => respond_u8(if battery.present { 2 } else { 1 }),
+                    None => respond_u8(0),
                 });
             }
-            Event::Read { reg: reg::SUPPLY_TYPE, value } => {
+            Event::Read { reg: reg::SUPPLY_TYPE } => {
                 cx.shared.power_supply.lock(|supply| {
                     if let Some(supply) = supply {
-                        value.set_u8(u8::from(&*supply));
+                        respond_u8(u8::from(&*supply));
                     }
                 });
             }
-            Event::Read { reg: reg::SUPPLY_REQUESTED_VOLTAGE, value } => {
+            Event::Read { reg: reg::SUPPLY_REQUESTED_VOLTAGE } => {
                 cx.shared.power_supply.lock(|supply| {
                     if let Some(supply) = supply {
-                        value.set_u32(supply.voltage_mv());
+                        respond_u32(supply.voltage_mv());
                     }
                 });
             }
-            Event::Read { reg: reg::SUPPLY_MAX_CURRENT, value } => {
+            Event::Read { reg: reg::SUPPLY_MAX_CURRENT } => {
                 cx.shared.power_supply.lock(|supply| {
                     if let Some(supply) = supply {
-                        value.set_u32(supply.max_current_ma());
+                        respond_u32(supply.max_current_ma());
                     }
                 });
             }
-            Event::Read { reg: reg::SUPPLY_USB_COMMUNICATION, value } => {
+            Event::Read { reg: reg::SUPPLY_USB_COMMUNICATION } => {
                 cx.shared.power_supply.lock(|supply| {
                     if let Some(supply) = supply {
-                        value.set_u8(supply.communication().into());
+                        respond_u8(supply.communication().into());
                     }
                 });
             }
-            Event::Read { reg: reg::SUPPLY_VOLTAGE, value } => {
+            Event::Read { reg: reg::SUPPLY_VOLTAGE } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        value.set_u32(battery.input_voltage_mv);
+                        respond_u32(battery.input_voltage_mv);
                     }
                 });
             }
-            Event::Read { reg: reg::SUPPLY_CURRENT, value } => {
+            Event::Read { reg: reg::SUPPLY_CURRENT } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        value.set_u32(battery.input_current_ma);
+                        respond_u32(battery.input_current_ma);
                     }
                 });
             }
@@ -1321,7 +1382,7 @@ mod app {
                 defmt::info!("reset");
                 cx.shared.bkp.lock(|bkp| boot::reset(bkp));
             }
-            Event::Read { reg: reg::LOG_READ, value } => {
+            Event::Read { reg: reg::LOG_READ } => {
                 #[cfg(feature = "defmt-ringbuf")]
                 {
                     let mut buf = [0; I2C_BUFFER_SIZE];
@@ -1330,25 +1391,25 @@ mod app {
                     if lost {
                         buf[0] |= 1 << 7;
                     }
-                    value.set(&buf);
+                    respond_slice(&buf);
                 }
                 #[cfg(not(feature = "defmt-ringbuf"))]
-                value.set(&[0]);
+                respond_slice(&[0]);
             }
-            Event::Read { reg: reg::BOOTLOADER_LOG_READ, value } => {
+            Event::Read { reg: reg::BOOTLOADER_LOG_READ } => {
                 #[cfg(feature = "defmt-ringbuf")]
                 {
                     use defmt_ringbuf::RingBuf;
                     let mut buf = [0; I2C_BUFFER_SIZE];
                     let (len, _lost) = unsafe { unwrap!(BOOTLOADER_LOG_REF.as_mut()).read(&mut buf[1..]) };
                     buf[0] = len as u8;
-                    value.set(&buf);
+                    respond_slice(&buf);
                 }
                 #[cfg(not(feature = "defmt-ringbuf"))]
-                value.set(&[0]);
+                respond_slice(&[0]);
             }
-            Event::Read { reg: reg::ECHO, value } => {
-                value.set(cx.local.echo);
+            Event::Read { reg: reg::ECHO } => {
+                respond_slice(cx.local.echo);
             }
             Event::Write { reg: reg::ECHO, value } => {
                 cx.local.echo[..value.len()].copy_from_slice(&value);
@@ -1362,21 +1423,44 @@ mod app {
                 });
                 irq::mask_exti();
             }
-            event => {
-                cx.shared.board.lock(|board| {
-                    if let Err(err) = board.i2c_event(event) {
-                        match err.0 {
-                            Event::Read { reg, value } => {
-                                defmt::warn!("I2C read from unknown register 0x{:02x}", reg);
-                                value.set(&[]);
-                            }
-                            Event::Write { reg, value: _ } => {
-                                defmt::warn!("I2C write to unknown register 0x{:02x}", reg);
-                            }
-                        }
-                    }
-                });
+
+            // Board-specific registers.
+            Event::Read { reg } => match cx.shared.board.lock(|board| board.i2c_read(reg)) {
+                Ok(response) => respond(response),
+                Err(board::UnknownI2cRegister) => {
+                    defmt::warn!("I2C read from unknown register 0x{:02x}", reg);
+                    respond_slice(&[]);
+                }
+            },
+            Event::Write { reg, value } => {
+                if let Err(board::UnknownI2cRegister) = cx.shared.board.lock(|board| board.i2c_write(reg, value))
+                {
+                    defmt::warn!("I2C write to unknown register 0x{:02x}", reg);
+                }
             }
         }
+
+        // Notify I2C event handler that request has been processed.
+        cx.shared.i2c_req.lock(move |i2c_req| match (&i2c_req, i2c_slave_response.into_inner()) {
+            (I2cReqHandling::Read(reg), Some(response)) => {
+                defmt::debug!("Response set");
+                *i2c_req = I2cReqHandling::ReadResponse { reg: *reg, response }
+            }
+            (I2cReqHandling::Read(reg), None) => {
+                defmt::warn!("No response to I2C read from register 0x{:02x}", reg);
+                *i2c_req =
+                    I2cReqHandling::ReadResponse { reg: *reg, response: i2c_reg_slave::Response::set(&[]) };
+            }
+            (I2cReqHandling::Write(_), Some(_)) => defmt::panic!("Response to I2C write"),
+            (I2cReqHandling::Write(_), None) => *i2c_req = I2cReqHandling::Idle,
+            (I2cReqHandling::Idle, _) => defmt::panic!("I2C handling with no active request"),
+            (I2cReqHandling::ReadResponse { .. }, _) => defmt::panic!("I2C read response already set"),
+        });
+
+        unsafe {
+            NVIC::unmask(Interrupt::I2C1_EV);
+            NVIC::unmask(Interrupt::I2C1_ER);
+        }
+        NVIC::pend(Interrupt::I2C1_EV);
     }
 }
