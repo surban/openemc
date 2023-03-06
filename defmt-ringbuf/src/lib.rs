@@ -1,9 +1,25 @@
-//! [`defmt`](https://github.com/knurling-rs/defmt) global logger into a persistent ring buffer.
+//! defmt-ringbuf is a [`defmt`](https://github.com/knurling-rs/defmt) global logger that logs into
+//! a persistent ring buffer.
+//!
+//! The ring buffer is not cleared at startup, i.e. if placed in a static global variable log messages
+//! will still be available after a reset.
+//!
 //! To use this crate, link to it by importing it somewhere in your project.
 //!
 //! ```
-//! // src/main.rs or src/bin/my-app.rs
+//! use core::mem::MaybeUninit;
 //! use defmt_ringbuf as _;
+//!
+//! static mut LOG: MaybeUninit<defmt_ringbuf::RingBuffer<1024>> = MaybeUninit::uninit();
+//!
+//! #[entry]
+//! fn main() -> ! {
+//!     unsafe {
+//!         defmt_ringbuf::init(&mut LOG, || ());
+//!     }
+//!
+//!     // ...
+//! }
 //! ```
 //!
 //! Call [init] to initialize logging and [read] to read buffered log data.
@@ -23,7 +39,10 @@
 
 #![no_std]
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{
+    mem::MaybeUninit,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 mod ring_buffer;
 
@@ -94,9 +113,12 @@ fn do_write(data: &[u8]) {
 ///
 /// This must be called exactly once.
 /// Log messages received before initiailization are discarded.
-pub unsafe fn init<const SIZE: usize>(ring_buffer: &'static mut RingBuffer<SIZE>, log_available: fn()) {
+pub unsafe fn init<const SIZE: usize>(
+    ring_buffer: &'static mut MaybeUninit<RingBuffer<SIZE>>, log_available: fn(),
+) {
     defmt::assert!(RING_BUFFER.is_none());
 
+    let ring_buffer = RingBuffer::init(ring_buffer);
     RING_BUFFER = Some(ring_buffer as &mut dyn RingBuf);
     LOG_AVAILABLE = log_available;
 }

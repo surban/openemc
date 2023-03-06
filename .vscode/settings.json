@@ -58,8 +58,10 @@
         "*.tcc": "c"
     },
     "rust-analyzer.linkedProjects": [
+        "defmt-ringbuf/Cargo.toml",
         "openemc-bootloader/Cargo.toml",
         "openemc-firmware/Cargo.toml",
+        "openemc-log/Cargo.toml",
         "openemc-pack/Cargo.toml",
         "openemc-shared/Cargo.toml",
         "xtask/Cargo.toml",

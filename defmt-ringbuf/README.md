@@ -1,6 +1,6 @@
 # defmt-ringbuf
 
-This crate stores [`defmt`] log messages in a simple ring buffer that is persisted across reboots.
+This crate stores [`defmt`] log messages in a simple ring buffer that is persisted across resets.
 You still need to read the messages from the buffer and transfer them to a host for formatting.
 
 [`defmt`]: https://github.com/knurling-rs/defmt
