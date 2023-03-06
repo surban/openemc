@@ -105,7 +105,7 @@ impl<const SIZE: usize> RingBuf for RingBuffer<SIZE> {
                 self.overwritten.store(true, Ordering::SeqCst);
 
                 let mut new_read_pos = to + 1;
-                if new_read_pos == SIZE {
+                if new_read_pos >= SIZE {
                     new_read_pos = 0;
                 }
                 self.read_pos.store(new_read_pos, Ordering::SeqCst);
