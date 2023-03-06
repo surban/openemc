@@ -203,8 +203,6 @@ mod app {
     struct Shared {
         /// If true, idle task starts bootloader.
         start_bootloader: bool,
-        /// User GPIO.
-        ugpio: MaskedGpio<{ board::PORTS }>,
         /// IRQ state.
         irq: IrqState,
         /// Backup domain.
@@ -215,8 +213,6 @@ mod app {
         rtc: Rtc,
         /// Result of latest AD conversion.
         adc_buf: Option<AdcBuf>,
-        /// PWM timers.
-        pwm_timers: [PwmTimer; 4],
         /// I2C 2 master.
         i2c2: Option<I2c2Master>,
         /// STUSB4500 USB PD controller.
@@ -240,6 +236,10 @@ mod app {
     struct Local {
         /// I2C slave.
         i2c_reg_slave: Option<RemappableI2CRegSlave>,
+        /// User GPIO.
+        ugpio: MaskedGpio<{ board::PORTS }>,
+        /// PWM timers.
+        pwm_timers: [PwmTimer; 4],
         /// AD converter.
         adc: Adc<ADC1>,
         /// AD converter inputs.
@@ -469,12 +469,10 @@ mod app {
             Shared {
                 start_bootloader: false,
                 irq,
-                ugpio,
                 bkp,
                 watchman,
                 rtc,
                 adc_buf: None,
-                pwm_timers,
                 board,
                 i2c2,
                 stusb4500,
@@ -484,7 +482,7 @@ mod app {
                 battery: None,
                 power_mode,
             },
-            Local { i2c_reg_slave, adc, adc_inp },
+            Local { i2c_reg_slave, adc, adc_inp, ugpio, pwm_timers },
             init::Monotonics(mono),
         )
     }
@@ -922,11 +920,13 @@ mod app {
             i2c_reg_slave,
             copyright_offset: usize = 0,
             mfd_cell_index: usize = 0,
+            ugpio,
+            pwm_timers,
             pwm_timer_index: u8 = 0,
             pwm_channel_index: u8 = 0,
             echo: [u8; I2C_BUFFER_SIZE] = [0; I2C_BUFFER_SIZE],
         ],
-        shared = [start_bootloader, irq, ugpio, bkp, watchman, rtc, adc_buf, pwm_timers, board, power_supply, battery],
+        shared = [start_bootloader, irq, bkp, watchman, rtc, adc_buf, board, power_supply, battery],
         priority = 2,
     )]
     fn i2c1_ev(mut cx: i2c1_ev::Context) {
@@ -1015,7 +1015,7 @@ mod app {
                 cx.shared.irq.lock(|irq| irq.set_exti_gpio_source(value.as_u64()))
             }
             Event::Write { reg: reg::IRQ_EXTI_DO_TRIGGER_LEVEL, .. } => {
-                (cx.shared.irq, cx.shared.ugpio).lock(|irq, ugpio| irq.do_trigger_exti(&ugpio.get_in()))
+                cx.shared.irq.lock(|irq| irq.do_trigger_exti(&cx.local.ugpio.get_in()))
             }
             Event::Read { reg: reg::WDG_UNLOCK, value } => {
                 cx.shared.watchman.lock(|watchman| value.set_u8(u8::from(watchman.unlocked())))
@@ -1106,44 +1106,30 @@ mod app {
                     })
                 });
             }
-            Event::Read { reg: reg::GPIO_COUNT, value } => {
-                cx.shared.ugpio.lock(|ugpio| value.set_u8(ugpio.gpios() as u8));
-            }
+            Event::Read { reg: reg::GPIO_COUNT, value } => value.set_u8(cx.local.ugpio.gpios() as u8),
             Event::Read { reg: reg::GPIO_CFG, value } => {
-                cx.shared.ugpio.lock(|ugpio| {
-                    let v: [u8; board::PORTS * size_of::<u64>()] = array_from_u64(&ugpio.get_cfg());
-                    value.set(&v);
-                });
+                let v: [u8; board::PORTS * size_of::<u64>()] = array_from_u64(&cx.local.ugpio.get_cfg());
+                value.set(&v);
             }
             Event::Write { reg: reg::GPIO_CFG, value } if value.len() == board::PORTS * size_of::<u64>() => {
-                cx.shared.ugpio.lock(|ugpio| {
-                    let v: [u64; board::PORTS] = array_to_u64(&value);
-                    ugpio.set_cfg(&v);
-                });
+                let v: [u64; board::PORTS] = array_to_u64(&value);
+                cx.local.ugpio.set_cfg(&v);
             }
             Event::Read { reg: reg::GPIO_OUT, value } => {
-                cx.shared.ugpio.lock(|ugpio| {
-                    let v: [u8; board::PORTS * size_of::<u16>()] = array_from_u16(&ugpio.get_out());
-                    value.set(&v);
-                });
+                let v: [u8; board::PORTS * size_of::<u16>()] = array_from_u16(&cx.local.ugpio.get_out());
+                value.set(&v);
             }
             Event::Write { reg: reg::GPIO_OUT, value } if value.len() == board::PORTS * size_of::<u16>() => {
-                cx.shared.ugpio.lock(|ugpio| {
-                    let v: [u16; board::PORTS] = array_to_u16(&value);
-                    ugpio.set_out(&v);
-                });
+                let v: [u16; board::PORTS] = array_to_u16(&value);
+                cx.local.ugpio.set_out(&v);
             }
             Event::Read { reg: reg::GPIO_IN, value } => {
-                cx.shared.ugpio.lock(|ugpio| {
-                    let v: [u8; board::PORTS * size_of::<u16>()] = array_from_u16(&ugpio.get_in());
-                    value.set(&v);
-                });
+                let v: [u8; board::PORTS * size_of::<u16>()] = array_from_u16(&cx.local.ugpio.get_in());
+                value.set(&v);
             }
             Event::Read { reg: reg::GPIO_USABLE, value } => {
-                cx.shared.ugpio.lock(|ugpio| {
-                    let v: [u8; board::PORTS * size_of::<u16>()] = array_from_u16(ugpio.usable());
-                    value.set(&v);
-                });
+                let v: [u8; board::PORTS * size_of::<u16>()] = array_from_u16(cx.local.ugpio.usable());
+                value.set(&v);
             }
             Event::Write { reg: reg::ADC_CONVERT, .. } => {
                 cx.shared.adc_buf.lock(|adc_buf| match adc_convert::spawn() {
@@ -1180,57 +1166,49 @@ mod app {
                 defmt::info!("requesting restart in {} ms", delay);
                 unwrap!(power_restart::spawn_after((delay as u64).millis()));
             }
-            Event::Read { reg: reg::PWM_TIMERS, value } => {
-                cx.shared.pwm_timers.lock(|pwm_timers| value.set_u8(pwm_timers.len() as u8))
-            }
+            Event::Read { reg: reg::PWM_TIMERS, value } => value.set_u8(cx.local.pwm_timers.len() as u8),
             Event::Read { reg: reg::PWM_TIMER, value } => value.set_u8(*cx.local.pwm_timer_index),
             Event::Write { reg: reg::PWM_TIMER, value } => {
                 *cx.local.pwm_timer_index = value.as_u8();
             }
-            Event::Read { reg: reg::PWM_TIMER_CHANNELS, value } => cx.shared.pwm_timers.lock(|pwm_timers| {
-                if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+            Event::Read { reg: reg::PWM_TIMER_CHANNELS, value } => {
+                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     value.set_u8(pwm_timer.channel_count());
                 }
-            }),
-            Event::Write { reg: reg::PWM_TIMER_REMAP, value } => cx.shared.pwm_timers.lock(|pwm_timers| {
-                if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+            }
+            Event::Write { reg: reg::PWM_TIMER_REMAP, value } => {
+                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     pwm_timer.set_remap(value.as_u8());
                 }
-            }),
-            Event::Write { reg: reg::PWM_TIMER_FREQUENCY, value } => cx.shared.pwm_timers.lock(|pwm_timers| {
-                if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+            }
+            Event::Write { reg: reg::PWM_TIMER_FREQUENCY, value } => {
+                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     pwm_timer.set_frequency(value.as_u32().Hz());
                 }
-            }),
+            }
             Event::Read { reg: reg::PWM_CHANNEL, value } => value.set_u8(*cx.local.pwm_channel_index),
-            Event::Write { reg: reg::PWM_CHANNEL, value } => cx.shared.pwm_timers.lock(|pwm_timers| {
+            Event::Write { reg: reg::PWM_CHANNEL, value } => {
                 let channel = value.as_u8();
-                if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     if channel < pwm_timer.channel_count() {
                         *cx.local.pwm_channel_index = channel;
                     }
                 }
-            }),
+            }
             Event::Write { reg: reg::PWM_CHANNEL_DUTY_CYCLE, value } => {
-                cx.shared.pwm_timers.lock(|pwm_timers| {
-                    if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                        pwm_timer.set_duty_cycle(*cx.local.pwm_channel_index, value.as_u16());
-                    }
-                });
+                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                    pwm_timer.set_duty_cycle(*cx.local.pwm_channel_index, value.as_u16());
+                }
             }
             Event::Write { reg: reg::PWM_CHANNEL_POLARITY, value } => {
-                cx.shared.pwm_timers.lock(|pwm_timers| {
-                    if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                        pwm_timer.set_polarity(*cx.local.pwm_channel_index, value.as_u8() != 0);
-                    }
-                });
+                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                    pwm_timer.set_polarity(*cx.local.pwm_channel_index, value.as_u8() != 0);
+                }
             }
             Event::Write { reg: reg::PWM_CHANNEL_OUTPUT, value } => {
-                cx.shared.pwm_timers.lock(|pwm_timers| {
-                    if let Some(pwm_timer) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                        pwm_timer.set_output(*cx.local.pwm_channel_index, value.as_u8() != 0);
-                    }
-                });
+                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                    pwm_timer.set_output(*cx.local.pwm_channel_index, value.as_u8() != 0);
+                }
             }
             Event::Read { reg: reg::BATTERY_VOLTAGE, value } => {
                 cx.shared.battery.lock(|battery| {
