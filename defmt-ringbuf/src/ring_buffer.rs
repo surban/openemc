@@ -92,7 +92,7 @@ impl<const SIZE: usize> RingBuf for RingBuffer<SIZE> {
             // Split data into part that fits remaining buffer.
             let write_pos = self.write_pos.load(Ordering::SeqCst);
             let to_end = SIZE - write_pos;
-            let (part, rest) = data.split_at(to_end.min(SIZE));
+            let (part, rest) = data.split_at(to_end.min(data.len()));
             data = rest;
 
             // Calculate write boundaries.
@@ -134,7 +134,7 @@ impl<const SIZE: usize> RingBuf for RingBuffer<SIZE> {
 
         // Calculate available data.
         let avail = if read_pos > write_pos { SIZE - read_pos } else { write_pos - read_pos };
-        let n = avail.min(SIZE);
+        let n = avail.min(data.len());
 
         // Copy.
         let from = read_pos;
