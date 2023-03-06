@@ -39,8 +39,8 @@ impl Board for BoardImpl {
 
     fn new(boot_info: &'static BootInfo, afio: &mut afio::Parts, delay: &mut Delay) -> BoardImpl {
         let mut dp = unsafe { Peripherals::steal() };
-        let mut gpioa = dp.GPIOA.split_without_reset();
-        let mut gpiob = dp.GPIOB.split_without_reset();
+        let mut gpioa = unsafe { dp.GPIOA.split_without_reset() };
+        let mut gpiob = unsafe { dp.GPIOB.split_without_reset() };
         let (pa15, _pb3, _pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
 
         let mut stusb4500_reset = gpiob.pb7.into_push_pull_output_with_state(&mut gpiob.crl, PinState::Low);
@@ -75,11 +75,11 @@ impl Board for BoardImpl {
 
         // Turn on LED.
         defmt::info!("system power on");
-        let mut gpioa = dp.GPIOA.split_without_reset();
+        let mut gpioa = unsafe { dp.GPIOA.split_without_reset() };
         gpioa.pa5.into_push_pull_output_with_state(&mut gpioa.crl, PinState::High);
 
         // Check for key.
-        let mut gpioc = dp.GPIOC.split_without_reset();
+        let mut gpioc = unsafe { dp.GPIOC.split_without_reset() };
         gpioc.pc13.as_pull_up_input(&mut gpioc.crh, |pc13| {
             if pc13.is_low() {
                 defmt::info!("resetting backup domain");

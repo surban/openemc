@@ -49,9 +49,9 @@ impl AdcInputs {
         let crl_c = dp.GPIOC.crl.read().bits();
 
         // Acquire analog pins.
-        let mut gpioa = dp.GPIOA.split_without_reset();
-        let mut gpiob = dp.GPIOB.split_without_reset();
-        let mut gpioc = dp.GPIOC.split_without_reset();
+        let mut gpioa = unsafe { dp.GPIOA.split_without_reset() };
+        let mut gpiob = unsafe { dp.GPIOB.split_without_reset() };
+        let mut gpioc = unsafe { dp.GPIOC.split_without_reset() };
         let this = Self {
             ch0: gpioa.pa0.into_analog(&mut gpioa.crl),
             ch1: gpioa.pa1.into_analog(&mut gpioa.crl),
