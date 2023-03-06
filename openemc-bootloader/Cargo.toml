@@ -3,7 +3,7 @@ name = "openemc-bootloader"
 description = "OpenEMC Bootloader"
 authors = ["Sebastian Urban <surban@surban.net>"]
 license = "GPL-3.0"
-version = "0.2.0"
+version = "0.2.1"
 publish = false
 edition = "2021"
 
