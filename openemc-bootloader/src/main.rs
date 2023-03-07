@@ -256,10 +256,10 @@ fn main() -> ! {
         defmt::info!("entering bootloader");
         watchdog::pet();
 
-        if boot_reason != BootReason::StartBootloader as _ {
+        if boot_reason != BootReason::StartBootloader as _ || bl_reset_cause {
             defmt::info!("system power off delay");
             board.set_system_power(false);
-            delay_ms(1000);
+            delay_ms(2000);
             watchdog::pet();
         }
 
