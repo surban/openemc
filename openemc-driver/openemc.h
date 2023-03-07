@@ -216,7 +216,6 @@ struct openemc {
 	struct mutex req_lock;
 
 	bool checksum_enabled;
-	u32 faults;
 
 	u8 id;
 	char firmware[128 + OPENEMC_MAX_DATA_SIZE];
