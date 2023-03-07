@@ -14,6 +14,7 @@
 #define OPENEMC_MAX_PINS 64
 #define OPENEMC_MAX_DATA_SIZE 32
 #define OPENEMC_MAX_CELLS 32
+#define OPENEMC_MAX_RETRIES 5
 
 #define OPENEMC_IRQS 32
 #define OPENEMC_EXT_IRQS 16
@@ -109,6 +110,9 @@
 
 /* Misc register definitions */
 #define OPENEMC_RESET 0xf0
+#define OPENEMC_CHECKSUM_ENABLE 0xf7
+#define OPENEMC_CHECKSUM 0xf8
+#define OPENEMC_REREAD 0xf9
 #define OPENEMC_LOG_READ 0xfa
 #define OPENEMC_BOOTLOADER_LOG_READ 0xfb
 #define OPENEMC_ECHO 0xfe
@@ -137,6 +141,10 @@
 
 /* Watchdog codes */
 #define OPENEMC_WDT_UNLOCK_CODE 0x1984090204061986
+
+/* Checksum codes */
+#define OPENEMC_CHECKSUM_ENABLE_CODE 0x00ccee24771142ff
+#define OPENEMC_CHECKSUM_DISABLE_CODE 0x00dd1199456296ff
 
 /* Reset status bits */
 #define OPENEMC_RESET_WAKEUP BIT(1)
@@ -205,6 +213,10 @@ struct openemc {
 	struct device *dev;
 	struct i2c_client *i2c;
 	struct mutex lock;
+	struct mutex req_lock;
+
+	bool checksum_enabled;
+	u32 faults;
 
 	u8 id;
 	char firmware[128 + OPENEMC_MAX_DATA_SIZE];

@@ -259,6 +259,33 @@ pub const SUPPLY_CURRENT: u8 = 0x95;
 /// Resets the system.
 pub const RESET: u8 = 0xf0;
 
+/// Checksum enable.
+///
+/// Read: enabled (u8).
+/// Write: 8 bytes with the codes below.
+pub const CHECKSUM_ENABLE: u8 = 0xf7;
+
+/// Checksum enable code.
+pub const CHECKSUM_ENABLE_CODE: u64 = 0x00ccee24771142ff;
+
+/// Checksum disable code.
+pub const CHECKSUM_DISABLE_CODE: u64 = 0x00dd1199456296ff;
+
+/// Checksum status. (10 bytes)
+///
+/// Read:
+/// - status (u8, bit 0 = last transaction matched checksum)
+/// - CRC32 of last response (u32)
+/// - CRC32 of this message (u32)
+///
+/// Write:
+/// - CRC32 of coming request (u32)
+/// - read length of response (u8)
+pub const CHECKSUM: u8 = 0xf8;
+
+/// Read response of last request without side effects.
+pub const REREAD: u8 = 0xf9;
+
 /// Read log.
 /// 32 bytes.
 /// First byte: length with MSB set if data was lost.

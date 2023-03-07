@@ -121,6 +121,15 @@ where
         self.init();
     }
 
+    /// Delay execution by reading SR1.
+    ///
+    /// Workaround for I2C controller bugs.
+    fn sr1_delay(&mut self) {
+        for _ in 0..100 {
+            self.i2c.sr1.read();
+        }
+    }
+
     /// Gets the next event.
     pub fn event(&mut self) -> nb::Result<Event<I2C, PINS>, Error> {
         let sr1 = self.i2c.sr1.read();
@@ -172,9 +181,7 @@ where
 
                     if sr1.tx_e().is_empty() {
                         // Workaround for I2C bus hanging after restart condition.
-                        for _ in 0..100 {
-                            self.i2c.sr1.read();
-                        }
+                        self.sr1_delay();
                         Ok(Event::Restart)
                     } else {
                         Ok(Event::End)

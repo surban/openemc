@@ -95,6 +95,12 @@ const REG_TIMEOUT_ENABLED: u8 = 0x30;
 /// Resets the system.
 const REG_RESET: u8 = 0xf0;
 
+/// Checksum enable.
+///
+/// Read: enabled (u8).
+/// Checksum is always disabled in bootloader.
+const REG_CHECKSUM_ENABLE: u8 = 0xf7;
+
 /// Restarts the bootloader.
 const REG_START_BOOTLOADER: u8 = 0xff;
 
@@ -310,6 +316,12 @@ where
             Some(I2CRegTransaction::Write(rx)) if rx.reg() == REG_RESET => {
                 rx.discard();
                 return BootloaderResult::Reset;
+            }
+            Some(I2CRegTransaction::Read(mut tx)) if tx.reg() == REG_CHECKSUM_ENABLE => {
+                tx.send_u8(0);
+            }
+            Some(I2CRegTransaction::Write(rx)) if rx.reg() == REG_CHECKSUM_ENABLE => {
+                rx.discard();
             }
             Some(I2CRegTransaction::Write(rx)) if rx.reg() == REG_START_BOOTLOADER => {
                 rx.discard();

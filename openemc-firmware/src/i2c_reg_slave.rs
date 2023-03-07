@@ -254,7 +254,13 @@ impl<const BUFFER: usize> Value<BUFFER> {
 }
 
 /// Response to register read request.
-pub struct Response<const BUFFER: usize>(Vec<u8, BUFFER>);
+pub struct Response<const BUFFER: usize>(pub Vec<u8, BUFFER>);
+
+impl<const BUFFER: usize> From<Vec<u8, BUFFER>> for Response<BUFFER> {
+    fn from(value: Vec<u8, BUFFER>) -> Self {
+        Self(value)
+    }
+}
 
 impl<const BUFFER: usize> Deref for Response<BUFFER> {
     type Target = [u8];
@@ -271,6 +277,11 @@ impl<const BUFFER: usize> Response<BUFFER> {
     pub fn set(value: &[u8]) -> Self {
         defmt::assert!(value.len() <= BUFFER);
         Self(defmt::unwrap!(value.try_into()))
+    }
+
+    /// Provides an empty register value which will read as all zeros.
+    pub fn set_empty() -> Self {
+        Self::set(&[])
     }
 
     /// Provides the register value, clipping the provided value as necessary.

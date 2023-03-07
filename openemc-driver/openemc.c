@@ -39,24 +39,219 @@ MODULE_DEVICE_TABLE(of, openemc_of_match);
 #define CNF_OUTPUT_ALTERNATE 0b1000
 #define CNF_OUTPUT_OPEN_DRAIN 0b0100
 
-int openemc_cmd(struct openemc *emc, u8 command)
+enum openemc_req { REQ_READ, REQ_WRITE };
+
+static u32 openemc_crc32(const void *data, size_t length)
+{
+	if (length % 4 == 0) {
+		return crc32(0xffffffff, data, length) ^ 0xffffffff;
+	} else if (length <= OPENEMC_MAX_DATA_SIZE + 1) {
+		u8 buf[OPENEMC_MAX_DATA_SIZE + 1 + 4];
+
+		memset(buf, 0, ARRAY_SIZE(buf));
+		memcpy(buf, data, length);
+
+		while (length % 4 != 0)
+			length++;
+
+		return crc32(0xffffffff, buf, length) ^ 0xffffffff;
+	} else {
+		BUG();
+	}
+}
+
+static int openemc_read_checksum(struct openemc *emc, bool *command_okay,
+				 u32 *crc32)
 {
 	struct i2c_client *i2c = emc->i2c;
+	int retry, ret;
 
-	return i2c_smbus_write_byte(i2c, command);
+	for (retry = 0; retry < OPENEMC_MAX_RETRIES; retry++) {
+		u8 buf[9];
+		u32 checksum_crc32, expected_checksum_crc32;
+
+		ret = i2c_smbus_read_i2c_block_data(i2c, OPENEMC_CHECKSUM,
+						    ARRAY_SIZE(buf), buf);
+		if (ret < 0)
+			continue;
+
+		*command_okay = buf[0] & BIT(0);
+		*crc32 = (u32)buf[1] | (u32)buf[2] << 8 | (u32)buf[3] << 16 |
+			 (u32)buf[4] << 24;
+		checksum_crc32 = (u32)buf[5] | (u32)buf[6] << 8 |
+				 (u32)buf[7] << 16 | (u32)buf[8] << 24;
+
+		expected_checksum_crc32 = openemc_crc32(buf, 5);
+		if (expected_checksum_crc32 == checksum_crc32) {
+			ret = 0;
+			break;
+		} else {
+			dev_warn(emc->dev, "checksum CRC32 mismatch\n");
+			ret = -EIO;
+		}
+	}
+
+	return ret;
+}
+
+static int openemc_write_checksum(struct openemc *emc, u32 crc32, u8 len)
+{
+	struct i2c_client *i2c = emc->i2c;
+	int retry, ret;
+	u8 buf[5];
+
+	buf[0] = crc32 & 0xff;
+	buf[1] = (crc32 >> 8) & 0xff;
+	buf[2] = (crc32 >> 16) & 0xff;
+	buf[3] = (crc32 >> 24) & 0xff;
+	buf[4] = len;
+
+	for (retry = 0; retry < OPENEMC_MAX_RETRIES; retry++) {
+		ret = i2c_smbus_write_i2c_block_data(i2c, OPENEMC_CHECKSUM,
+						     ARRAY_SIZE(buf), buf);
+		if (ret >= 0)
+			break;
+	}
+
+	return ret;
+}
+
+static int openemc_request(struct openemc *emc, enum openemc_req req,
+			   u8 command, u8 len, u8 *data)
+{
+	struct i2c_client *i2c = emc->i2c;
+	int ret = 0;
+	int retry, restarts = 0;
+
+	if (len > OPENEMC_MAX_DATA_SIZE) {
+		dev_err(emc->dev, "maximum data size exceeded\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&emc->req_lock);
+
+restart:
+	/* send crc32 of coming request */
+	if (emc->checksum_enabled) {
+		u8 req_buf[OPENEMC_MAX_DATA_SIZE + 1];
+		size_t req_len;
+		u8 rsp_len;
+
+		req_buf[0] = command;
+
+		switch (req) {
+		case REQ_READ:
+			req_len = 1;
+			rsp_len = len;
+			break;
+		case REQ_WRITE:
+			memcpy(&req_buf[1], data, len);
+			req_len = 1 + len;
+			rsp_len = 0;
+			break;
+		default:
+			BUG();
+		}
+
+		ret = openemc_write_checksum(
+			emc, openemc_crc32(req_buf, req_len), rsp_len);
+		if (ret < 0)
+			goto out;
+	}
+
+	/* send request */
+	for (retry = 0; retry < OPENEMC_MAX_RETRIES; retry++) {
+		switch (req) {
+		case REQ_READ:
+			ret = i2c_smbus_read_i2c_block_data(i2c, command, len,
+							    data);
+			break;
+		case REQ_WRITE:
+			ret = i2c_smbus_write_i2c_block_data(i2c, command, len,
+							     data);
+			break;
+		default:
+			BUG();
+		}
+		if (ret >= 0)
+			break;
+	}
+	if (ret < 0)
+		goto out;
+
+	/* get and verify crc32 of response */
+	if (emc->checksum_enabled) {
+		for (retry = 0; retry < OPENEMC_MAX_RETRIES; retry++) {
+			bool command_okay;
+			u32 crc32;
+			u32 expected_crc32;
+
+			/* re-read response */
+			if (retry != 0 && req == REQ_READ) {
+				ret = i2c_smbus_read_i2c_block_data(
+					i2c, OPENEMC_REREAD, len, data);
+				if (ret < 0)
+					continue;
+			}
+
+			ret = openemc_read_checksum(emc, &command_okay, &crc32);
+			if (ret < 0)
+				goto out;
+
+			if (!command_okay) {
+				dev_warn(emc->dev, "command CRC32 mismatch\n");
+				ret = -EIO;
+				restarts++;
+				if (restarts < OPENEMC_MAX_RETRIES)
+					goto restart;
+				else
+					goto out;
+			}
+
+			switch (req) {
+			case REQ_READ:
+				expected_crc32 = openemc_crc32(data, len);
+				if (expected_crc32 == crc32) {
+					ret = 0;
+					goto out;
+				} else {
+					dev_warn(emc->dev,
+						 "data CRC32 mismatch\n");
+					ret = -EIO;
+				}
+				break;
+			case REQ_WRITE:
+				ret = 0;
+				goto out;
+			default:
+				BUG();
+			}
+		}
+	}
+
+out:
+	mutex_unlock(&emc->req_lock);
+	return ret;
+}
+
+int openemc_cmd(struct openemc *emc, u8 command)
+{
+	u8 buf[0];
+
+	return openemc_request(emc, REQ_WRITE, command, ARRAY_SIZE(buf), buf);
 }
 EXPORT_SYMBOL_GPL(openemc_cmd);
 
 int openemc_read_u8(struct openemc *emc, u8 command, u8 *value)
 {
-	struct i2c_client *i2c = emc->i2c;
+	u8 buf[1];
 	int ret;
 
-	ret = i2c_smbus_read_byte_data(i2c, command);
+	ret = openemc_request(emc, REQ_READ, command, ARRAY_SIZE(buf), buf);
 	if (ret < 0)
 		return ret;
 
-	*value = ret;
+	*value = buf[0];
 
 	return 0;
 }
@@ -64,19 +259,20 @@ EXPORT_SYMBOL_GPL(openemc_read_u8);
 
 int openemc_write_u8(struct openemc *emc, u8 command, u8 value)
 {
-	struct i2c_client *i2c = emc->i2c;
+	u8 buf[1];
 
-	return i2c_smbus_write_byte_data(i2c, command, value);
+	buf[0] = value;
+
+	return openemc_request(emc, REQ_WRITE, command, ARRAY_SIZE(buf), buf);
 }
 EXPORT_SYMBOL_GPL(openemc_write_u8);
 
 int openemc_read_u16(struct openemc *emc, u8 command, u16 *value)
 {
-	struct i2c_client *i2c = emc->i2c;
 	u8 buf[2];
 	int ret;
 
-	ret = i2c_smbus_read_i2c_block_data(i2c, command, ARRAY_SIZE(buf), buf);
+	ret = openemc_request(emc, REQ_READ, command, ARRAY_SIZE(buf), buf);
 	if (ret < 0)
 		return ret;
 
@@ -88,24 +284,21 @@ EXPORT_SYMBOL_GPL(openemc_read_u16);
 
 int openemc_write_u16(struct openemc *emc, u8 command, u16 value)
 {
-	struct i2c_client *i2c = emc->i2c;
 	u8 buf[2];
 
 	buf[0] = value & 0xff;
 	buf[1] = (value >> 8) & 0xff;
 
-	return i2c_smbus_write_i2c_block_data(i2c, command, ARRAY_SIZE(buf),
-					      buf);
+	return openemc_request(emc, REQ_WRITE, command, ARRAY_SIZE(buf), buf);
 }
 EXPORT_SYMBOL_GPL(openemc_write_u16);
 
 int openemc_read_u32(struct openemc *emc, u8 command, u32 *value)
 {
-	struct i2c_client *i2c = emc->i2c;
 	u8 buf[4];
 	int ret;
 
-	ret = i2c_smbus_read_i2c_block_data(i2c, command, ARRAY_SIZE(buf), buf);
+	ret = openemc_request(emc, REQ_READ, command, ARRAY_SIZE(buf), buf);
 	if (ret < 0)
 		return ret;
 
@@ -118,7 +311,6 @@ EXPORT_SYMBOL_GPL(openemc_read_u32);
 
 int openemc_write_u32(struct openemc *emc, u8 command, u32 value)
 {
-	struct i2c_client *i2c = emc->i2c;
 	u8 buf[4];
 
 	buf[0] = value & 0xff;
@@ -126,18 +318,16 @@ int openemc_write_u32(struct openemc *emc, u8 command, u32 value)
 	buf[2] = (value >> 16) & 0xff;
 	buf[3] = (value >> 24) & 0xff;
 
-	return i2c_smbus_write_i2c_block_data(i2c, command, ARRAY_SIZE(buf),
-					      buf);
+	return openemc_request(emc, REQ_WRITE, command, ARRAY_SIZE(buf), buf);
 }
 EXPORT_SYMBOL_GPL(openemc_write_u32);
 
 int openemc_read_u64(struct openemc *emc, u8 command, u64 *value)
 {
-	struct i2c_client *i2c = emc->i2c;
 	u8 buf[8];
 	int ret;
 
-	ret = i2c_smbus_read_i2c_block_data(i2c, command, ARRAY_SIZE(buf), buf);
+	ret = openemc_request(emc, REQ_READ, command, ARRAY_SIZE(buf), buf);
 	if (ret < 0)
 		return ret;
 
@@ -151,7 +341,6 @@ EXPORT_SYMBOL_GPL(openemc_read_u64);
 
 int openemc_write_u64(struct openemc *emc, u8 command, u64 value)
 {
-	struct i2c_client *i2c = emc->i2c;
 	u8 buf[8];
 
 	buf[0] = value & 0xff;
@@ -163,26 +352,54 @@ int openemc_write_u64(struct openemc *emc, u8 command, u64 value)
 	buf[6] = (value >> 48) & 0xff;
 	buf[7] = (value >> 56) & 0xff;
 
-	return i2c_smbus_write_i2c_block_data(i2c, command, ARRAY_SIZE(buf),
-					      buf);
+	return openemc_request(emc, REQ_WRITE, command, ARRAY_SIZE(buf), buf);
 }
 EXPORT_SYMBOL_GPL(openemc_write_u64);
 
 int openemc_write_data(struct openemc *emc, u8 command, u8 len, const u8 *data)
 {
-	struct i2c_client *i2c = emc->i2c;
-
-	return i2c_smbus_write_i2c_block_data(i2c, command, len, data);
+	return openemc_request(emc, REQ_WRITE, command, len, (u8 *)data);
 }
 EXPORT_SYMBOL_GPL(openemc_write_data);
 
 int openemc_read_data(struct openemc *emc, u8 command, u8 len, u8 *data)
 {
-	struct i2c_client *i2c = emc->i2c;
-
-	return i2c_smbus_read_i2c_block_data(i2c, command, len, data);
+	return openemc_request(emc, REQ_READ, command, len, data);
 }
 EXPORT_SYMBOL_GPL(openemc_read_data);
+
+static int openemc_set_checksum_enabled(struct openemc *emc, bool enabled)
+{
+	int retry, ret;
+	u64 req;
+
+	if (enabled)
+		req = OPENEMC_CHECKSUM_ENABLE_CODE;
+	else
+		req = OPENEMC_CHECKSUM_DISABLE_CODE;
+
+	emc->checksum_enabled = false;
+
+	for (retry = 0; retry < OPENEMC_MAX_RETRIES; retry++) {
+		u8 ret_enabled;
+
+		ret = openemc_write_u64(emc, OPENEMC_CHECKSUM_ENABLE, req);
+		if (ret < 0)
+			continue;
+
+		ret = openemc_read_u8(emc, OPENEMC_CHECKSUM_ENABLE,
+				      &ret_enabled);
+		if (ret < 0)
+			continue;
+
+		if ((ret_enabled != 0) == enabled) {
+			emc->checksum_enabled = enabled;
+			break;
+		}
+	}
+
+	return ret;
+}
 
 static u8 openemc_flash_lock_code[] = { 0x00, 0x00, 0x00, 0x00 };
 static u8 openemc_flash_unlock_code[] = { 0xb0, 0xf0, 0x01, 0xaa };
@@ -221,11 +438,6 @@ static int openemc_set_flash_lock(struct openemc *emc, bool lock)
 	}
 
 	return 0;
-}
-
-static u32 openemc_crc32(const void *data, size_t length)
-{
-	return crc32(0xffffffff, data, length) ^ 0xffffffff;
 }
 
 static int openemc_flash_firmware_page(struct openemc *emc,
@@ -369,6 +581,12 @@ static int openemc_start_firmware(struct openemc *emc, const char *filename)
 	char *delim;
 	const struct firmware *firmware = NULL;
 
+	ret = openemc_set_checksum_enabled(emc, false);
+	if (ret < 0) {
+		dev_err(emc->dev, "failed to disable checksum: %d\n", ret);
+		goto out;
+	}
+
 	ret = openemc_read_u8(emc, OPENEMC_ID, &emc->id);
 	if (ret < 0) {
 		dev_err(emc->dev, "failed to read id: %d\n", ret);
@@ -380,6 +598,12 @@ static int openemc_start_firmware(struct openemc *emc, const char *filename)
 	    emc->id != OPENEMC_ID_BOOTLOADER) {
 		dev_err(emc->dev, "unknown id: 0x%02x\n", emc->id);
 		return -ENODEV;
+	}
+
+	if (emc->id != OPENEMC_ID_BOOTLOADER) {
+		ret = openemc_set_checksum_enabled(emc, true);
+		if (ret < 0)
+			goto out;
 	}
 
 	ret = openemc_read_data(emc, OPENEMC_BOOTLOADER_VERSION,
@@ -465,6 +689,10 @@ static int openemc_start_firmware(struct openemc *emc, const char *filename)
 				msleep(1000);
 			}
 
+			ret = openemc_set_checksum_enabled(emc, false);
+			if (ret < 0)
+				goto out;
+
 			ret = openemc_read_u8(emc, OPENEMC_ID, &emc->id);
 			if (ret < 0)
 				goto out;
@@ -515,6 +743,10 @@ static int openemc_start_firmware(struct openemc *emc, const char *filename)
 		msleep(1000);
 	}
 
+	ret = openemc_set_checksum_enabled(emc, true);
+	if (ret < 0)
+		goto out;
+
 	ret = openemc_read_u8(emc, OPENEMC_ID, &emc->id);
 	if (ret < 0)
 		goto out;
@@ -546,7 +778,8 @@ static int openemc_pins_read(struct openemc *emc)
 		return ret;
 	emc->npin = min((int)npin, OPENEMC_MAX_PINS);
 
-	ret = openemc_read_data(emc, OPENEMC_GPIO_USABLE, emc->npin, usable);
+	ret = openemc_read_data(emc, OPENEMC_GPIO_USABLE, emc->npin / 8,
+				usable);
 	if (ret < 0)
 		return ret;
 
@@ -1393,6 +1626,7 @@ static int openemc_i2c_probe(struct i2c_client *i2c)
 	i2c_set_clientdata(i2c, emc);
 
 	mutex_init(&emc->lock);
+	mutex_init(&emc->req_lock);
 	emc->i2c = i2c;
 	emc->irq = i2c->irq;
 	emc->dev = &i2c->dev;

@@ -27,6 +27,7 @@ mod board;
 mod boards;
 mod boot;
 mod bq25713;
+mod crc;
 mod i2c_reg_slave;
 mod i2c_slave;
 mod irq;
@@ -53,10 +54,12 @@ use core::{
 };
 use cortex_m::peripheral::NVIC;
 use defmt::{unwrap, Format};
+use heapless::Vec;
 use stm32f1::stm32f103::Interrupt;
 use stm32f1xx_hal::{
     adc::Adc,
     backup_domain::BackupDomain,
+    crc::Crc,
     gpio::{Alternate, OpenDrain, Pin},
     i2c,
     i2c::I2c,
@@ -72,7 +75,8 @@ use crate::{
     board::Board,
     boot::{BootInfoExt, BootReasonExt},
     bq25713::{Battery, Bq25713},
-    i2c_reg_slave::{Event, I2CRegSlave},
+    crc::crc32,
+    i2c_reg_slave::{Event, I2CRegSlave, Response},
     i2c_slave::I2cSlave,
     pio::MaskedGpio,
     pwm::PwmTimer,
@@ -267,6 +271,8 @@ mod app {
     struct Local {
         /// I2C slave.
         i2c_reg_slave: Option<RemappableI2CRegSlave>,
+        /// CRC engine.
+        crc: Crc,
         /// User GPIO.
         ugpio: MaskedGpio<{ board::PORTS }>,
         /// PWM timers.
@@ -294,6 +300,7 @@ mod app {
 
         // Create HAL objects.
         let rcc = cx.device.RCC.constrain();
+        let crc = cx.device.CRC.new();
         let mut bkp = rcc.bkp.constrain(cx.device.BKP, &mut cx.device.PWR);
         let mut flash = cx.device.FLASH.constrain();
         let mut afio = cx.device.AFIO.constrain();
@@ -515,7 +522,7 @@ mod app {
                 battery: None,
                 power_mode,
             },
-            Local { i2c_reg_slave, adc, adc_inp, ugpio, pwm_timers },
+            Local { i2c_reg_slave, crc, adc, adc_inp, ugpio, pwm_timers },
             init::Monotonics(mono),
         )
     }
@@ -947,31 +954,106 @@ mod app {
     }
 
     /// I2C event interrupt handler.
-    #[task(binds = I2C1_EV, local = [i2c_reg_slave], shared = [i2c_req], priority = 3)]
+    #[task(
+        binds = I2C1_EV,
+        local = [
+            i2c_reg_slave,
+            crc,
+            checksum_enabled: bool = false,
+            request_crc32: u32 = 0,
+            request_ok: bool = false,
+            response: [u8; I2C_BUFFER_SIZE] = [0; I2C_BUFFER_SIZE],
+            response_len: u8 = 0,
+        ],
+        shared = [i2c_req],
+        priority = 3,
+    )]
     fn i2c1_ev(mut cx: i2c1_ev::Context) {
         let Some(i2c_reg_slave) = cx.local.i2c_reg_slave.as_mut() else { return };
 
         cx.shared.i2c_req.lock(|i2c_req| loop {
             match i2c_req {
                 I2cReqHandling::Idle => match i2c_reg_slave.event() {
-                    Ok(evt) => {
-                        match &evt {
-                            Event::Read { reg, .. } => {
-                                defmt::debug!("I2C read  0x{:02x} pending", reg);
-                                *i2c_req = I2cReqHandling::Read(*reg);
-                            }
-                            Event::Write { reg, value } => {
-                                defmt::debug!("I2C write 0x{:02x}: {=[u8]:#x}", reg, value);
-                                *i2c_req = I2cReqHandling::Write(*reg);
+                    Ok(evt) => match evt {
+                        Event::Read { reg: reg::CHECKSUM_ENABLE } => {
+                            i2c_reg_slave.respond(Response::set_u8(*cx.local.checksum_enabled as _));
+                        }
+                        Event::Write { reg: reg::CHECKSUM_ENABLE, value } => {
+                            if value.as_u64() == reg::CHECKSUM_ENABLE_CODE {
+                                defmt::info!("checksum enabled");
+                                *cx.local.checksum_enabled = true;
+                            } else if value.as_u64() == reg::CHECKSUM_DISABLE_CODE {
+                                defmt::info!("checksum disabled");
+                                *cx.local.checksum_enabled = false;
+                            } else {
+                                defmt::warn!("wrong checksumming code: {=[u8]:#x}", &*value);
                             }
                         }
-                        NVIC::mask(Interrupt::I2C1_EV);
-                        NVIC::mask(Interrupt::I2C1_ER);
-                        if i2c_slave_req::spawn(evt).is_err() {
-                            defmt::panic!("I2C request handler busy");
+                        Event::Read { reg: reg::CHECKSUM } => {
+                            let mut buf = Vec::new();
+                            let response_part = &cx.local.response
+                                [..cx.local.response.len().min(*cx.local.response_len as usize)];
+                            defmt::unwrap!(buf.push(*cx.local.request_ok as u8));
+                            defmt::unwrap!(
+                                buf.extend_from_slice(&crc32(cx.local.crc, response_part).to_le_bytes())
+                            );
+                            defmt::unwrap!(buf.extend_from_slice(&crc32(cx.local.crc, &buf).to_le_bytes()));
+                            i2c_reg_slave.respond(buf.into());
                         }
-                        break;
-                    }
+                        Event::Write { reg: reg::CHECKSUM, value } => {
+                            if value.len() > 4 {
+                                *cx.local.request_crc32 =
+                                    u32::from_le_bytes(defmt::unwrap!(value[0..4].try_into()));
+                                *cx.local.response_len = value[4];
+                            }
+                        }
+                        Event::Read { reg: reg::REREAD } => {
+                            defmt::warn!("response re-read");
+                            i2c_reg_slave.respond(Response::set(cx.local.response));
+                        }
+                        evt => {
+                            if *cx.local.checksum_enabled {
+                                let buf: Vec<u8, { I2C_BUFFER_SIZE + 1 }> = match &evt {
+                                    Event::Read { reg } => defmt::unwrap!(Vec::from_slice(&[*reg])),
+                                    Event::Write { reg, value } => {
+                                        let mut buf = Vec::new();
+                                        defmt::unwrap!(buf.push(*reg));
+                                        defmt::unwrap!(buf.extend_from_slice(value));
+                                        buf
+                                    }
+                                };
+                                if crc32(cx.local.crc, &buf) != *cx.local.request_crc32 {
+                                    defmt::warn!("CRC32 mismatch for request 0x{:02x}", buf[0]);
+                                    *cx.local.request_ok = false;
+                                    if let Event::Read { .. } = &evt {
+                                        i2c_reg_slave.respond(Response::set_empty());
+                                    }
+                                    continue;
+                                } else {
+                                    *cx.local.request_ok = true;
+                                }
+                            }
+
+                            match &evt {
+                                Event::Read { reg } => {
+                                    defmt::debug!("I2C read  0x{:02x} pending", reg);
+                                    *i2c_req = I2cReqHandling::Read(*reg);
+                                }
+                                Event::Write { reg, value } => {
+                                    defmt::debug!("I2C write 0x{:02x}: {=[u8]:#x}", reg, value);
+                                    *i2c_req = I2cReqHandling::Write(*reg);
+                                }
+                            }
+
+                            NVIC::mask(Interrupt::I2C1_EV);
+                            NVIC::mask(Interrupt::I2C1_ER);
+                            if i2c_slave_req::spawn(evt).is_err() {
+                                defmt::panic!("I2C request handler busy");
+                            }
+
+                            break;
+                        }
+                    },
                     Err(nb::Error::WouldBlock) => {
                         defmt::trace!("I2C event internal processing");
                         break;
@@ -982,6 +1064,8 @@ mod app {
                     defmt::debug!("I2C read  0x{:02x}: {=[u8]:#x}", reg, &response);
                     let I2cReqHandling::ReadResponse { response, ..} = replace(i2c_req, I2cReqHandling::Idle)
                         else { defmt::unreachable!() };
+                    cx.local.response.fill(0);
+                    cx.local.response[..response.len()].copy_from_slice(&response);
                     i2c_reg_slave.respond(response);
                 }
                 I2cReqHandling::Read(reg) => {
@@ -1010,22 +1094,22 @@ mod app {
         shared = [i2c_req, start_bootloader, irq, bkp, watchman, rtc, adc_buf, board, power_supply, battery],
         priority = 2,
     )]
-    fn i2c_slave_req(mut cx: i2c_slave_req::Context, evt: i2c_reg_slave::Event<I2C_BUFFER_SIZE>) {
+    fn i2c_slave_req(mut cx: i2c_slave_req::Context, evt: Event<I2C_BUFFER_SIZE>) {
         let is_read = matches!(&evt, Event::Read { .. });
         let i2c_slave_response = Cell::new(None);
-        let respond = |response: i2c_reg_slave::Response<I2C_BUFFER_SIZE>| {
+        let respond = |response: Response<I2C_BUFFER_SIZE>| {
             if is_read {
                 i2c_slave_response.set(Some(response));
             } else {
                 defmt::panic!("Response to I2C write event");
             }
         };
-        let respond_slice = |response: &[u8]| respond(i2c_reg_slave::Response::set(response));
-        let respond_clipped = |response: &[u8]| respond(i2c_reg_slave::Response::set_clipped(response));
-        let respond_u8 = |response: u8| respond(i2c_reg_slave::Response::set_u8(response));
-        let respond_u16 = |response: u16| respond(i2c_reg_slave::Response::set_u16(response));
-        let respond_u32 = |response: u32| respond(i2c_reg_slave::Response::set_u32(response));
-        let respond_u64 = |response: u64| respond(i2c_reg_slave::Response::set_u64(response));
+        let respond_slice = |response: &[u8]| respond(Response::set(response));
+        let respond_clipped = |response: &[u8]| respond(Response::set_clipped(response));
+        let respond_u8 = |response: u8| respond(Response::set_u8(response));
+        let respond_u16 = |response: u16| respond(Response::set_u16(response));
+        let respond_u32 = |response: u32| respond(Response::set_u32(response));
+        let respond_u64 = |response: u64| respond(Response::set_u64(response));
 
         match evt {
             Event::Read { reg: reg::ID } => {
@@ -1448,8 +1532,7 @@ mod app {
             }
             (I2cReqHandling::Read(reg), None) => {
                 defmt::warn!("No response to I2C read from register 0x{:02x}", reg);
-                *i2c_req =
-                    I2cReqHandling::ReadResponse { reg: *reg, response: i2c_reg_slave::Response::set(&[]) };
+                *i2c_req = I2cReqHandling::ReadResponse { reg: *reg, response: Response::set(&[]) };
             }
             (I2cReqHandling::Write(_), Some(_)) => defmt::panic!("Response to I2C write"),
             (I2cReqHandling::Write(_), None) => *i2c_req = I2cReqHandling::Idle,
