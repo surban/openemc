@@ -51,8 +51,10 @@ pub trait Board {
         0
     }
 
-    /// Turn system power on so that system can flash user program.
-    fn system_power_on(&mut self) {}
+    /// Turn system power to the desired state.
+    ///
+    /// If state is on, the board must power up enough so that system can flash user program.
+    fn set_system_power(&mut self, _state: bool) {}
 
     /// Bootloader I2C request handler.
     fn bootloader_request(&mut self, _t: I2CRegTransaction) {}

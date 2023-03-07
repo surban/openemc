@@ -100,9 +100,14 @@ impl Board for BoardImpl {
         dp.RCC.apb2enr.modify(|_, w| w.iopcen().disabled());
     }
 
-    fn system_power_on(&mut self) {
+    fn set_system_power(&mut self, state: bool) {
         let dp = unsafe { Peripherals::steal() };
-        dp.GPIOA.odr.modify(|_, w| w.odr5().high());
+
+        if state {
+            dp.GPIOA.odr.modify(|_, w| w.odr5().high());
+        } else {
+            dp.GPIOA.odr.modify(|_, w| w.odr5().low());
+        }
     }
 
     fn write_board_data(&mut self, board_data: &mut [u8; BootInfo::BOARD_DATA_SIZE]) -> usize {

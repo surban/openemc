@@ -258,12 +258,13 @@ fn main() -> ! {
 
         if boot_reason != BootReason::StartBootloader as _ {
             defmt::info!("system power off delay");
+            board.set_system_power(false);
             delay_ms(1000);
             watchdog::pet();
         }
 
         defmt::info!("system power on");
-        board.system_power_on();
+        board.set_system_power(true);
         powered_on = true;
 
         // Run bootloader.
