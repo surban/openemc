@@ -122,6 +122,7 @@ static int openemc_request(struct openemc *emc, enum openemc_req req,
 	struct i2c_client *i2c = emc->i2c;
 	int ret = 0;
 	int retry, restarts = 0;
+	u8 verify_data[OPENEMC_MAX_DATA_SIZE];
 
 	if (len > OPENEMC_MAX_DATA_SIZE) {
 		dev_err(emc->dev, "maximum data size exceeded\n");
@@ -179,8 +180,8 @@ restart:
 	if (ret < 0)
 		goto out;
 
-	/* get and verify crc32 of response */
 	if (emc->checksum_enabled) {
+		/* get and verify crc32 of response */
 		for (retry = 0; retry < OPENEMC_MAX_RETRIES; retry++) {
 			bool command_okay;
 			u32 crc32;
@@ -226,6 +227,28 @@ restart:
 			default:
 				BUG();
 			}
+		}
+	} else if (req == REQ_READ) {
+		/* read twice to verify if checksum is disabled */
+		for (retry = 0; retry < OPENEMC_MAX_RETRIES; retry++) {
+			ret = i2c_smbus_read_i2c_block_data(i2c, command, len,
+							    verify_data);
+			if (ret >= 0)
+				break;
+		}
+		if (ret < 0)
+			goto out;
+
+		if (memcmp(data, verify_data, len) != 0) {
+			dev_warn(emc->dev, "verify read mismatch\n");
+			ret = -EIO;
+			restarts++;
+			if (restarts < OPENEMC_MAX_RETRIES)
+				goto restart;
+			else
+				goto out;
+		} else {
+			ret = 0;
 		}
 	}
 
@@ -505,7 +528,7 @@ static int openemc_flash_firmware_page(struct openemc *emc,
 			"CRC32 mismatch after flashing page "
 			"0x%08x (flash 0x%08x, firmware 0x%08x)\n",
 			addr, flash_crc32, firmware_crc32);
-		return -ENODEV;
+		return -EIO;
 	}
 
 	return 0;
@@ -1611,7 +1634,7 @@ static int openemc_i2c_probe(struct i2c_client *i2c)
 	const struct of_device_id *of_id;
 	const char *firmware = NULL;
 	struct openemc *emc;
-	int ret;
+	int ret, retry;
 
 	of_id = of_match_device(openemc_of_match, &i2c->dev);
 	if (!of_id) {
@@ -1632,7 +1655,15 @@ static int openemc_i2c_probe(struct i2c_client *i2c)
 	emc->dev = &i2c->dev;
 
 	of_property_read_string(i2c->dev.of_node, "firmware", &firmware);
-	ret = openemc_start_firmware(emc, firmware);
+
+	for (retry = 0; retry < OPENEMC_MAX_RETRIES; retry++) {
+		ret = openemc_start_firmware(emc, firmware);
+		if (ret == 0)
+			break;
+
+		dev_warn(&i2c->dev, "retrying start\n");
+		msleep(1000);
+	}
 	if (ret != 0)
 		return ret;
 
