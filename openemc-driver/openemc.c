@@ -701,6 +701,10 @@ static int openemc_start_firmware(struct openemc *emc, const char *filename)
 		strncpy(emc->firmware, filename, ARRAY_SIZE(emc->firmware));
 
 		if (emc->program_id == 0 || emc->program_id != firmware_id) {
+			ret = openemc_set_checksum_enabled(emc, false);
+			if (ret < 0)
+				goto out;
+
 			if (emc->id != OPENEMC_ID_BOOTLOADER) {
 				dev_info(emc->dev, "starting bootloader\n");
 
@@ -711,10 +715,6 @@ static int openemc_start_firmware(struct openemc *emc, const char *filename)
 
 				msleep(1000);
 			}
-
-			ret = openemc_set_checksum_enabled(emc, false);
-			if (ret < 0)
-				goto out;
 
 			ret = openemc_read_u8(emc, OPENEMC_ID, &emc->id);
 			if (ret < 0)
