@@ -1,6 +1,11 @@
 //! Boot.
 
-use core::{mem::MaybeUninit, ptr, slice};
+use core::{
+    mem::MaybeUninit,
+    ptr,
+    ptr::{addr_of, addr_of_mut},
+    slice,
+};
 use cortex_m::peripheral::{scb::Exception, SCB};
 use openemc_shared::{BootInfo, BootReason, ResetStatus};
 use stm32f1::stm32f103::Peripherals;
@@ -76,10 +81,16 @@ pub trait BootInfoExt {
 
 impl BootInfoExt for BootInfo {
     unsafe fn init(bkp: &BackupDomain) {
-        let dp = Peripherals::steal();
+        let ptr = BOOT_INFO.as_mut_ptr();
+        let powered_on_ptr = addr_of_mut!((*ptr).powered_on) as *mut u8;
+        let powered_on = powered_on_ptr.read_volatile();
+        if powered_on != 0 && powered_on != 1 {
+            powered_on_ptr.write_volatile(0);
+        }
 
-        let bi = BOOT_INFO.assume_init_ref();
-        if bi.signature != Self::SIGNATURE {
+        if !Self::is_from_bootloader() {
+            let dp = Peripherals::steal();
+
             // Get reset status.
             STANDALONE_BOOT_INFO.reset_status =
                 ResetStatus::from_rcc_pwr(dp.RCC.csr.read().bits(), dp.PWR.csr.read().bits());
@@ -94,17 +105,18 @@ impl BootInfoExt for BootInfo {
     }
 
     fn get() -> &'static Self {
-        let bi = unsafe { BOOT_INFO.assume_init_ref() };
-        if bi.signature == Self::SIGNATURE {
-            bi
+        if Self::is_from_bootloader() {
+            unsafe { BOOT_INFO.assume_init_ref() }
         } else {
             unsafe { &STANDALONE_BOOT_INFO }
         }
     }
 
     fn is_from_bootloader() -> bool {
-        let bi = unsafe { BOOT_INFO.assume_init_ref() };
-        bi.signature == Self::SIGNATURE
+        unsafe {
+            let ptr = BOOT_INFO.as_ptr();
+            addr_of!((*ptr).signature).read_volatile() == Self::SIGNATURE
+        }
     }
 
     fn board_model(&self) -> &[u8] {
