@@ -81,12 +81,14 @@ pub trait BootInfoExt {
 
 impl BootInfoExt for BootInfo {
     unsafe fn init(bkp: &BackupDomain) {
+        // Make sure BOOT_INFO is read from memory.
         let ptr = BOOT_INFO.as_mut_ptr();
         let powered_on_ptr = addr_of_mut!((*ptr).powered_on) as *mut u8;
         let powered_on = powered_on_ptr.read_volatile();
         if powered_on != 0 && powered_on != 1 {
             powered_on_ptr.write_volatile(0);
         }
+        ptr.read_volatile();
 
         if !Self::is_from_bootloader() {
             let dp = Peripherals::steal();
