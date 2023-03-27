@@ -340,7 +340,7 @@ impl PwmTimer {
             (self.arr * duty_cycle as u32 + u16::MAX as u32 / 2) / (u16::MAX as u32)
         };
 
-        defmt::debug!("setting {:?} channel {} compare={}", &self.timer, channel, cmp);
+        defmt::debug!("setting {:?} channel {} arr={} compare={}", &self.timer, channel, self.arr, cmp);
         self.timer.set_compare(channel, cmp as u16);
         self.timer.update();
     }
