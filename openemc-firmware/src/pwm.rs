@@ -332,8 +332,13 @@ impl PwmTimer {
 
     /// Sets the duty cycle.
     pub fn set_duty_cycle(&mut self, channel: u8, duty_cycle: u16) {
-        let cmp = (self.arr * duty_cycle as u32 + u16::MAX as u32 / 2) / (u16::MAX as u32);
         self.duty_cycles[channel as usize] = duty_cycle;
+
+        let cmp = if duty_cycle >= u16::MAX - 2 {
+            u16::MAX as u32
+        } else {
+            (self.arr * duty_cycle as u32 + u16::MAX as u32 / 2) / (u16::MAX as u32)
+        };
 
         defmt::debug!("setting {:?} channel {} compare={}", &self.timer, channel, cmp);
         self.timer.set_compare(channel, cmp as u16);
