@@ -408,8 +408,8 @@ where
                 v_cmpin_mv: (self.read(i2c, REG_ADC_I_CMPIN, 1)?[0] as u32) * 12,
                 v_psys_mv: (self.read(i2c, REG_ADC_P_SYS, 1)?[0] as u32) * 12,
                 i_in_ma: (self.read(i2c, REG_ADC_I_IN, 1)?[0] as u32) * 50,
-                i_chg_ma: (self.read(i2c, REG_ADC_I_CHG, 1)?[0] as u32) * 64,
-                i_dchg_ma: (self.read(i2c, REG_ADC_I_DCHG, 1)?[0] as u32) * 256,
+                i_chg_ma: (self.read(i2c, REG_ADC_I_CHG, 1)?[0] as u32 & 0b01111111) * 64,
+                i_dchg_ma: (self.read(i2c, REG_ADC_I_DCHG, 1)?[0] as u32 & 0b0111_1111) * 256,
             });
             defmt::debug!("ADC measurements: {:?}", &self.measurement);
         }
