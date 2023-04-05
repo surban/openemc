@@ -402,8 +402,8 @@ where
 
             // Read ADC values.
             self.measurement = Some(Bq25713Measurement {
-                v_sys_mv: 2880 + (self.read(i2c, REG_ADC_V_BAT, 1)?[0] as u32) * 64,
-                v_bat_mv: 2880 + (self.read(i2c, REG_ADC_V_SYS, 1)?[0] as u32) * 64,
+                v_sys_mv: 2880 + (self.read(i2c, REG_ADC_V_SYS, 1)?[0] as u32) * 64,
+                v_bat_mv: 2880 + (self.read(i2c, REG_ADC_V_BAT, 1)?[0] as u32) * 64,
                 v_bus_mv: 3200 + (self.read(i2c, REG_ADC_V_BUS, 1)?[0] as u32) * 64,
                 v_cmpin_mv: (self.read(i2c, REG_ADC_I_CMPIN, 1)?[0] as u32) * 12,
                 v_psys_mv: (self.read(i2c, REG_ADC_P_SYS, 1)?[0] as u32) * 12,
