@@ -1,6 +1,6 @@
 //! Debug functions.
 
-use core::mem::size_of;
+use core::{mem::size_of, ptr};
 use defmt::unwrap;
 
 // use crate::CPU_CLOCK;
@@ -65,4 +65,16 @@ pub fn array_to_u16<const D: usize>(flat: &[u8]) -> [u16; D] {
         *d = u16::from_le_bytes(b);
     }
     data
+}
+
+/// 96-bit unique device identifier.
+pub fn unique_device_id() -> u128 {
+    const BASE: usize = 0x1FFFF7E8;
+    unsafe {
+        let a = ptr::read_unaligned(BASE as *const u16) as u128;
+        let b = ptr::read_unaligned((BASE + 2) as *const u16) as u128;
+        let c = ptr::read_unaligned((BASE + 4) as *const u32) as u128;
+        let d = ptr::read_unaligned((BASE + 8) as *const u32) as u128;
+        a | (b << 16) | (c << 32) | (d << 64)
+    }
 }

@@ -25,6 +25,7 @@
 #define OPENEMC_EMC_MODEL 0x02
 #define OPENEMC_BOARD_MODEL 0x03
 #define OPENEMC_BOOTLOADER_VERSION 0x04
+#define OPENEMC_UNIQUE_ID 0x05
 #define OPENEMC_COPYRIGHT 0x06
 #define OPENEMC_MFD_CELL 0x07
 #define OPENEMC_BOOT_REASON 0x08
@@ -224,6 +225,7 @@ struct openemc {
 	char copyright[8 * OPENEMC_MAX_DATA_SIZE];
 	u8 emc_model;
 	char board_model[OPENEMC_MAX_DATA_SIZE + 1];
+	u64 unique_id[2];
 	u16 boot_reason;
 	u8 reset_status;
 	u8 start_reason;
@@ -261,6 +263,8 @@ int openemc_read_u32(struct openemc *emc, u8 command, u32 *value);
 int openemc_write_u32(struct openemc *emc, u8 command, u32 value);
 int openemc_read_u64(struct openemc *emc, u8 command, u64 *value);
 int openemc_write_u64(struct openemc *emc, u8 command, u64 value);
+int openemc_read_u128(struct openemc *emc, u8 command, u64 *value_lo,
+		      u64 *value_hi);
 int openemc_read_data(struct openemc *emc, u8 command, u8 len, u8 *data);
 int openemc_write_data(struct openemc *emc, u8 command, u8 len, const u8 *data);
 

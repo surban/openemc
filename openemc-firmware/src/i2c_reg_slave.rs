@@ -326,4 +326,26 @@ impl<const BUFFER: usize> Response<BUFFER> {
             ((value >> 56) & 0xff) as u8,
         ])
     }
+
+    /// Sets the register value to an u128 with LSB first.
+    pub fn set_u128(value: u128) -> Self {
+        Self::set(&[
+            (value & 0xff) as u8,
+            ((value >> 8) & 0xff) as u8,
+            ((value >> 16) & 0xff) as u8,
+            ((value >> 24) & 0xff) as u8,
+            ((value >> 32) & 0xff) as u8,
+            ((value >> 40) & 0xff) as u8,
+            ((value >> 48) & 0xff) as u8,
+            ((value >> 56) & 0xff) as u8,
+            ((value >> 64) & 0xff) as u8,
+            ((value >> 72) & 0xff) as u8,
+            ((value >> 80) & 0xff) as u8,
+            ((value >> 88) & 0xff) as u8,
+            ((value >> 96) & 0xff) as u8,
+            ((value >> 104) & 0xff) as u8,
+            ((value >> 112) & 0xff) as u8,
+            ((value >> 120) & 0xff) as u8,
+        ])
+    }
 }

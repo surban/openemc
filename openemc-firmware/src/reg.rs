@@ -15,6 +15,9 @@ pub const BOARD_MODEL: u8 = 0x03;
 /// Read bootloader version (string).
 pub const BOOTLOADER_VERSION: u8 = 0x04;
 
+/// Read 96-bit unique device identifier (u128).
+pub const UNIQUE_ID: u8 = 0x05;
+
 /// Copyright.
 /// Read: string starting at offset.
 /// Write u8: set offset.

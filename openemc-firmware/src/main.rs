@@ -82,7 +82,7 @@ use crate::{
     pwm::PwmTimer,
     rtc::{ClockSrc, Rtc},
     supply::{max14636::Max14636, stusb4500::StUsb4500, PowerSupply},
-    util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64},
+    util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64, unique_device_id},
     watchman::Watchman,
 };
 use openemc_shared::{BootInfo, BootReason};
@@ -338,6 +338,7 @@ mod app {
         }
         defmt::info!("EMC model:      0x{:02x}", bi.emc_model);
         defmt::info!("board model:    {:a}", bi.board_model());
+        defmt::info!("unique id:      {:024x}", unique_device_id());
         defmt::info!("I2C address:    0x{:02x} (pins remapped: {:?})", ThisBoard::I2C_ADDR, ThisBoard::I2C_REMAP);
         defmt::info!("IRQ pin:        {} (mode: 0b{:04b})", ThisBoard::IRQ_PIN, ThisBoard::IRQ_PIN_CFG);
         BootReason::log(bi.boot_reason);
@@ -1110,6 +1111,7 @@ mod app {
         let respond_u16 = |response: u16| respond(Response::set_u16(response));
         let respond_u32 = |response: u32| respond(Response::set_u32(response));
         let respond_u64 = |response: u64| respond(Response::set_u64(response));
+        let respond_u128 = |response: u128| respond(Response::set_u128(response));
 
         match evt {
             Event::Read { reg: reg::ID } => {
@@ -1122,6 +1124,7 @@ mod app {
                 Some(v) => respond_slice(v),
                 None => respond_slice(&[0]),
             },
+            Event::Read { reg: reg::UNIQUE_ID } => respond_u128(unique_device_id()),
             Event::Read { reg: reg::COPYRIGHT } => {
                 respond_clipped(COPYRIGHT.get(*cx.local.copyright_offset..).unwrap_or_default())
             }

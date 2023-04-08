@@ -362,6 +362,28 @@ int openemc_read_u64(struct openemc *emc, u8 command, u64 *value)
 }
 EXPORT_SYMBOL_GPL(openemc_read_u64);
 
+int openemc_read_u128(struct openemc *emc, u8 command, u64 *value_lo,
+		      u64 *value_hi)
+{
+	u8 buf[16];
+	int ret;
+
+	ret = openemc_request(emc, REQ_READ, command, ARRAY_SIZE(buf), buf);
+	if (ret < 0)
+		return ret;
+
+	*value_lo = (u64)buf[0] | (u64)buf[1] << 8 | (u64)buf[2] << 16 |
+		    (u64)buf[3] << 24 | (u64)buf[4] << 32 | (u64)buf[5] << 40 |
+		    (u64)buf[6] << 48 | (u64)buf[7] << 56;
+	*value_hi = (u64)buf[8] | (u64)buf[9] << 8 | (u64)buf[10] << 16 |
+		    (u64)buf[11] << 24 | (u64)buf[12] << 32 |
+		    (u64)buf[13] << 40 | (u64)buf[14] << 48 |
+		    (u64)buf[15] << 56;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(openemc_read_u128);
+
 int openemc_write_u64(struct openemc *emc, u8 command, u64 value)
 {
 	u8 buf[8];
@@ -1290,6 +1312,15 @@ static ssize_t openemc_board_model_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(openemc_board_model);
 
+static ssize_t openemc_unique_id_show(struct device *dev,
+				      struct device_attribute *attr, char *buf)
+{
+	struct openemc *emc = dev_get_drvdata(dev);
+	return sprintf(buf, "%08llx%016llx", emc->unique_id[1],
+		       emc->unique_id[0]);
+}
+static DEVICE_ATTR_RO(openemc_unique_id);
+
 static ssize_t openemc_boot_reason_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
@@ -1466,6 +1497,7 @@ static struct attribute *openemc_attrs[] = {
 	&dev_attr_openemc_flashable.attr,
 	&dev_attr_openemc_emc_model.attr,
 	&dev_attr_openemc_board_model.attr,
+	&dev_attr_openemc_unique_id.attr,
 	&dev_attr_openemc_boot_reason.attr,
 	&dev_attr_openemc_reset_status.attr,
 	&dev_attr_openemc_start_reason.attr,
@@ -1562,6 +1594,11 @@ static int openemc_get_info(struct openemc *emc)
 
 	ret = openemc_read_data(emc, OPENEMC_BOARD_MODEL, OPENEMC_MAX_DATA_SIZE,
 				emc->board_model);
+	if (ret < 0)
+		return ret;
+
+	ret = openemc_read_u128(emc, OPENEMC_UNIQUE_ID, &emc->unique_id[0],
+				&emc->unique_id[1]);
 	if (ret < 0)
 		return ret;
 
@@ -1696,7 +1733,11 @@ static int openemc_i2c_probe(struct i2c_client *i2c)
 	return 0;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+static void openemc_i2c_remove(struct i2c_client *i2c)
+#else
 static int openemc_i2c_remove(struct i2c_client *i2c)
+#endif
 {
 	struct openemc *emc = i2c_get_clientdata(i2c);
 
@@ -1705,7 +1746,9 @@ static int openemc_i2c_remove(struct i2c_client *i2c)
 		irq_domain_remove(emc->irq_domain);
 	}
 
+#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
 	return 0;
+#endif
 }
 
 static struct i2c_driver openemc_i2c_driver = {
