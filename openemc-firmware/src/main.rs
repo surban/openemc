@@ -504,6 +504,9 @@ mod app {
         // Drive charging LED.
         unwrap!(charge_led::spawn());
 
+        // Call board-specific periodic function for first time.
+        unwrap!(board_periodic::spawn());
+
         defmt::debug!("init done");
         (
             Shared {
@@ -884,6 +887,14 @@ mod app {
     #[task(binds = USART3, shared = [irq])]
     fn log_available(mut cx: log_available::Context) {
         cx.shared.irq.lock(|irq| irq.pend_soft(IrqState::LOG))
+    }
+
+    /// Board-specific periodic function.
+    #[task(shared = [board])]
+    fn board_periodic(mut cx: board_periodic::Context) {
+        defmt::trace!("calling board-specific periodic function");
+        let delay = cx.shared.board.lock(|board| board.periodic());
+        defmt::unwrap!(board_periodic::spawn_after(delay));
     }
 
     /// Simulates interrupts on PD0 and PD1.

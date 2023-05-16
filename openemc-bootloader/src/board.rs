@@ -58,4 +58,7 @@ pub trait Board {
 
     /// Bootloader I2C request handler.
     fn bootloader_request(&mut self, _t: I2CRegTransaction) {}
+
+    /// Bootloader idle function.
+    fn idle(&mut self) {}
 }

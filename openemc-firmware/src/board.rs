@@ -141,6 +141,13 @@ pub trait Board {
 
     /// Sets the charging LED to the specified state.
     fn set_charging_led(&mut self, _state: bool) {}
+
+    /// Custom board-specific function that is called periodically.
+    ///
+    /// Returns the delay until the function should be called the next time.
+    fn periodic(&mut self) -> Duration {
+        Duration::secs(60)
+    }
 }
 
 /// Unknown I2C event.

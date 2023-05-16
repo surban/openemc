@@ -105,7 +105,7 @@ const REG_CHECKSUM_ENABLE: u8 = 0xf7;
 const REG_START_BOOTLOADER: u8 = 0xff;
 
 /// Bootloader information.
-pub struct BootloaderInfo<'a, Ext> {
+pub struct BootloaderInfo<'a, Ext, Idle> {
     /// EMC model id.
     pub emc_model: u8,
     /// Board model id.
@@ -124,6 +124,8 @@ pub struct BootloaderInfo<'a, Ext> {
     pub id: u32,
     /// Extended I2C commands.
     pub extend_fn: Ext,
+    /// Function to call while idle.
+    pub idle_fn: Idle,
 }
 
 /// Result of running the bootloader.
@@ -141,9 +143,10 @@ pub enum BootloaderResult {
 }
 
 /// Runs the boot loader.
-pub fn run<Ext>(mut info: BootloaderInfo<Ext>, i2c_slave: I2CSlave) -> BootloaderResult
+pub fn run<Ext, Idle>(mut info: BootloaderInfo<Ext, Idle>, i2c_slave: I2CSlave) -> BootloaderResult
 where
     Ext: FnMut(I2CRegTransaction),
+    Idle: FnMut(),
 {
     let mut i2c = I2CRegSlave::new(i2c_slave);
     let mut flash_addr = info.user_flash_start;
@@ -166,7 +169,9 @@ where
 
     loop {
         watchdog::pet();
+        (info.idle_fn)();
 
+        watchdog::pet();
         let mut transacted = true;
         match i2c.try_accept() {
             Some(I2CRegTransaction::Read(mut tx)) if tx.reg() == REG_ID => {

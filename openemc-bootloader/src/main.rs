@@ -41,7 +41,7 @@ use defmt_rtt as _;
 
 use panic_probe as _;
 
-use core::{ffi::c_void, mem::MaybeUninit, num::NonZeroU32};
+use core::{cell::RefCell, ffi::c_void, mem::MaybeUninit, num::NonZeroU32};
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::entry;
 use defmt::{unwrap, Format};
@@ -271,16 +271,18 @@ fn main() -> ! {
         loop {
             defmt::info!("bootloader start");
 
+            let board_cell = RefCell::new(board);
             let info = BootloaderInfo {
                 emc_model: emc_model(),
-                board_model: board.model(),
+                board_model: board_cell.borrow().model(),
                 user_flash_start: user_flash_start(),
                 user_flash_end: user_flash_end(),
                 timeout_ticks: Some(unwrap!(NonZeroU32::new(ThisBoard::TIMEOUT_TICKS))),
                 boot_reason,
                 reset_status,
                 id: program.map(|p| p.id).unwrap_or_default(),
-                extend_fn: |req: I2CRegTransaction| board.bootloader_request(req),
+                extend_fn: |req: I2CRegTransaction| board_cell.borrow_mut().bootloader_request(req),
+                idle_fn: || board_cell.borrow_mut().idle(),
             };
 
             let i2c_slave = I2CSlave::new(
@@ -291,6 +293,9 @@ fn main() -> ! {
 
             let blr = bootloader::run(info, i2c_slave);
             bootloader_result = Some(blr);
+
+            board = board_cell.into_inner();
+
             match blr {
                 BootloaderResult::Start => {
                     defmt::info!("user program start request");
