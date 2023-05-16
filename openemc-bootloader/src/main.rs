@@ -57,7 +57,7 @@ use crate::{
 use openemc_shared::{BootInfo, BootReason, ResetStatus};
 
 /// OpenEMC bootloader version.
-pub static VERSION: &[u8] = env!("CARGO_PKG_VERSION").as_bytes();
+pub static VERSION: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bootloader_version.txt"));
 
 /// Boot info block.
 #[no_mangle]

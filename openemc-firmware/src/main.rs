@@ -88,7 +88,7 @@ use crate::{
 use openemc_shared::{BootInfo, BootReason};
 
 /// OpenEMC firmware version.
-pub static VERSION: &[u8] = env!("CARGO_PKG_VERSION").as_bytes();
+pub static VERSION: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/version.txt"));
 
 /// Firmware copyright.
 static COPYRIGHT: &[u8] = b"(c) 2022-2023 Sebastian Urban <surban@surban.net> license: GNU GPL version 3";

@@ -20,6 +20,15 @@ fn main() {
         panic!("board {board} is unknown");
     }
 
+    let board_version_file = format!("src/boards/{}.version", board.to_lowercase());
+    println!("cargo:rerun-if-changed={board_version_file}");
+    let board_version = fs::read_to_string(&board_version_file)
+        .unwrap_or_else(|_| panic!("cannot read board version from {board_version_file}"))
+        .trim()
+        .to_string();
+    let pkg_version = env::var("CARGO_PKG_VERSION").unwrap();
+    fs::write(out.join("version.txt"), format!("{pkg_version}/{board_version}")).unwrap();
+
     let mut board_mods = File::create(out.join("board_mods.rs")).unwrap();
     for entry in fs::read_dir("src/boards").unwrap() {
         let entry = entry.unwrap();
