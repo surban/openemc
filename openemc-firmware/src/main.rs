@@ -685,7 +685,7 @@ mod app {
     /// Updates the power supply status.
     #[task(
         shared = [i2c2, stusb4500, max14636, bq25713, power_supply, irq, board, &power_mode],
-        local = [first: Option<Instant> = None],
+        local = [first: Option<Instant> = None, charger_set: bool = false],
         capacity = 3
     )]
     fn power_supply_update(cx: power_supply_update::Context) {
@@ -705,16 +705,16 @@ mod app {
                 // Merge power supply reports.
                 let mut report = PowerSupply::default();
                 if let Some(stusb4500) = stusb4500 {
-                    defmt::trace!("STUSB4500 power supply report: {:?}", stusb4500.report());
+                    defmt::info!("STUSB4500 power supply report: {:?}", stusb4500.report());
                     report = report.merge(stusb4500.report());
                 }
                 if let Some(max14636) = max14636 {
                     let max14636_report = max14636.report();
-                    defmt::trace!("MAX14636 power supply report: {:?}", max14636_report);
+                    defmt::info!("MAX14636 power supply report: {:?}", max14636_report);
                     report = report.merge(&max14636_report);
                 }
 
-                if Some(&report) != power_supply.as_ref() {
+                if Some(&report) != power_supply.as_ref() || !*cx.local.charger_set {
                     defmt::info!("Power supply: {:?}", report);
 
                     // Configure battery charger.
@@ -722,18 +722,25 @@ mod app {
                         (Some(i2c2), Some(bq25713)) if !report.is_unknown() => {
                             let max_current = report.max_current_ma();
                             defmt::info!("Setting BQ25713 maximum input current to {} mA", max_current);
-                            if let Err(err) = bq25713.set_max_input_current(i2c2, max_current).and_then(|_| {
+                            let res = bq25713.set_max_input_current(i2c2, max_current).and_then(|_| {
                                 if max_current > 0 && !bq25713.is_charge_enabled() {
                                     bq25713.set_charge_enable(i2c2, true)?;
                                 } else if max_current == 0 && bq25713.is_charge_enabled() {
                                     bq25713.set_charge_enable(i2c2, false)?;
                                 }
                                 Ok(())
-                            }) {
-                                defmt::error!("Cannot configure BQ25713 charging: {}", err);
+                            });
+                            match res {
+                                Ok(()) => *cx.local.charger_set = true,
+                                Err(err) => {
+                                    defmt::error!("Cannot configure BQ25713 charging: {}", err);
+                                    *cx.local.charger_set = false;
+                                }
                             }
                         }
-                        _ => (),
+                        _ => {
+                            *cx.local.charger_set = true;
+                        }
                     }
 
                     // Check for power on and shutdown in charging mode.
