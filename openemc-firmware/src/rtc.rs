@@ -1,7 +1,6 @@
 //! Real-time clock (RTC).
 
 use core::cell::Cell;
-
 use defmt::Format;
 use stm32f1::stm32f103::{rcc::bdcr::RTCSEL_A, Peripherals, RTC};
 use stm32f1xx_hal::backup_domain::BackupDomain;
