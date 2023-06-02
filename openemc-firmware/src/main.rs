@@ -705,12 +705,13 @@ mod app {
                 // Merge power supply reports.
                 let mut report = PowerSupply::default();
                 if let Some(stusb4500) = stusb4500 {
-                    defmt::info!("STUSB4500 power supply report: {:?}", stusb4500.report());
+                    let stusb4500_report = stusb4500.report();
+                    defmt::trace!("STUSB4500 power supply report: {:?}", &stusb4500_report);
                     report = report.merge(stusb4500.report());
                 }
                 if let Some(max14636) = max14636 {
                     let max14636_report = max14636.report();
-                    defmt::info!("MAX14636 power supply report: {:?}", max14636_report);
+                    defmt::trace!("MAX14636 power supply report: {:?}", &max14636_report);
                     report = report.merge(&max14636_report);
                 }
 
