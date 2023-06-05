@@ -1,5 +1,7 @@
 defmt-ringbuf/target
 defmt-ringbuf/Cargo.lock
+defmt-ringbuf/defmt-ringbuf-test/target
+defmt-ringbuf/defmt-ringbuf-test/Cargo.lock
 openemc-bootloader/target
 openemc-pack/target
 openemc-firmware/target

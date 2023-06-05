@@ -10,6 +10,10 @@ license = "MIT OR Apache-2.0"
 version = "0.2.0"
 edition = "2021"
 
+[features]
+default = ["logger"]
+logger = []
+
 [dependencies]
 defmt = "0.3"
 critical-section = "1"

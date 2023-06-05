@@ -48,7 +48,7 @@ mod ring_buffer;
 
 pub use ring_buffer::{RingBuf, RingBuffer};
 
-#[defmt::global_logger]
+#[cfg_attr(feature = "logger", defmt::global_logger)]
 struct Logger;
 
 /// Global logger lock.
@@ -114,7 +114,8 @@ fn do_write(data: &[u8]) {
 /// This must be called exactly once.
 /// Log messages received before initiailization are discarded.
 pub unsafe fn init<const SIZE: usize>(
-    ring_buffer: &'static mut MaybeUninit<RingBuffer<SIZE>>, log_available: fn(),
+    ring_buffer: &'static mut MaybeUninit<RingBuffer<SIZE>>,
+    log_available: fn(),
 ) {
     defmt::assert!(RING_BUFFER.is_none());
 
