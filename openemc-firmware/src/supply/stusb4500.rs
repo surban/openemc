@@ -91,6 +91,7 @@ enum ResetState {
     PinResetLow(Instant),
     RegisterReset(Instant),
     Off,
+    OnWait(Instant),
     Failed,
 }
 
@@ -253,6 +254,10 @@ where
                 Ok(true)
             }
             ResetState::Off => {
+                self.reset = ResetState::OnWait(monotonics::now());
+                Ok(true)
+            }
+            ResetState::OnWait(since) if monotonics::now() - since >= reset_duration => {
                 self.reset = ResetState::None;
                 self.check_id(i2c)?;
                 self.start_register_reset(i2c)?;
@@ -267,10 +272,7 @@ where
                 defmt::debug!("STUSB4500 pin reset done");
                 self.reset = ResetState::None;
                 self.last_pin_reset = Some(monotonics::now());
-
-                self.check_id(i2c)?;
-                self.start_register_reset(i2c)?;
-
+                self.reset = ResetState::OnWait(monotonics::now());
                 Ok(true)
             }
             ResetState::RegisterReset(since) if monotonics::now() - since >= reset_duration => {
