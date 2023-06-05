@@ -610,14 +610,16 @@ mod app {
 
             match rtc.clock_src() {
                 Some(clock_src) if *cx.local.reset_prescaler => {
-                    let prescaler = unwrap!(clock_src.prescaler()) - Rtc::PRESCALER_NEG_OFFSET;
-                    match rtc.set_prescalar(prescaler) {
-                        Ok(()) => {
-                            rtc.set_slowdown(bkp, 64);
-                            *cx.local.reset_prescaler = false;
-                        }
-                        Err(_) => {
-                            defmt::warn!("cannot set RTC prescaler");
+                    if let Some(prescaler) = clock_src.prescaler() {
+                        let prescaler = prescaler - Rtc::PRESCALER_NEG_OFFSET;
+                        match rtc.set_prescalar(prescaler) {
+                            Ok(()) => {
+                                rtc.set_slowdown(bkp, 64);
+                                *cx.local.reset_prescaler = false;
+                            }
+                            Err(_) => {
+                                defmt::warn!("cannot set RTC prescaler");
+                            }
                         }
                     }
                 }
