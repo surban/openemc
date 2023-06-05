@@ -122,7 +122,7 @@ pub const I2C_BUFFER_SIZE: usize = 32;
 #[cfg(feature = "defmt-ringbuf")]
 #[no_mangle]
 #[used]
-#[link_section = ".defmt_log.BOOTLOADER_LOG"]
+#[link_section = ".defmt_boot_log"]
 pub static mut BOOTLOADER_LOG: core::mem::MaybeUninit<
     defmt_ringbuf::RingBuffer<{ openemc_shared::BOOTLOADER_LOG_SIZE }>,
 > = core::mem::MaybeUninit::uninit();
@@ -131,7 +131,7 @@ pub static mut BOOTLOADER_LOG: core::mem::MaybeUninit<
 #[cfg(feature = "defmt-ringbuf")]
 #[no_mangle]
 #[used]
-#[link_section = ".defmt_log.LOG"]
+#[link_section = ".defmt_log"]
 pub static mut LOG: core::mem::MaybeUninit<defmt_ringbuf::RingBuffer<{ openemc_shared::LOG_SIZE }>> =
     core::mem::MaybeUninit::uninit();
 
