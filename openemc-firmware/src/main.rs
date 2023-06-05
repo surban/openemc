@@ -593,9 +593,6 @@ mod app {
             let lse_ready = ClockSrc::Lse.is_ready();
             let cur_src = rtc.clock_src();
 
-            let dp = unsafe { stm32f1::stm32f103::Peripherals::steal() };
-            defmt::info!("LSE:  ready={}   on={}", lse_ready, dp.RCC.bdcr.read().lseon().is_on());
-
             let change = match cur_src {
                 Some(ClockSrc::Lsi) if lse_ready => true,
                 Some(ClockSrc::Lse) if !lse_ready => true,
