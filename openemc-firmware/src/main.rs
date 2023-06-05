@@ -122,7 +122,7 @@ pub const I2C_BUFFER_SIZE: usize = 32;
 #[cfg(feature = "defmt-ringbuf")]
 #[no_mangle]
 #[used]
-#[link_section = ".defmt_log"]
+#[link_section = ".defmt_log.BOOTLOADER_LOG"]
 pub static mut BOOTLOADER_LOG: core::mem::MaybeUninit<
     defmt_ringbuf::RingBuffer<{ openemc_shared::BOOTLOADER_LOG_SIZE }>,
 > = core::mem::MaybeUninit::uninit();
@@ -131,7 +131,7 @@ pub static mut BOOTLOADER_LOG: core::mem::MaybeUninit<
 #[cfg(feature = "defmt-ringbuf")]
 #[no_mangle]
 #[used]
-#[link_section = ".defmt_log"]
+#[link_section = ".defmt_log.LOG"]
 pub static mut LOG: core::mem::MaybeUninit<defmt_ringbuf::RingBuffer<{ openemc_shared::LOG_SIZE }>> =
     core::mem::MaybeUninit::uninit();
 
@@ -592,6 +592,9 @@ mod app {
         (cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| {
             let lse_ready = ClockSrc::Lse.is_ready();
             let cur_src = rtc.clock_src();
+
+            let dp = unsafe { stm32f1::stm32f103::Peripherals::steal() };
+            defmt::info!("LSE:  ready={}   on={}", lse_ready, dp.RCC.bdcr.read().lseon().is_on());
 
             let change = match cur_src {
                 Some(ClockSrc::Lsi) if lse_ready => true,

@@ -97,7 +97,7 @@ fn emc_model() -> u8 {
 #[cfg(feature = "defmt-ringbuf")]
 #[no_mangle]
 #[used]
-#[link_section = ".defmt_log"]
+#[link_section = ".defmt_log.BOOTLOADER_LOG"]
 pub static mut BOOTLOADER_LOG: core::mem::MaybeUninit<
     defmt_ringbuf::RingBuffer<{ openemc_shared::BOOTLOADER_LOG_SIZE }>,
 > = core::mem::MaybeUninit::uninit();
@@ -106,7 +106,7 @@ pub static mut BOOTLOADER_LOG: core::mem::MaybeUninit<
 #[cfg(feature = "defmt-ringbuf")]
 #[no_mangle]
 #[used]
-#[link_section = ".defmt_log"]
+#[link_section = ".defmt_log.LOG"]
 pub static mut LOG: core::mem::MaybeUninit<defmt_ringbuf::RingBuffer<{ openemc_shared::LOG_SIZE }>> =
     core::mem::MaybeUninit::uninit();
 
