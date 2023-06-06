@@ -41,7 +41,7 @@ use defmt_rtt as _;
 
 use panic_probe as _;
 
-use core::{cell::RefCell, ffi::c_void, mem::MaybeUninit, num::NonZeroU32};
+use core::{cell::RefCell, ffi::c_void, mem::MaybeUninit};
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::entry;
 use defmt::{unwrap, Format};
