@@ -1,5 +1,7 @@
 //! Board.
 
+use core::num::NonZeroU32;
+
 use openemc_shared::{BootInfo, ResetStatus};
 
 use crate::{i2c_reg_slave::I2CRegTransaction, BoardInitResult};
@@ -20,9 +22,6 @@ pub trait Board {
 
     /// IRQ pin configuration.
     const IRQ_PIN_CFG: u8 = 0b0010; // 2 MHz push-pull output
-
-    /// Timeout ticks.
-    const TIMEOUT_TICKS: u32 = 4_200_000_000;
 
     /// If EMC is reset via reset pin, this prevents automatic
     /// starting of the user program.
@@ -61,4 +60,9 @@ pub trait Board {
 
     /// Bootloader idle function.
     fn idle(&mut self) {}
+
+    /// Ticks before bootloader times out.
+    fn timeout_ticks(&mut self) -> Option<NonZeroU32> {
+        Some(defmt::unwrap!(NonZeroU32::new(4_200_000_000)))
+    }
 }

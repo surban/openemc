@@ -271,13 +271,14 @@ fn main() -> ! {
         loop {
             defmt::info!("bootloader start");
 
+            let timeout_ticks = board.timeout_ticks();
             let board_cell = RefCell::new(board);
             let info = BootloaderInfo {
                 emc_model: emc_model(),
                 board_model: board_cell.borrow().model(),
                 user_flash_start: user_flash_start(),
                 user_flash_end: user_flash_end(),
-                timeout_ticks: Some(unwrap!(NonZeroU32::new(ThisBoard::TIMEOUT_TICKS))),
+                timeout_ticks,
                 boot_reason,
                 reset_status,
                 id: program.map(|p| p.id).unwrap_or_default(),
@@ -361,8 +362,8 @@ fn main() -> ! {
             delay_ms(10);
             bootloader::start_program(user_flash_start());
         }
-        Err(_err) => {
-            defmt::info!("user program is invalid: {:?}", _err);
+        Err(err) => {
+            defmt::info!("user program is invalid: {:?}", err);
 
             backup::write(BACKUP_REG_BOOT_REASON, BootReason::InvalidUserProgram as _);
             backup::disable();
