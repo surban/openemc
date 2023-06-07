@@ -371,9 +371,6 @@ where
         // Enable low power mode.
         self.modify(i2c, REG_CHARGE_OPTION_0_HI, |v| v | (1 << 7))?;
 
-        // Enable Hi-Z mode.
-        self.modify(i2c, REG_CHARGE_OPTION_3_HI, |v| v | (1 << 7))?;
-
         Ok(())
     }
 
