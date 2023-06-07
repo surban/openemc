@@ -32,6 +32,8 @@ pub enum Error {
     WrongId,
     /// Device is not initialized.
     Uninitialized,
+    /// Verification of written values failed.
+    VerifyFailed,
 }
 
 /// BQ25713 result.
@@ -337,6 +339,15 @@ where
         // Disable low power mode.
         self.modify(i2c, REG_CHARGE_OPTION_0_HI, |v| v & !(1 << 7))?;
 
+        // Disable ICO.
+        self.modify(i2c, REG_CHARGE_OPTION_3_HI, |v| v & !(1 << 3))?;
+
+        // Disable IDPM auto disable.
+        self.modify(i2c, REG_CHARGE_OPTION_0_HI, |v| v & !(1 << 4))?;
+
+        // Enable IDPM.
+        self.modify(i2c, REG_CHARGE_OPTION_0_LO, |v| v | (1 << 1))?;
+
         // Disable charging.
         self.set_charge_enable(i2c, false)?;
 
@@ -442,8 +453,30 @@ where
     pub fn set_max_input_current(&mut self, i2c: &mut I2C, ma: u32) -> Result<()> {
         self.check_initialized()?;
         defmt::debug!("Setting maximum input current to {} mA", ma);
+
+        // Enable IDPM.
+        self.modify(i2c, REG_CHARGE_OPTION_0_LO, |v| v | (1 << 1))?;
+
+        // Program input current.
         let v = (ma / 50) as u8 & 0b01111111;
-        self.write(i2c, REG_IIN_HOST, &[v])
+        self.write(i2c, REG_IIN_HOST, &[v])?;
+
+        // Verify programmed current.
+        let r = self.read(i2c, REG_IIN_HOST, 1)?[0];
+        let r_dpm = self.read(i2c, REG_IIN_DPM, 1)?[0];
+        if r != v || r_dpm != v {
+            defmt::error!("Programmed input current {:x}, but read back is {:x} and I_DPM is {:x}", v, r, r_dpm);
+            return Err(Error::VerifyFailed);
+        }
+
+        // Verify IDPM is enabled.
+        let idpm = self.read(i2c, REG_CHARGE_OPTION_0_LO, 1)?[0] & (1 << 1);
+        if idpm == 0 {
+            defmt::error!("IDPM was disabled");
+            return Err(Error::VerifyFailed);
+        }
+
+        Ok(())
     }
 
     /// Sets the minimum input voltage.
@@ -596,6 +629,7 @@ const REG_ADC_I_CMPIN: u8 = 0x2a;
 const REG_ADC_V_SYS: u8 = 0x2d;
 const REG_ADC_V_BAT: u8 = 0x2c;
 const REG_IIN_HOST: u8 = 0x0f;
+const REG_IIN_DPM: u8 = 0x25;
 const REG_INPUT_VOLTAGE: u8 = 0x0a;
 const REG_MIN_SYSTEM_VOLTAGE: u8 = 0x0d;
 const REG_MAX_CHARGE_VOLTAGE: u8 = 0x04;
