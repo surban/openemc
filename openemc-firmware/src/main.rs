@@ -723,7 +723,17 @@ mod app {
                     // Configure battery charger.
                     match (i2c2, bq25713) {
                         (Some(i2c2), Some(bq25713)) if !report.is_unknown() => {
-                            let max_current = report.max_current_ma();
+                            let mut max_current = report.max_current_ma();
+
+                            // BQ25713 has trouble controlling small maximum input currents.
+                            if max_current < 500 {
+                                defmt::info!(
+                                    "Disabling BQ25713 charging for maximum input current {} mA < 500 mA",
+                                    max_current
+                                );
+                                max_current = 0;
+                            }
+
                             defmt::info!("Setting BQ25713 maximum input current to {} mA", max_current);
                             let res = bq25713.set_max_input_current(i2c2, max_current).and_then(|_| {
                                 if max_current > 0 && !bq25713.is_charge_enabled() {
