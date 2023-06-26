@@ -241,6 +241,8 @@ pub struct Bq25713<I2C> {
     measurement: Option<Bq25713Measurement>,
     status: Bq25713Status,
     charge_enabled: bool,
+    max_input_current_ma: u32,
+    chrg_ok: bool,
     _i2c: PhantomData<I2C>,
 }
 
@@ -291,6 +293,8 @@ where
             measurement: None,
             status: Default::default(),
             charge_enabled: false,
+            max_input_current_ma: 0,
+            chrg_ok: false,
             _i2c: PhantomData,
         }
     }
@@ -354,9 +358,6 @@ where
         // Set watchdog timer to 5s.
         self.modify(i2c, REG_CHARGE_OPTION_0_HI, |v| v & !(0b11 << 5) | (0b01 << 5))?;
 
-        // Set current limit through registers.
-        self.modify(i2c, REG_CHARGE_OPTION_2_LO, |v| v & !(1 << 7))?;
-
         // Enable IBAT and PSYS measurements.
         self.modify(i2c, REG_CHARGE_OPTION_1_HI, |v| v | (1 << 7) | (1 << 4))?;
 
@@ -369,15 +370,24 @@ where
         // Read initial status.
         self.update_status(i2c)?;
 
+        // Program maximum input current limit.
+        self.program_max_input_current(i2c)?;
+
         defmt::info!("BQ25713 initialized");
         Ok(())
     }
 
-    /// Enters low power and Hi-Z mode.
+    /// Enters low power mode.
     ///
     /// Afterwards reinitialization is necessary.
-    pub fn shutdown(self, i2c: &mut I2C) -> Result<()> {
+    pub fn shutdown(mut self, i2c: &mut I2C) -> Result<()> {
         defmt::info!("BQ25713 entering low power mode");
+
+        // Disable input current.
+        self.chrg_ok = false;
+        self.max_input_current_ma = 0;
+        self.program_max_input_current(i2c)?;
+        self.program_charge_enabled(i2c)?;
 
         // Enable low power mode.
         self.modify(i2c, REG_CHARGE_OPTION_0_HI, |v| v | (1 << 7))?;
@@ -449,24 +459,57 @@ where
         self.write(i2c, REG_CHARGER_STATUS_LO, &[0x00])
     }
 
-    /// Sets the input current limit.
+    /// Sets the input current limit in mA.
     pub fn set_max_input_current(&mut self, i2c: &mut I2C, ma: u32) -> Result<()> {
         self.check_initialized()?;
-        defmt::debug!("Setting maximum input current to {} mA", ma);
 
+        defmt::debug!("Setting maximum input current to {} mA", ma);
+        self.max_input_current_ma = ma;
+        self.program_max_input_current(i2c)?;
+
+        Ok(())
+    }
+
+    /// Gets the input current limit in mA.
+    pub fn max_input_current(&self) -> u32 {
+        self.max_input_current_ma
+    }
+
+    /// Programs the maximum input current into the BQ25713.
+    fn program_max_input_current(&mut self, i2c: &mut I2C) -> Result<()> {
         // Enable IDPM.
         self.modify(i2c, REG_CHARGE_OPTION_0_LO, |v| v | (1 << 1))?;
 
-        // Program input current.
-        let v = (ma / 50) as u8 & 0b01111111;
-        self.write(i2c, REG_IIN_HOST, &[v])?;
+        if self.chrg_ok {
+            defmt::trace!("Programming maximum input current {} mA", self.max_input_current_ma);
 
-        // Verify programmed current.
-        let r = self.read(i2c, REG_IIN_HOST, 1)?[0];
-        let r_dpm = self.read(i2c, REG_IIN_DPM, 1)?[0];
-        if r != v || r_dpm != v {
-            defmt::error!("Programmed input current {:x}, but read back is {:x} and I_DPM is {:x}", v, r, r_dpm);
-            return Err(Error::VerifyFailed);
+            // Program input current.
+            let v = (self.max_input_current_ma / 50) as u8 & 0b01111111;
+            self.write(i2c, REG_IIN_HOST, &[v])?;
+
+            // Verify programmed current.
+            let r = self.read(i2c, REG_IIN_HOST, 1)?[0];
+            let r_dpm = self.read(i2c, REG_IIN_DPM, 1)?[0];
+            if r != v || r_dpm != v {
+                defmt::error!(
+                    "Programmed input current {:x}, but read back is {:x} and I_DPM is {:x}",
+                    v,
+                    r,
+                    r_dpm
+                );
+                return Err(Error::VerifyFailed);
+            }
+
+            // Ignore ILIM_HIZ limit once input current limit is configured.
+            self.set_obey_ilim_pin(i2c, false)?;
+        } else {
+            defmt::trace!("Programming maximum input current zero");
+
+            // Set input current limit to zero.
+            self.write(i2c, REG_IIN_HOST, &[0])?;
+
+            // Obey ILIM_HIZ limit until input current limit is configured.
+            self.set_obey_ilim_pin(i2c, true)?;
         }
 
         // Verify IDPM is enabled.
@@ -519,12 +562,25 @@ where
         self.modify(i2c, REG_CHARGE_OPTION_0_LO, |v| if enable { v & !(1 << 6) } else { v | (1 << 6) })
     }
 
+    /// Sets whether the input current is also limited by the ILIM_HIZ pins.
+    fn set_obey_ilim_pin(&mut self, i2c: &mut I2C, obey: bool) -> Result<()> {
+        defmt::debug!("Setting obey ILIM_HIZ current limit to {}", obey);
+        self.modify(i2c, REG_CHARGE_OPTION_2_LO, |v| if obey { v | (1 << 7) } else { v & !(1 << 7) })
+    }
+
     /// Enables or disables charging.
     pub fn set_charge_enable(&mut self, i2c: &mut I2C, enable: bool) -> Result<()> {
         self.check_initialized()?;
         defmt::debug!("Setting charge enabled to {}", enable);
-        self.modify(i2c, REG_CHARGE_OPTION_0_LO, |v| if enable { v & !(1 << 0) } else { v | (1 << 0) })?;
         self.charge_enabled = enable;
+        self.program_charge_enabled(i2c)
+    }
+
+    /// Programs the charge enabled setting.
+    fn program_charge_enabled(&mut self, i2c: &mut I2C) -> Result<()> {
+        let enable = self.charge_enabled && self.chrg_ok;
+        defmt::trace!("Programming charge enabled to {}", enable);
+        self.modify(i2c, REG_CHARGE_OPTION_0_LO, |v| if enable { v & !(1 << 0) } else { v | (1 << 0) })?;
         Ok(())
     }
 
@@ -586,7 +642,12 @@ where
         })
     }
 
-    fn do_periodic(&mut self, i2c: &mut I2C) -> Result<()> {
+    fn do_periodic(&mut self, i2c: &mut I2C, chrg_ok: bool) -> Result<()> {
+        if self.chrg_ok != chrg_ok {
+            defmt::info!("BQ25713 CHRG_OK has become {}", chrg_ok);
+            self.chrg_ok = chrg_ok;
+        }
+
         if !self.initialized {
             self.init(i2c)?;
         }
@@ -594,15 +655,38 @@ where
         self.update_status(i2c)?;
         self.update_adc(i2c)?;
         self.set_charge_current(i2c, self.cfg.max_charge_ma)?;
+        self.program_max_input_current(i2c)?;
+        self.program_charge_enabled(i2c)?;
 
         Ok(())
     }
 
     /// Call this periodically (approx. every second) to handle communication with the device.
-    pub fn periodic(&mut self, i2c: &mut I2C) {
-        if let Err(err) = self.do_periodic(i2c) {
+    pub fn periodic(&mut self, i2c: &mut I2C, chrg_ok: bool) {
+        if let Err(err) = self.do_periodic(i2c, chrg_ok) {
             defmt::warn!("BQ25713 failed: {}", err);
             self.initialized = false;
+        }
+    }
+
+    fn do_chrg_ok_changed(&mut self, i2c: &mut I2C) -> Result<()> {
+        self.program_max_input_current(i2c)?;
+        self.program_charge_enabled(i2c)?;
+        Ok(())
+    }
+
+    /// Notifies the driver of a change of the CHRG_OK signal.
+    pub fn chrg_ok_changed(&mut self, i2c: &mut I2C, chrg_ok: bool) {
+        if self.chrg_ok != chrg_ok {
+            defmt::info!("BQ25713 CHRG_OK has become {}", chrg_ok);
+            self.chrg_ok = chrg_ok;
+
+            if self.initialized {
+                if let Err(err) = self.do_chrg_ok_changed(i2c) {
+                    defmt::warn!("BQ25713 failed: {}", err);
+                    self.initialized = false;
+                }
+            }
         }
     }
 }

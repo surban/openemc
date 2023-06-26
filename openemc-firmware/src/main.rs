@@ -723,16 +723,7 @@ mod app {
                     // Configure battery charger.
                     match (i2c2, bq25713) {
                         (Some(i2c2), Some(bq25713)) if !report.is_unknown() => {
-                            let mut max_current = report.max_current_ma();
-
-                            // BQ25713 has trouble controlling small maximum input currents.
-                            if max_current < 500 {
-                                defmt::info!(
-                                    "Disabling BQ25713 charging for maximum input current {} mA < 500 mA",
-                                    max_current
-                                );
-                                max_current = 0;
-                            }
+                            let max_current = report.max_current_ma();
 
                             defmt::info!("Setting BQ25713 maximum input current to {} mA", max_current);
                             let res = bq25713.set_max_input_current(i2c2, max_current).and_then(|_| {
@@ -779,16 +770,16 @@ mod app {
     }
 
     /// BQ25713 periodic task.
-    #[task(shared = [i2c2, bq25713, battery, irq, &power_mode], local = [first: Option<Instant> = None])]
+    #[task(shared = [i2c2, bq25713, battery, irq, board, &power_mode], local = [first: Option<Instant> = None])]
     fn bq25713_periodic(cx: bq25713_periodic::Context) {
         let grace_period = 10u64.secs();
         let first = cx.local.first.get_or_insert_with(monotonics::now);
 
-        (cx.shared.i2c2, cx.shared.bq25713, cx.shared.battery, cx.shared.irq).lock(
-            |i2c2, bq25713, battery, irq| {
+        (cx.shared.i2c2, cx.shared.bq25713, cx.shared.battery, cx.shared.irq, cx.shared.board).lock(
+            |i2c2, bq25713, battery, irq, board| {
                 if let Some(bq25713) = bq25713.as_mut() {
                     let i2c2 = defmt::unwrap!(i2c2.as_mut());
-                    bq25713.periodic(i2c2);
+                    bq25713.periodic(i2c2, board.check_bq25713_chrg_ok());
 
                     let mut ac = false;
                     if let Some(status) = bq25713.status().cloned() {
@@ -925,11 +916,18 @@ mod app {
     }
 
     /// External interrupt handler 0, handling EXTI0 - EXTI15.
-    #[task(binds = EXTI0, shared = [irq, board, i2c2, stusb4500, &power_mode])]
+    #[task(binds = EXTI0, shared = [irq, board, i2c2, stusb4500, bq25713, &power_mode])]
     fn exti0(mut cx: exti0::Context) {
         if cx.shared.board.lock(|board| board.check_stusb4500_alerting()) {
             defmt::trace!("STUSB4500 alert interrupt!");
             unwrap!(stusb4500_alert::spawn());
+        } else if let Some(chrg_ok) = cx.shared.board.lock(|board| board.check_bq25713_chrg_ok_changed()) {
+            (cx.shared.i2c2, cx.shared.bq25713).lock(|i2c2, bq25713| {
+                defmt::trace!("BQ25713 CHRG_OK interrupt!");
+                if let (Some(i2c2), Some(bq25713)) = (i2c2.as_mut(), bq25713.as_mut()) {
+                    bq25713.chrg_ok_changed(i2c2, chrg_ok);
+                }
+            });
         } else if *cx.shared.power_mode == PowerMode::Charging
             && cx.shared.board.lock(|board| board.check_power_on_requested())
         {

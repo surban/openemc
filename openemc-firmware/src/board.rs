@@ -136,6 +136,18 @@ pub trait Board {
         None
     }
 
+    /// Gets the status of the BQ25713 CHRG_OK signal.
+    fn check_bq25713_chrg_ok(&mut self) -> bool {
+        false
+    }
+
+    /// Checks whether the state of the BQ25713 CHRG_OK signal changed and clears the pending interrupt.
+    ///
+    /// Returns `Some(state)` if the state changed and `None` if the state is unchanged.
+    fn check_bq25713_chrg_ok_changed(&mut self) -> Option<bool> {
+        None
+    }
+
     /// Sets the power LED to the specified state.
     fn set_power_led(&mut self, _state: bool) {}
 
