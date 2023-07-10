@@ -111,13 +111,13 @@ pub static mut LOG: core::mem::MaybeUninit<defmt_ringbuf::RingBuffer<{ openemc_s
     core::mem::MaybeUninit::uninit();
 
 /// Signature value for backup register.
-const BACKUP_REG_SIGNATURE_VALUE: u16 = 0xb001;
+pub const BACKUP_REG_SIGNATURE_VALUE: u16 = 0xb001;
 
 /// Backup register for signature.
-const BACKUP_REG_SIGNATURE: u8 = 0;
+pub const BACKUP_REG_SIGNATURE: u8 = 0;
 
 /// Backup register for boot reason.
-const BACKUP_REG_BOOT_REASON: u8 = 1;
+pub const BACKUP_REG_BOOT_REASON: u8 = 1;
 
 /// Board init result.
 #[derive(Clone, Copy, PartialEq, Eq, Format)]
