@@ -1092,8 +1092,10 @@ mod app {
                 },
                 I2cReqHandling::ReadResponse { reg, response } => {
                     defmt::debug!("I2C read  0x{:02x}: {=[u8]:#x}", reg, &response);
-                    let I2cReqHandling::ReadResponse { response, ..} = replace(i2c_req, I2cReqHandling::Idle)
-                        else { defmt::unreachable!() };
+                    let I2cReqHandling::ReadResponse { response, .. } = replace(i2c_req, I2cReqHandling::Idle)
+                    else {
+                        defmt::unreachable!()
+                    };
                     cx.local.response.fill(0);
                     cx.local.response[..response.len()].copy_from_slice(&response);
                     i2c_reg_slave.respond(response);
