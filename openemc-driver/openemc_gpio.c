@@ -9,6 +9,7 @@
 #include <linux/platform_device.h>
 #include <linux/irq.h>
 #include <linux/gpio/driver.h>
+#include <linux/version.h>
 
 #include "openemc.h"
 
@@ -226,6 +227,7 @@ static int openemc_gpio_of_xlate(struct gpio_chip *chip,
 	return gpio_desc->args[0];
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 2, 0)
 static int openemc_gpio_of_gpio_ranges_fallback(struct gpio_chip *gc,
 						struct device_node *np)
 {
@@ -244,6 +246,7 @@ static int openemc_gpio_of_gpio_ranges_fallback(struct gpio_chip *gc,
 
 	return 0;
 }
+#endif
 
 static const struct gpio_chip openemc_gpio_template = {
 	.label = "openemc_gpio",
@@ -259,7 +262,9 @@ static const struct gpio_chip openemc_gpio_template = {
 	.init_valid_mask = openemc_gpio_init_valid_mask,
 	.to_irq = openemc_gpio_to_irq,
 	.of_xlate = openemc_gpio_of_xlate,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 2, 0)
 	.of_gpio_ranges_fallback = openemc_gpio_of_gpio_ranges_fallback,
+#endif
 	.of_gpio_n_cells = 2,
 	.base = -1,
 	.can_sleep = true,
@@ -608,7 +613,11 @@ static int openemc_gpio_probe(struct platform_device *pdev)
 	gpio->dev = &pdev->dev;
 	gpio->emc = emc;
 	gpio->chip = openemc_gpio_template;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+	gpio->chip.fwnode = gpio->dev->fwnode;
+#else
 	gpio->chip.of_node = gpio->dev->of_node;
+#endif
 	gpio->chip.parent = gpio->dev;
 	gpio->chip.ngpio = emc->npin;
 
