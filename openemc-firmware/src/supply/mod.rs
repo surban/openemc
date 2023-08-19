@@ -115,7 +115,7 @@ impl PowerSupply {
             Self::PdoContract { max_current_ma, .. } => *max_current_ma,
             Self::CcPins5V1500mA => 1500,
             Self::CcPins5V3000mA => 3000,
-            Self::Negotiating => 500,
+            Self::Negotiating => 100,
         }
     }
 
