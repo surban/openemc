@@ -352,16 +352,18 @@ where
             Some(pdo) => {
                 defmt::info!("Matched best USB supply PDO: {:?}", &pdo);
 
-                self.sink_pdos[1] = SinkPdo::Fixed(FixedSinkPdo {
-                    operating_current: pdo.max_operating_current,
-                    voltage: pdo.voltage,
-                    ..self.initial_pdo.clone()
-                });
+                let new_sink_pdo = SinkPdo::Fixed(FixedSinkPdo { voltage: pdo.voltage, ..Default::default() });
+                let reset_req = self.sink_pdos[1] != new_sink_pdo || self.active_sink_pdos != 2;
+
+                defmt::debug!("Setting and activating sink PDO 2: {:?}", &new_sink_pdo);
+                self.sink_pdos[1] = new_sink_pdo;
                 self.active_sink_pdos = 2;
-                defmt::debug!("Setting sink PDO 2: {:?}", &self.sink_pdos[1]);
                 self.write_sink_pdos(i2c, &self.sink_pdos, self.active_sink_pdos)?;
 
-                self.soft_reset(i2c)?;
+                if reset_req {
+                    defmt::info!("Issuing USB-PD soft reset to renegotiate");
+                    self.soft_reset(i2c)?;
+                }
             }
             None => {
                 defmt::warn!("cannot find matching supply PDO");
@@ -1161,7 +1163,7 @@ impl Power {
     }
 }
 
-#[derive(Clone, Format, Default)]
+#[derive(Clone, Format, PartialEq, Eq, Default)]
 enum SinkPdo {
     Fixed(FixedSinkPdo),
     Variable(VariableSinkPdo),
@@ -1191,7 +1193,7 @@ impl SinkPdo {
     }
 }
 
-#[derive(Clone, Format)]
+#[derive(Clone, Default, PartialEq, Eq, Format)]
 struct FixedSinkPdo {
     pub operating_current: Current,
     pub voltage: Voltage,
@@ -1249,7 +1251,7 @@ impl FixedSinkPdo {
     }
 }
 
-#[derive(Clone, Format)]
+#[derive(Clone, Format, PartialEq, Eq)]
 struct VariableSinkPdo {
     operating_current: Current,
     min_voltage: Voltage,
@@ -1277,7 +1279,7 @@ impl VariableSinkPdo {
     }
 }
 
-#[derive(Clone, Format)]
+#[derive(Clone, Format, PartialEq, Eq)]
 struct BatterySinkPdo {
     operating_power: Power,
     min_voltage: Voltage,
