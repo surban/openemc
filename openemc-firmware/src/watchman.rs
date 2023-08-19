@@ -36,11 +36,7 @@ impl Watchman {
 
     /// Unlocks access to `set_*` functions.
     pub fn unlock(&mut self, unlock_code: u64) {
-        if unlock_code == Self::UNLOCK_CODE {
-            self.unlocked = true;
-        } else {
-            self.unlocked = false;
-        }
+        self.unlocked = unlock_code == Self::UNLOCK_CODE;
     }
 
     /// Returns whether access to `set_*` functions is unlocked.
