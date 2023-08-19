@@ -3,7 +3,7 @@ name = "openemc-firmware"
 description = "OpenEMC Firmware"
 authors = ["Sebastian Urban <surban@surban.net>"]
 license = "GPL-3.0"
-version = "0.6.5"
+version = "0.6.6"
 publish = false
 edition = "2021"
 

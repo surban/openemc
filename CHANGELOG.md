@@ -4,6 +4,13 @@ All notable changes to OpenEMC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.6.6 - 2023-08-19
+### Added
+- standby entry support from bootloader
+### Changed
+- STUSB4500: avoid soft reset when PDO is unchanged
+- Supply: reduce max current during negotiation
+
 ## 0.6.5 - 2023-06-26
 ### Fixed
 - set input current limit to zero if BQ25713 CHRG_OK pin is low 
