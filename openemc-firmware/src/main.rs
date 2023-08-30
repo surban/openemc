@@ -148,6 +148,8 @@ pub enum PowerMode {
     Full,
     /// Power only components required for charging.
     Charging,
+    /// Shutdown.
+    Off,
 }
 
 /// I2C register slave that may have remapped pins.
@@ -364,7 +366,7 @@ mod app {
             || bi.boot_reason == BootReason::Restart as _
         {
             // Make sure system is powered off for at least one second.
-            defmt::info!("Board off delay");
+            defmt::info!("board off delay");
             delay.delay(1u32.secs());
         }
         if bi.boot_reason == BootReason::PowerOff as _ {
@@ -390,7 +392,14 @@ mod app {
         defmt::info!("RTC ready:      {}", rtc.is_ready());
         unwrap!(print_rtc_info::spawn());
 
-        // Initializes board.
+        // Power off if requested.
+        if power_mode == PowerMode::Off {
+            defmt::info!("power off requested by board");
+            delay.delay(10u32.millis());
+            boot::power_off(&mut bkp);
+        }
+
+        // Power on board.
         defmt::info!("board power on in mode {:?}", power_mode);
         board.set_power_led(power_mode == PowerMode::Full);
         board.power_on(&mut delay);
@@ -499,6 +508,7 @@ mod app {
                 Some(slave)
             }
             PowerMode::Charging => None,
+            PowerMode::Off => None,
         };
 
         // Drive charging LED.

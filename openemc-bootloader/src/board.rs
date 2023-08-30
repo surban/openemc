@@ -4,7 +4,7 @@ use core::num::NonZeroU32;
 
 use openemc_shared::{BootInfo, ResetStatus};
 
-use crate::{i2c_reg_slave::I2CRegTransaction, BoardInitResult};
+use crate::{i2c_reg_slave::I2CRegTransaction, util::enter_standby, BoardInitResult};
 
 /// Board-specific functionality.
 pub trait Board {
@@ -64,5 +64,10 @@ pub trait Board {
     /// Ticks before bootloader times out.
     fn timeout_ticks(&mut self) -> Option<NonZeroU32> {
         Some(defmt::unwrap!(NonZeroU32::new(4_200_000_000)))
+    }
+
+    /// Shutdown the system and go to sleep.
+    fn power_off(&mut self) -> ! {
+        enter_standby();
     }
 }

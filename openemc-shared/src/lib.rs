@@ -212,6 +212,8 @@ pub enum BootReason {
     ///
     /// This prevents automatic start of user program.
     StartBootloader = 0xb014,
+    /// Power off system and go to standby mode when entering bootloader.
+    PowerOffBootloader = 0xb015,
     /// Boot caused by factory reset.
     ///
     /// This clears the backup domain and prevents automatic start of user program.
@@ -233,6 +235,7 @@ impl BootReason {
             v if v == Self::Restart as _ => "restart",
             v if v == Self::Reset as _ => "reset",
             v if v == Self::StartBootloader as _ => "start boot loader",
+            v if v == Self::PowerOffBootloader as _ => "power off in boot loader",
             v if v == Self::FactoryReset as _ => "factory reset",
             v if v == Self::WatchdogTimeout as _ => "watchdog timeout",
             _ => "",

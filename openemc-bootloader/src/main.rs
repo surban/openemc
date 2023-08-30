@@ -128,6 +128,8 @@ pub enum BoardInitResult {
     StartBootloader,
     /// Perform factory reset.
     FactoryReset,
+    /// Power off the board.
+    PowerOff,
 }
 
 use boards::Chosen as ThisBoard;
@@ -163,7 +165,7 @@ fn main() -> ! {
     backup::write(BACKUP_REG_BOOT_REASON, BootReason::SurpriseInBootloader as _);
 
     // Start watchdog.
-    if boot_reason != BootReason::PowerOff as _ {
+    if boot_reason != BootReason::PowerOff as _ && boot_reason == BootReason::PowerOffBootloader as _ {
         watchdog::start();
     }
 
@@ -196,11 +198,28 @@ fn main() -> ! {
     );
     defmt::info!("");
 
+    // Check for shutdown request.
+    if boot_reason == BootReason::PowerOffBootloader as _ {
+        defmt::info!("power off in bootloader");
+        backup::write(BACKUP_REG_BOOT_REASON, BootReason::PowerOn as _);
+        board.power_off();
+    }
+
     // Initialize board.
     defmt::info!("board init");
     watchdog::pet();
     let board_init = board.init(boot_reason, reset_status);
     defmt::info!("board init result: {:?}", board_init);
+
+    // Shutdown if requested by board.
+    if board_init == BoardInitResult::PowerOff {
+        defmt::info!("power off requested by board");
+        backup::write(BACKUP_REG_BOOT_REASON, BootReason::PowerOffBootloader as _);
+        backup::disable();
+
+        delay_ms(10);
+        SCB::sys_reset();
+    }
 
     // Perform factory reset if requested by board.
     if board_init == BoardInitResult::FactoryReset {
