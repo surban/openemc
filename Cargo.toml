@@ -6,6 +6,7 @@ exclude = [
     "openemc-firmware",
     "openemc-shared",
 ]
+resolver = "2"
 
 [profile.release]
 opt-level = 'z'
