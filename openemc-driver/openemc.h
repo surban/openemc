@@ -64,6 +64,8 @@
 /* Power register definitions */
 #define OPENEMC_POWER_OFF 0x40
 #define OPENEMC_POWER_RESTART 0x41
+#define OPENEMC_POWER_OFF_PROHIBITED 0x42
+#define OPENEMC_POWER_ON_BY_CHARGING 0x43
 
 /* GPIO register definitions */
 #define OPENEMC_GPIO_COUNT 0x50

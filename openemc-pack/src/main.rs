@@ -12,7 +12,10 @@ use openemc_shared::PROGRAM_SIGNATURE;
 struct Args {
     /// Override start address of user flash.
     #[clap(long, value_parser=parse_maybe_hex)]
-    start: Option<u32>,
+    origin: Option<u32>,
+    /// Override flash length.
+    #[clap(long, value_parser=parse_maybe_hex)]
+    length: Option<u32>,
     /// Override flash page size.
     #[clap(long, value_parser=parse_maybe_hex)]
     page_size: Option<u32>,
@@ -35,14 +38,28 @@ fn parse_maybe_hex(s: &str) -> Result<u32, ParseIntError> {
 static MEMORY_BIG_BOOTLOADER: &str = include_str!("../../openemc-firmware/memory-big.x");
 static MEMORY_NORMAL: &str = include_str!("../../openemc-firmware/memory-normal.x");
 
-fn get_flash_params(linker_script: &str) -> (u32, u32) {
-    let re = Regex::new(r"FLASH : ORIGIN = 0x(\w+)").unwrap();
-    let origin = re.captures(linker_script).unwrap().get(1).unwrap().as_str();
+struct FlashParams {
+    pub origin: u32,
+    pub length: u32,
+    pub page_size: u32,
+}
 
-    let re = Regex::new(r"__flash_page_size = 0x(\w+)").unwrap();
-    let fps = re.captures(linker_script).unwrap().get(1).unwrap().as_str();
+impl FlashParams {
+    pub fn from_linker_script(linker_script: &str) -> Self {
+        let re = Regex::new(r"FLASH : ORIGIN = 0x(\w+), LENGTH = 0x(\w+)").unwrap();
+        let cap = re.captures(linker_script).unwrap();
+        let origin = cap.get(1).unwrap().as_str();
+        let length = cap.get(2).unwrap().as_str();
 
-    (u32::from_str_radix(origin, 16).unwrap(), u32::from_str_radix(fps, 16).unwrap())
+        let re = Regex::new(r"__flash_page_size = 0x(\w+)").unwrap();
+        let fps = re.captures(linker_script).unwrap().get(1).unwrap().as_str();
+
+        Self {
+            origin: u32::from_str_radix(origin, 16).unwrap(),
+            length: u32::from_str_radix(length, 16).unwrap(),
+            page_size: u32::from_str_radix(fps, 16).unwrap(),
+        }
+    }
 }
 
 const SIG_LENGTH: usize = (PROGRAM_SIGNATURE.len() + 4) * size_of::<u32>();
@@ -52,15 +69,19 @@ fn main() -> io::Result<()> {
 
     let bootloader = env::var("OPENEMC_BOOTLOADER").unwrap_or_else(|_| "normal".to_string());
 
-    let (mut start, mut page_size) =
-        get_flash_params(if bootloader == "big" { MEMORY_BIG_BOOTLOADER } else { MEMORY_NORMAL });
-    if let Some(s) = args.start {
-        start = s
+    let mut flash =
+        FlashParams::from_linker_script(if bootloader == "big" { MEMORY_BIG_BOOTLOADER } else { MEMORY_NORMAL });
+    if let Some(o) = args.origin {
+        flash.origin = o;
+    }
+    if let Some(l) = args.length {
+        flash.length = l;
     }
     if let Some(ps) = args.page_size {
-        page_size = ps
+        flash.page_size = ps;
     }
-    assert!(start % page_size == 0, "flash start is not page aligned");
+    assert!(flash.origin % flash.page_size == 0, "flash start is not page aligned");
+    assert!(flash.length % flash.page_size == 0, "flash length is not page aligned");
 
     let dst = args.dst.unwrap_or_else(|| args.src.with_extension("emc"));
     let id = args.id.unwrap_or_else(rand::random);
@@ -71,7 +92,7 @@ fn main() -> io::Result<()> {
     for s in PROGRAM_SIGNATURE {
         data.write_u32::<LE>(s)?;
     }
-    data.write_u32::<LE>(start)?;
+    data.write_u32::<LE>(flash.origin)?;
     data.write_u32::<LE>(data.len() as u32)?;
     data.write_u32::<LE>(crc32fast::hash(&data))?;
     data.write_u32::<LE>(id)?;
@@ -79,9 +100,12 @@ fn main() -> io::Result<()> {
     assert_eq!(data.len() % size_of::<u32>(), 0);
 
     // Pad to fill whole flash page.
-    while data.len() % page_size as usize != 0 {
+    while data.len() % flash.page_size as usize != 0 {
         data.write_u32::<LE>(id)?;
     }
+
+    // Verify length.
+    //data.
 
     let file_crc32 = crc32fast::hash(&data);
 
@@ -90,9 +114,11 @@ fn main() -> io::Result<()> {
     dst_file.flush()?;
 
     eprintln!(
-        "{} -> {} @ 0x{start:x} % 0x{page_size:x} (id: {id:08x}, CRC32: {file_crc32:08x})",
+        "{} -> {} @ 0x{:x} % 0x{:x} (id: {id:08x}, CRC32: {file_crc32:08x})",
         args.src.to_string_lossy(),
-        dst.to_string_lossy()
+        dst.to_string_lossy(),
+        flash.origin,
+        flash.page_size,
     );
 
     Ok(())

@@ -11,6 +11,7 @@ use stm32f1xx_hal::{
 };
 use systick_monotonic::fugit::Rate;
 
+use crate::cfg::Cfg;
 use crate::{
     board::{Board, UnknownI2cRegister, PORTS},
     i2c_reg_slave::Response,
@@ -37,7 +38,7 @@ impl Board for BoardImpl {
     const STUSB4500_I2C_ADDR: Option<u8> = Some(0x28);
     const USB_MAXIMUM_VOLTAGE: u32 = 10_000;
 
-    fn new(boot_info: &'static BootInfo, afio: &mut afio::Parts, delay: &mut Delay) -> BoardImpl {
+    fn new(boot_info: &'static BootInfo, afio: &mut afio::Parts, delay: &mut Delay, _cfg: &Cfg) -> BoardImpl {
         let mut dp = unsafe { Peripherals::steal() };
         let mut gpioa = unsafe { dp.GPIOA.split_without_reset() };
         let mut gpiob = unsafe { dp.GPIOB.split_without_reset() };

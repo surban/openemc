@@ -1,3 +1,5 @@
+__flash_page_size = 0x400;
+
 MEMORY
 {
   FLASH : ORIGIN = 0x08000000, LENGTH = 64K
@@ -28,3 +30,14 @@ SECTIONS
   } > RAM
 }
 INSERT BEFORE .data;
+
+SECTIONS
+{
+  .program_end (NOLOAD) : ALIGN(4)
+  {
+    __flash_program_end = .;
+  } > FLASH
+}
+INSERT AFTER .gnu.sgstubs;
+
+__flash_end = ORIGIN(FLASH) + LENGTH(FLASH);

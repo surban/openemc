@@ -3,7 +3,7 @@ name = "openemc-firmware"
 description = "OpenEMC Firmware"
 authors = ["Sebastian Urban <surban@surban.net>"]
 license = "GPL-3.0"
-version = "0.6.6"
+version = "0.7.0"
 publish = false
 edition = "2021"
 
@@ -31,6 +31,7 @@ defmt = { version = "0.3", features = ["encoding-rzcobs"] }
 defmt-rtt = { version = "0.4", optional = true }
 nb = "1.0"
 heapless = "0.7"
+embedded-crc32c = "0.1"
 
 [dev-dependencies]
 defmt-test = "0.3"

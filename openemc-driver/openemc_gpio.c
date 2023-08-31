@@ -214,6 +214,7 @@ static int openemc_gpio_to_irq(struct gpio_chip *chip, unsigned int offset)
 	return irq_create_fwspec_mapping(&fwspec);
 }
 
+#if defined(CONFIG_OF_GPIO)
 static int openemc_gpio_of_xlate(struct gpio_chip *chip,
 				 const struct of_phandle_args *gpio_desc,
 				 u32 *flags)
@@ -226,6 +227,7 @@ static int openemc_gpio_of_xlate(struct gpio_chip *chip,
 
 	return gpio_desc->args[0];
 }
+#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 2, 0)
 static int openemc_gpio_of_gpio_ranges_fallback(struct gpio_chip *gc,
@@ -261,11 +263,13 @@ static const struct gpio_chip openemc_gpio_template = {
 	.set_config = gpiochip_generic_config,
 	.init_valid_mask = openemc_gpio_init_valid_mask,
 	.to_irq = openemc_gpio_to_irq,
-	.of_xlate = openemc_gpio_of_xlate,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 2, 0)
 	.of_gpio_ranges_fallback = openemc_gpio_of_gpio_ranges_fallback,
 #endif
+#if defined(CONFIG_OF_GPIO)
 	.of_gpio_n_cells = 2,
+	.of_xlate = openemc_gpio_of_xlate,
+#endif
 	.base = -1,
 	.can_sleep = true,
 };

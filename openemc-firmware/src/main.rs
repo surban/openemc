@@ -1,6 +1,6 @@
 //
 // OpenEMC firmware for embedded controllers
-// Copyright (C) 2022 Sebastian Urban <surban@surban.net>
+// Copyright (C) 2022-2023 Sebastian Urban <surban@surban.net>
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -27,7 +27,9 @@ mod board;
 mod boards;
 mod boot;
 mod bq25713;
+mod cfg;
 mod crc;
+mod flash_data;
 mod i2c_reg_slave;
 mod i2c_slave;
 mod irq;
@@ -50,6 +52,7 @@ use stm32f1xx_hal as _;
 
 use core::{
     cell::Cell,
+    ffi::c_void,
     mem::{replace, size_of},
 };
 use cortex_m::peripheral::NVIC;
@@ -60,6 +63,8 @@ use stm32f1xx_hal::{
     adc::Adc,
     backup_domain::BackupDomain,
     crc::Crc,
+    flash,
+    flash::{FlashWriter, FLASH_START},
     gpio::{Alternate, OpenDrain, Pin},
     i2c,
     i2c::I2c,
@@ -75,14 +80,16 @@ use crate::{
     board::Board,
     boot::{BootInfoExt, BootReasonExt},
     bq25713::{Battery, Bq25713},
+    cfg::Cfg,
     crc::crc32,
+    flash_data::FlashBackened,
     i2c_reg_slave::{Event, I2CRegSlave, Response},
     i2c_slave::I2cSlave,
     pio::MaskedGpio,
     pwm::PwmTimer,
     rtc::{ClockSrc, Rtc},
     supply::{max14636::Max14636, stusb4500::StUsb4500, PowerSupply},
-    util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64, unique_device_id},
+    util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64, unique_device_id, FlashUtil},
     watchman::Watchman,
 };
 use openemc_shared::{BootInfo, BootReason};
@@ -140,6 +147,32 @@ pub static mut LOG: core::mem::MaybeUninit<defmt_ringbuf::RingBuffer<{ openemc_s
 static mut BOOTLOADER_LOG_REF: Option<
     &'static mut defmt_ringbuf::RingBuffer<{ openemc_shared::BOOTLOADER_LOG_SIZE }>,
 > = None;
+
+extern "C" {
+    /// End of program in flash (from linker).
+    pub static __flash_program_end: c_void;
+
+    /// End of flash (from linker).
+    pub static __flash_end: c_void;
+
+    /// Flash page size (from linker).
+    pub static __flash_page_size: c_void;
+}
+
+/// End of program in flash.
+pub fn flash_program_end() -> usize {
+    unsafe { &__flash_program_end as *const _ as usize }
+}
+
+/// End of user flash.
+pub fn flash_end() -> usize {
+    unsafe { &__flash_end as *const _ as usize }
+}
+
+/// Flash page size.
+pub fn flash_page_size() -> usize {
+    unsafe { &__flash_page_size as *const _ as usize }
+}
 
 /// System power mode.
 #[derive(Clone, Copy, Format, PartialEq, Eq)]
@@ -236,6 +269,10 @@ mod app {
     /// Shared resources.
     #[shared]
     struct Shared {
+        /// Flash.
+        flash: flash::Parts,
+        /// Flash-backened configuration.
+        cfg: FlashBackened<Cfg>,
         /// I2C slave request handling status.
         i2c_req: I2cReqHandling,
         /// If true, idle task starts bootloader.
@@ -327,9 +364,19 @@ mod app {
         unsafe { BootInfo::init(&bkp) };
         let bi = BootInfo::get();
 
+        // Load configuration from flash.
+        let cfg_size = flash_page_size();
+        defmt::assert!(flash_program_end() <= flash_end() - 2 * cfg_size, "no space for configuration in flash");
+        let erase_cfg = bi.boot_reason == BootReason::FactoryReset as _;
+        if erase_cfg {
+            defmt::info!("Erasing configuration due to factory reset");
+        }
+        let mut fw = FlashWriter::new(&mut flash);
+        let cfg = FlashBackened::new_at_end(&mut fw, cfg_size, flash_end() as u32 - FLASH_START, erase_cfg);
+
         // Create board handler.
         defmt::info!("board new");
-        let mut board = ThisBoard::new(bi, &mut afio, &mut delay);
+        let mut board = ThisBoard::new(bi, &mut afio, &mut delay, &cfg);
         let power_mode = board.power_mode();
         defmt::info!("board new done");
         board.set_power_led(bi.powered_on);
@@ -343,6 +390,7 @@ mod app {
         defmt::info!("unique id:      {:024x}", unique_device_id());
         defmt::info!("I2C address:    0x{:02x} (pins remapped: {:?})", ThisBoard::I2C_ADDR, ThisBoard::I2C_REMAP);
         defmt::info!("IRQ pin:        {} (mode: 0b{:04b})", ThisBoard::IRQ_PIN, ThisBoard::IRQ_PIN_CFG);
+        defmt::info!("Configuration:  {:?}", &*cfg);
         BootReason::log(bi.boot_reason);
         bi.reset_status.log();
         defmt::info!("start reason:   0x{:02x}", bi.start_reason);
@@ -520,6 +568,8 @@ mod app {
         defmt::debug!("init done");
         (
             Shared {
+                flash,
+                cfg,
                 i2c_req: I2cReqHandling::Idle,
                 start_bootloader: false,
                 irq,
@@ -563,7 +613,7 @@ mod app {
     }
 
     /// Power off system.
-    #[task(shared = [bkp, i2c2, bq25713])]
+    #[task(shared = [bkp, i2c2, bq25713, cfg])]
     fn power_off(mut cx: power_off::Context) {
         // Shut down charger, if we are running from battery.
         (cx.shared.i2c2, cx.shared.bq25713).lock(|i2c2, bq25713| {
@@ -577,8 +627,14 @@ mod app {
             }
         });
 
-        defmt::info!("requesting power off");
-        cx.shared.bkp.lock(|bkp| boot::power_off(bkp));
+        let prohibit_power_off = cx.shared.cfg.lock(|cfg| cfg.prohibit_power_off);
+        if prohibit_power_off {
+            defmt::info!("requesting restart instead of power off because it is prohibited");
+            cx.shared.bkp.lock(|bkp| boot::restart(bkp));
+        } else {
+            defmt::info!("requesting power off");
+            cx.shared.bkp.lock(|bkp| boot::power_off(bkp));
+        }
     }
 
     /// Power off system and then restart it.
@@ -1133,7 +1189,8 @@ mod app {
             pwm_channel_index: u8 = 0,
             echo: [u8; I2C_BUFFER_SIZE] = [0; I2C_BUFFER_SIZE],
         ],
-        shared = [i2c_req, start_bootloader, irq, bkp, watchman, rtc, adc_buf, board, power_supply, battery],
+        shared = [i2c_req, start_bootloader, irq, bkp, watchman, rtc, adc_buf, board, power_supply, battery,
+            flash, cfg],
         priority = 2,
     )]
     fn i2c_slave_req(mut cx: i2c_slave_req::Context, evt: Event<I2C_BUFFER_SIZE>) {
@@ -1361,6 +1418,24 @@ mod app {
                 let delay = value.as_u16();
                 defmt::info!("requesting restart in {} ms", delay);
                 unwrap!(power_restart::spawn_after((delay as u64).millis()));
+            }
+            Event::Read { reg: reg::POWER_OFF_PROHIBITED } => {
+                respond_u8(cx.shared.cfg.lock(|cfg| cfg.prohibit_power_off.into()))
+            }
+            Event::Write { reg: reg::POWER_OFF_PROHIBITED, value } => {
+                (cx.shared.flash, cx.shared.cfg).lock(|flash, cfg| {
+                    cfg.modify(&mut FlashWriter::new(flash), |cfg| cfg.prohibit_power_off = value.as_u8() != 0);
+                })
+            }
+            Event::Read { reg: reg::POWER_ON_BY_CHARGING } => {
+                respond_u8(cx.shared.cfg.lock(|cfg| cfg.charger_attached as u8))
+            }
+            Event::Write { reg: reg::POWER_ON_BY_CHARGING, value } => {
+                (cx.shared.flash, cx.shared.cfg).lock(|flash, cfg| {
+                    cfg.modify(&mut FlashWriter::new(flash), |cfg| {
+                        cfg.charger_attached = value.as_u8().try_into().unwrap_or_default()
+                    });
+                })
             }
             Event::Read { reg: reg::PWM_TIMERS } => respond_u8(cx.local.pwm_timers.len() as u8),
             Event::Read { reg: reg::PWM_TIMER } => respond_u8(*cx.local.pwm_timer_index),

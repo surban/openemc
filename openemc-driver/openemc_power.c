@@ -121,6 +121,101 @@ static int openemc_power_restart(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+static ssize_t openemc_power_power_off_prohibited_show(
+	struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct openemc_power *power = dev_get_drvdata(dev);
+	u8 value;
+	int ret;
+
+	ret = openemc_read_u8(power->emc, OPENEMC_POWER_OFF_PROHIBITED, &value);
+	if (ret != 0)
+		return ret;
+
+	return sprintf(buf, "%hhu", value);
+}
+static ssize_t
+openemc_power_power_off_prohibited_store(struct device *dev,
+					 struct device_attribute *attr,
+					 const char *buf, size_t count)
+{
+	struct openemc_power *power = dev_get_drvdata(dev);
+	u8 value;
+	int ret;
+
+	if (count < 1)
+		return -EINVAL;
+	switch (buf[0]) {
+	case '0':
+		value = 0;
+		break;
+	case '1':
+		value = 1;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = openemc_write_u8(power->emc, OPENEMC_POWER_OFF_PROHIBITED, value);
+	if (ret != 0)
+		return ret;
+
+	return count;
+}
+static DEVICE_ATTR_RW(openemc_power_power_off_prohibited);
+
+static ssize_t openemc_power_power_on_by_charging_show(
+	struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct openemc_power *power = dev_get_drvdata(dev);
+	u8 value;
+	int ret;
+
+	ret = openemc_read_u8(power->emc, OPENEMC_POWER_ON_BY_CHARGING, &value);
+	if (ret != 0)
+		return ret;
+
+	return sprintf(buf, "%hhu", value);
+}
+static ssize_t
+openemc_power_power_on_by_charging_store(struct device *dev,
+					 struct device_attribute *attr,
+					 const char *buf, size_t count)
+{
+	struct openemc_power *power = dev_get_drvdata(dev);
+	u8 value;
+	int ret;
+
+	if (count < 1)
+		return -EINVAL;
+	switch (buf[0]) {
+	case '0':
+		value = 0;
+		break;
+	case '1':
+		value = 1;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = openemc_write_u8(power->emc, OPENEMC_POWER_ON_BY_CHARGING, value);
+	if (ret != 0)
+		return ret;
+
+	return count;
+}
+static DEVICE_ATTR_RW(openemc_power_power_on_by_charging);
+
+static struct attribute *openemc_power_attrs[] = {
+	&dev_attr_openemc_power_power_off_prohibited.attr,
+	&dev_attr_openemc_power_power_on_by_charging.attr, NULL
+};
+
+static const struct attribute_group openemc_power_group = {
+	.attrs = openemc_power_attrs,
+};
+
 static int openemc_power_probe(struct platform_device *pdev)
 {
 	const struct of_device_id *match;
@@ -212,6 +307,10 @@ static int openemc_power_probe(struct platform_device *pdev)
 		dev_info(power->dev,
 			 "OpenEMC handles system power off and restart");
 	}
+
+	ret = devm_device_add_group(&pdev->dev, &openemc_power_group);
+	if (ret < 0)
+		return ret;
 
 	dev_info(power->dev, "OpenEMC power control registered");
 

@@ -6,6 +6,7 @@ use stm32f1xx_hal::{afio, i2c};
 use crate::{
     boot,
     bq25713::Bq25713Cfg,
+    cfg::Cfg,
     i2c_reg_slave,
     supply::{max14636::Max14636, FixedSinkPdo},
     Delay, Duration, PowerMode, I2C_BUFFER_SIZE,
@@ -71,7 +72,7 @@ pub trait Board {
     const CHARGING_LED_MIN_CURRENT: i32 = 0;
 
     /// Create a new instance.
-    fn new(boot_info: &'static BootInfo, afio: &mut afio::Parts, delay: &mut Delay) -> Self;
+    fn new(boot_info: &'static BootInfo, afio: &mut afio::Parts, delay: &mut Delay, cfg: &Cfg) -> Self;
 
     /// Returns whether the board id is supported.
     fn is_supported(&self, model: &[u8]) -> bool {
