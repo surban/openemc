@@ -28,6 +28,9 @@ pub const BOOTLOADER_LOG_SIZE: usize = 1024;
 /// Log buffer size.
 pub const LOG_SIZE: usize = 8192;
 
+/// Number of flash pages to store configuration.
+pub const CFG_FLASH_PAGES: usize = 1;
+
 /// Information about the boot for the user program.
 #[repr(C)]
 #[derive(Clone, Copy)]

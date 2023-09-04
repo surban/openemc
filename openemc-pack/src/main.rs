@@ -5,7 +5,7 @@ use clap::Parser;
 use regex::Regex;
 use std::{env, fs, fs::File, io, io::Write, mem::size_of, num::ParseIntError, path::PathBuf};
 
-use openemc_shared::PROGRAM_SIGNATURE;
+use openemc_shared::{CFG_FLASH_PAGES, PROGRAM_SIGNATURE};
 
 /// Pack firmware in format bootable by EMC bootloader.
 #[derive(Parser, Debug)]
@@ -105,7 +105,10 @@ fn main() -> io::Result<()> {
     }
 
     // Verify length.
-    //data.
+    let avail = (flash.length as usize).checked_sub(data.len()).expect("program too big for flash");
+    if avail < 2 * CFG_FLASH_PAGES * flash.page_size as usize {
+        panic!("no flash space available for configuration (program size: {} kB)", data.len() / 1024);
+    }
 
     let file_crc32 = crc32fast::hash(&data);
 
@@ -114,11 +117,13 @@ fn main() -> io::Result<()> {
     dst_file.flush()?;
 
     eprintln!(
-        "{} -> {} @ 0x{:x} % 0x{:x} (id: {id:08x}, CRC32: {file_crc32:08x})",
+        "{} -> {} @ 0x{:x} % 0x{:x} (id: {id:08x}, CRC32: {file_crc32:08x}, size: {} / {} kB)",
         args.src.to_string_lossy(),
         dst.to_string_lossy(),
         flash.origin,
         flash.page_size,
+        data.len() / 1024,
+        flash.length / 1024,
     );
 
     Ok(())

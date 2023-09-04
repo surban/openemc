@@ -92,7 +92,7 @@ use crate::{
     util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64, unique_device_id, FlashUtil},
     watchman::Watchman,
 };
-use openemc_shared::{BootInfo, BootReason};
+use openemc_shared::{BootInfo, BootReason, CFG_FLASH_PAGES};
 
 /// OpenEMC firmware version.
 pub static VERSION: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/version.txt"));
@@ -365,14 +365,16 @@ mod app {
         let bi = BootInfo::get();
 
         // Load configuration from flash.
-        let cfg_size = flash_page_size();
-        defmt::assert!(flash_program_end() <= flash_end() - 2 * cfg_size, "no space for configuration in flash");
-        let erase_cfg = bi.boot_reason == BootReason::FactoryReset as _;
+        let cfg_size = CFG_FLASH_PAGES * flash_page_size();
+        let cfg_addr = flash_end() - 2 * cfg_size;
+        defmt::info!("program ends at 0x{:x} and configuration is at 0x{:x}", flash_program_end(), cfg_addr);
+        defmt::assert!(flash_program_end() <= cfg_addr, "no space for configuration in flash");
+        let erase_cfg = bi.boot_reason == BootReason::FactoryReset as _ || option_env!("FACTORY_RESET").is_some();
         if erase_cfg {
             defmt::info!("Erasing configuration due to factory reset");
         }
         let mut fw = FlashWriter::new(&mut flash);
-        let cfg = FlashBackened::new_at_end(&mut fw, cfg_size, flash_end() as u32 - FLASH_START, erase_cfg);
+        let cfg = FlashBackened::new_at_end(&mut fw, cfg_size, cfg_addr as u32 - FLASH_START, erase_cfg);
 
         // Create board handler.
         defmt::info!("board new");
