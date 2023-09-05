@@ -13,8 +13,8 @@ The following features are implemented:
 
   - communication with the host over I2C and one interrupt line
   - field-upgradable firmware
-  - full logging to host over I2C in production system 
-  - power control: system on/off and restart
+  - full logging to host over I2C in production system
+  - power control: system on/off, restart, optional power on when external power supplied
   - watchdog
   - real-time clock (RTC) with alarm and system wake-up
   - GPIO with interrupts
@@ -23,6 +23,7 @@ The following features are implemented:
   - battery charger (BQ25713)
   - external power supply with USB PD (STUSB4500) and USB charger detector (MAX14636)
   - charging mode with system power off
+  - configuration storage in flash memory
   - full devicetree integration
 
 Due to its open-source nature, modular design and usage of the Rust programming
@@ -50,6 +51,7 @@ For building the firmware your machine must have the following things installed:
   - a recent enough stable Rust toolchain (install from https://rustup.rs),
   - Rust target thumbv7m-none-eabi (`rustup target add thumbv7m-none-eabi`),
   - Rust LLVM utils (`rustup component add llvm-tools-preview`),
+  - on Rust nightly: Rust source (`rustup component add rust-src`)
   - Cargo binutils (`cargo install cargo-binutils`),
   - STLINK tools (from https://github.com/stlink-org/stlink or your Linux distribution),
   - for development: probe-run (`cargo install probe-run`).
@@ -100,6 +102,12 @@ The driver will only be loaded if it is referenced in the system's devicetree.
 Examples are provided in the `devicetree` directory.
 Use `scripts/devicetree-build.sh` to build them and `scripts/devicetree-load.sh`
 to dynamically load a devicetree overlay into a running system.
+
+## Firmware size considerations
+
+When using a nightly Rust toolchain the `core` crate is built along with the firmware and optimized
+for small size.
+This saves about 2 kBytes of flash memory space.
 
 ## Development and testing
 
