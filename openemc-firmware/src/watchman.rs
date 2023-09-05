@@ -1,5 +1,6 @@
 //! Watchdog management.
 
+use defmt::intern;
 use stm32f1xx_hal::{prelude::*, watchdog::IndependentWatchdog};
 use systick_monotonic::ExtU64;
 
@@ -52,7 +53,7 @@ impl Watchman {
     /// Sets whether the watchdog must be petted.
     pub fn set_active(&mut self, active: bool) {
         if self.unlocked {
-            defmt::info!("{} watchdog", if active { "starting" } else { "stopping" });
+            defmt::info!("{} watchdog", if active { intern!("starting") } else { intern!("stopping") });
             self.last_pet = monotonics::now();
             self.active = active;
         } else {

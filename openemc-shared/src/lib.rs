@@ -20,7 +20,7 @@
 
 #![no_std]
 
-use defmt::Format;
+use defmt::{intern, Format};
 
 /// Bootloader log size.
 pub const BOOTLOADER_LOG_SIZE: usize = 1024;
@@ -169,13 +169,13 @@ impl ResetStatus {
         defmt::info!(
             "reset status:   0x{:02x} {}{}{}{}{}{}{}",
             self.0,
-            if self.is_wakeup() { "wakeup " } else { "" },
-            if self.is_external() { "external " } else { "" },
-            if self.is_power_on() { "power-on " } else { "" },
-            if self.is_firmware() { "firmware " } else { "" },
-            if self.is_independent_watchdog() { "independent-watchdog " } else { "" },
-            if self.is_window_watchdog() { "window-watchdog " } else { "" },
-            if self.is_low_power() { "low-power " } else { "" },
+            if self.is_wakeup() { intern!("wakeup ") } else { intern!("") },
+            if self.is_external() { intern!("external ") } else { intern!("") },
+            if self.is_power_on() { intern!("power-on ") } else { intern!("") },
+            if self.is_firmware() { intern!("firmware ") } else { intern!("") },
+            if self.is_independent_watchdog() { intern!("independent-watchdog ") } else { intern!("") },
+            if self.is_window_watchdog() { intern!("window-watchdog ") } else { intern!("") },
+            if self.is_low_power() { intern!("low-power ") } else { intern!("") },
         );
     }
 }
@@ -229,20 +229,20 @@ impl BootReason {
     /// Logs the boot reason.
     pub fn log(boot_reason: u16) {
         let reason = match boot_reason {
-            v if v == Self::Unknown as _ => "unknown",
-            v if v == Self::SurpriseInBootloader as _ => "surprise in boot loader",
-            v if v == Self::SurpriseInUser as _ => "surprise in user program",
-            v if v == Self::InvalidUserProgram as _ => "invalid user program",
-            v if v == Self::PowerOn as _ => "power on",
-            v if v == Self::PowerOff as _ => "power off",
-            v if v == Self::Restart as _ => "restart",
-            v if v == Self::Reset as _ => "reset",
-            v if v == Self::StartBootloader as _ => "start boot loader",
-            v if v == Self::PowerOffBootloader as _ => "power off in boot loader",
-            v if v == Self::FactoryReset as _ => "factory reset",
-            v if v == Self::WatchdogTimeout as _ => "watchdog timeout",
-            _ => "",
+            v if v == Self::Unknown as _ => intern!("unknown"),
+            v if v == Self::SurpriseInBootloader as _ => intern!("surprise in boot loader"),
+            v if v == Self::SurpriseInUser as _ => intern!("surprise in user program"),
+            v if v == Self::InvalidUserProgram as _ => intern!("invalid user program"),
+            v if v == Self::PowerOn as _ => intern!("power on"),
+            v if v == Self::PowerOff as _ => intern!("power off"),
+            v if v == Self::Restart as _ => intern!("restart"),
+            v if v == Self::Reset as _ => intern!("reset"),
+            v if v == Self::StartBootloader as _ => intern!("start boot loader"),
+            v if v == Self::PowerOffBootloader as _ => intern!("power off in boot loader"),
+            v if v == Self::FactoryReset as _ => intern!("factory reset"),
+            v if v == Self::WatchdogTimeout as _ => intern!("watchdog timeout"),
+            _ => intern!(""),
         };
-        defmt::info!("boot reason:    0x{:04x} {}", boot_reason, reason,);
+        defmt::info!("boot reason:    0x{:04x} {}", boot_reason, reason);
     }
 }
