@@ -106,18 +106,12 @@ pub static VERSION: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/version.tx
 /// Firmware copyright.
 static COPYRIGHT: &[u8] = b"(c) 2022-2023 Sebastian Urban <surban@surban.net> license: GNU GPL version 3";
 
+/// MFD cell prefix.
+static MFD_CELL_PREFIX: &[u8] = b"openemc,openemc_";
+
 /// MFD cells.
-static MFD_CELLS: &[&[u8]] = &[
-    b"openemc,openemc_adc",
-    b"openemc,openemc_battery",
-    b"openemc,openemc_gpio",
-    b"openemc,openemc_pinctrl",
-    b"openemc,openemc_power",
-    b"openemc,openemc_pwm",
-    b"openemc,openemc_rtc",
-    b"openemc,openemc_supply",
-    b"openemc,openemc_wdt",
-];
+static MFD_CELLS: &[&[u8]] =
+    &[b"adc", b"battery", b"gpio", b"pinctrl", b"power", b"pwm", b"rtc", b"supply", b"wdt"];
 
 /// Supported EMC models.
 static EMC_MODELS: &[u8] = &[0x01, 0xd1];
@@ -373,7 +367,7 @@ mod app {
         // Load configuration from flash.
         let cfg_size = CFG_FLASH_PAGES * flash_page_size();
         let cfg_addr = flash_end() - 2 * cfg_size;
-        defmt::info!("program ends at 0x{:x} and configuration is at 0x{:x}", flash_program_end(), cfg_addr);
+        defmt::debug!("program ends at 0x{:x} and configuration is at 0x{:x}", flash_program_end(), cfg_addr);
         defmt::assert!(flash_program_end() <= cfg_addr, "no space for configuration in flash");
         let erase_cfg = bi.boot_reason == BootReason::FactoryReset as _ || option_env!("FACTORY_RESET").is_some();
         if erase_cfg {
@@ -397,8 +391,12 @@ mod app {
         defmt::info!("EMC model:      0x{:02x}", bi.emc_model);
         defmt::info!("board model:    {:a}", bi.board_model());
         defmt::info!("unique id:      {:024x}", unique_device_id());
-        defmt::info!("I2C address:    0x{:02x} (pins remapped: {:?})", ThisBoard::I2C_ADDR, ThisBoard::I2C_REMAP);
-        defmt::info!("IRQ pin:        {} (mode: 0b{:04b})", ThisBoard::IRQ_PIN, ThisBoard::IRQ_PIN_CFG);
+        defmt::debug!(
+            "I2C address:    0x{:02x} (pins remapped: {:?})",
+            ThisBoard::I2C_ADDR,
+            ThisBoard::I2C_REMAP
+        );
+        defmt::debug!("IRQ pin:        {} (mode: 0b{:04b})", ThisBoard::IRQ_PIN, ThisBoard::IRQ_PIN_CFG);
         defmt::info!("Configuration:  {:?}", &*cfg);
         BootReason::log(bi.boot_reason);
         bi.reset_status.log();
@@ -1249,7 +1247,12 @@ mod app {
                 *cx.local.copyright_offset = value.as_u8() as usize;
             }
             Event::Read { reg: reg::MFD_CELL } => match MFD_CELLS.get(*cx.local.mfd_cell_index) {
-                Some(cell) => respond_slice(cell),
+                Some(cell_name) => {
+                    let mut cell = Vec::<_, 32>::new();
+                    unwrap!(cell.extend_from_slice(MFD_CELL_PREFIX));
+                    unwrap!(cell.extend_from_slice(cell_name));
+                    respond_slice(&cell)
+                }
                 None => respond_slice(&[0]),
             },
             Event::Write { reg: reg::MFD_CELL, value } => {
