@@ -95,6 +95,12 @@ enum ResetState {
     Failed,
 }
 
+impl ResetState {
+    pub fn is_resetting(&self) -> bool {
+        matches!(self, Self::PinResetHigh(_) | Self::PinResetLow(_) | Self::RegisterReset(_) | Self::OnWait(_))
+    }
+}
+
 /// STUSB4500 USB PD controller instance.
 ///
 /// [`alert`](Self::alert) must be called when the ALERT pin goes low.
@@ -486,9 +492,12 @@ where
         }
 
         // Inhibit high currents during negotiation phase.
+        let init_period: Duration = 1u64.secs();
         let grace_period: Duration = 10u64.secs();
         let now = monotonics::now();
         match [self.last_pin_reset, self.last_register_reset, self.last_soft_reset].into_iter().flatten().max() {
+            _ if self.reset.is_resetting() => self.report = PowerSupply::Negotiating,
+            Some(latest) if now - latest <= init_period => self.report = PowerSupply::Negotiating,
             Some(latest) if now - latest <= grace_period => match self.report {
                 PowerSupply::CcPins5V1500mA | PowerSupply::CcPins5V3000mA => {
                     self.report = PowerSupply::Negotiating;
