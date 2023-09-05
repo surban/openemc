@@ -27,6 +27,10 @@ struct Args {
     #[arg(short, long, default_value = "info")]
     log: String,
 
+    /// Features to activate in firmware.
+    #[clap(long, short = 'F')]
+    features: Vec<String>,
+
     /// Board to build.
     #[arg(default_value = "generic")]
     board: String,
@@ -86,6 +90,7 @@ fn main() -> anyhow::Result<()> {
     .run()?;
 
     cmd!(&cargo, "build", "--release", "--no-default-features", "--features", "defmt-ringbuf")
+        .args(args.features.iter().flat_map(|feature| ["--features", feature]))
         .current_dir(project_root().join("openemc-firmware"))
         .env("OPENEMC_BOARD", board)
         .env("OPENEMC_BOOTLOADER", bootloader_variant)
@@ -100,23 +105,14 @@ fn main() -> anyhow::Result<()> {
             .join("openemc-firmware"),
         project_root().join("image").join(format!("{firmware}.elf")),
     )?;
-    cmd!(
-        &cargo,
-        "objcopy",
-        "--release",
-        "--no-default-features",
-        "--features",
-        "defmt-ringbuf",
-        "--",
-        "-O",
-        "binary",
-        format!("../image/{firmware}.bin")
-    )
-    .current_dir(project_root().join("openemc-firmware"))
-    .env("OPENEMC_BOARD", board)
-    .env("OPENEMC_BOOTLOADER", bootloader_variant)
-    .env("DEFMT_LOG", &args.log)
-    .run()?;
+    cmd!(&cargo, "objcopy", "--release", "--no-default-features", "--features", "defmt-ringbuf",)
+        .args(args.features.iter().flat_map(|feature| ["--features", feature]))
+        .args(["--", "-O", "binary", &format!("../image/{firmware}.bin")])
+        .current_dir(project_root().join("openemc-firmware"))
+        .env("OPENEMC_BOARD", board)
+        .env("OPENEMC_BOOTLOADER", bootloader_variant)
+        .env("DEFMT_LOG", &args.log)
+        .run()?;
 
     cmd!(
         &cargo,
