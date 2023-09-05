@@ -175,6 +175,8 @@ pub struct Battery {
     pub input_voltage_mv: u32,
     /// Input current in mA.
     pub input_current_ma: u32,
+    /// Is input current optimizer (ICO) active?
+    pub input_current_optimized: bool,
     /// Maximum battery voltage in mV.
     pub max_voltage_mv: u32,
     /// Maximum charging current in mA.
@@ -242,6 +244,7 @@ pub struct Bq25713<I2C> {
     status: Bq25713Status,
     charge_enabled: bool,
     max_input_current_ma: u32,
+    ico: bool,
     chrg_ok: bool,
     _i2c: PhantomData<I2C>,
 }
@@ -294,6 +297,7 @@ where
             status: Default::default(),
             charge_enabled: false,
             max_input_current_ma: 0,
+            ico: false,
             chrg_ok: false,
             _i2c: PhantomData,
         }
@@ -344,7 +348,7 @@ where
         self.modify(i2c, REG_CHARGE_OPTION_0_HI, |v| v & !(1 << 7))?;
 
         // Disable ICO.
-        self.modify(i2c, REG_CHARGE_OPTION_3_HI, |v| v & !(1 << 3))?;
+        self.set_ico(i2c, false)?;
 
         // Disable IDPM auto disable.
         self.modify(i2c, REG_CHARGE_OPTION_0_HI, |v| v & !(1 << 4))?;
@@ -460,11 +464,14 @@ where
     }
 
     /// Sets the input current limit in mA.
-    pub fn set_max_input_current(&mut self, i2c: &mut I2C, ma: u32) -> Result<()> {
+    ///
+    /// `ico` specifies whether the input current optimizer (ICO) is enabled.
+    pub fn set_max_input_current(&mut self, i2c: &mut I2C, ma: u32, ico: bool) -> Result<()> {
         self.check_initialized()?;
 
-        defmt::debug!("Setting maximum input current to {} mA", ma);
+        defmt::debug!("Setting maximum input current to {} mA and ICO to {}", ma, ico);
         self.max_input_current_ma = ma;
+        self.ico = ico;
         self.program_max_input_current(i2c)?;
 
         Ok(())
@@ -483,14 +490,20 @@ where
         if self.chrg_ok {
             defmt::trace!("Programming maximum input current {} mA", self.max_input_current_ma);
 
+            // Enable or disable ICO.
+            self.set_ico(i2c, self.ico)?;
+
             // Program input current.
             let v = (self.max_input_current_ma / 50) as u8 & 0b01111111;
             self.write(i2c, REG_IIN_HOST, &[v])?;
 
+            // Enable or disable ICO.
+            self.set_ico(i2c, self.ico)?;
+
             // Verify programmed current.
             let r = self.read(i2c, REG_IIN_HOST, 1)?[0];
             let r_dpm = self.read(i2c, REG_IIN_DPM, 1)?[0];
-            if r != v || r_dpm != v {
+            if r != v || (r_dpm != v && !self.ico) {
                 defmt::error!(
                     "Programmed input current {:x}, but read back is {:x} and I_DPM is {:x}",
                     v,
@@ -504,6 +517,9 @@ where
             self.set_obey_ilim_pin(i2c, false)?;
         } else {
             defmt::trace!("Programming maximum input current zero");
+
+            // Disable ICO.
+            self.set_ico(i2c, false)?;
 
             // Set input current limit to zero.
             self.write(i2c, REG_IIN_HOST, &[0])?;
@@ -568,6 +584,20 @@ where
         self.modify(i2c, REG_CHARGE_OPTION_2_LO, |v| if obey { v | (1 << 7) } else { v & !(1 << 7) })
     }
 
+    /// Enable or disable input current optimizer (ICO).
+    fn set_ico(&mut self, i2c: &mut I2C, ico: bool) -> Result<()> {
+        // Do not reset ICO, if it is already enabled.
+        if ico {
+            let v = self.read(i2c, REG_CHARGE_OPTION_3_HI, 1)?[0];
+            if v & (1 << 3) != 0 {
+                return Ok(());
+            }
+        }
+
+        defmt::debug!("Setting input current optimizer (ICO) to {}", ico);
+        self.modify(i2c, REG_CHARGE_OPTION_3_HI, |v| if ico { v | (1 << 3) | (1 << 5) } else { v & !(1 << 3) })
+    }
+
     /// Enables or disables charging.
     pub fn set_charge_enable(&mut self, i2c: &mut I2C, enable: bool) -> Result<()> {
         self.check_initialized()?;
@@ -626,6 +656,7 @@ where
                 .map(|m| if m.v_bus_mv >= 3300 { m.v_bus_mv } else { 0 })
                 .unwrap_or_default(),
             input_current_ma: self.measurement.as_ref().map(|m| m.i_in_ma).unwrap_or_default(),
+            input_current_optimized: self.status.ico_done,
             max_voltage_mv: self.cfg.max_battery_mv,
             max_charge_current_ma: self.cfg.max_charge_ma,
             charging: if !self.status.ac_stat
