@@ -6,5 +6,9 @@ rustflags = [
   "-C", "link-arg=--nmagic",
 ]
 
+[unstable]
+build-std = ["core", "panic_abort"]
+build-std-features = ["panic_immediate_abort"]
+
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 runner = "probe-run --chip STM32F103RB"
