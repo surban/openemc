@@ -25,6 +25,7 @@ stm32f1xx-hal = { git = "https://github.com/stm32-rs/stm32f1xx-hal.git", rev = "
     "medium",
     "rt",
 ] }
+panic-halt = "0.2"
 panic-probe = "0.3"
 systick-monotonic = "1.0"
 defmt = { version = "0.3", features = ["encoding-rzcobs"] }
@@ -41,6 +42,9 @@ inherits = "release"
 lto = false
 
 [profile.release]
-opt-level = 'z'
-lto = 'fat'
+opt-level = "z"
+lto = true
 debug = 2
+codegen-units = 1
+panic = "abort"
+incremental = false

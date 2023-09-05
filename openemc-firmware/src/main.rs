@@ -47,7 +47,12 @@ use defmt_ringbuf as _;
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt as _;
 
+// Panic handler.
+#[cfg(not(feature = "defmt-rtt"))]
+use panic_halt as _;
+#[cfg(feature = "defmt-rtt")]
 use panic_probe as _;
+
 use stm32f1xx_hal as _;
 
 use core::{
