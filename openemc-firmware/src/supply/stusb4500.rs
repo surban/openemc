@@ -235,7 +235,7 @@ where
         if IDS.contains(&id[0]) {
             Ok(())
         } else {
-            defmt::warn!("STUSB4500 id is wrong");
+            defmt::warn!("STUSB4500 id 0x{:x} is wrong", id[0]);
             Err(Error::WrongId)
         }
     }
