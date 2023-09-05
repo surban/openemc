@@ -32,7 +32,6 @@ defmt = { version = "0.3", features = ["encoding-rzcobs"] }
 defmt-rtt = { version = "0.4", optional = true }
 nb = "1.0"
 heapless = "0.7"
-embedded-crc32c = "0.1"
 
 [dev-dependencies]
 defmt-test = "0.3"

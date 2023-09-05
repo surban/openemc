@@ -204,12 +204,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "embedded-crc32c"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bea1faee1f848829fcb7d83e650dbe6c8560c238bae6b6ab1ac6fddb9b6bdfc9"
-
-[[package]]
 name = "embedded-dma"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -327,7 +321,6 @@ dependencies = [
  "defmt-ringbuf",
  "defmt-rtt",
  "defmt-test",
- "embedded-crc32c",
  "embedded-hal",
  "heapless",
  "nb 1.1.0",

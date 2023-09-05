@@ -6,10 +6,9 @@ use core::{
     slice,
 };
 use defmt::assert;
-use embedded_crc32c::crc32c;
-use stm32f1xx_hal::flash::FlashWriter;
+use stm32f1xx_hal::{crc::Crc, flash::FlashWriter};
 
-use crate::{flash_page_size, util::FlashUtil};
+use crate::{crc::crc32, flash_page_size, util::FlashUtil};
 
 /// Data storable in flash.
 pub trait FlashData: Sized + Copy + Eq + Sized + 'static {
@@ -43,7 +42,8 @@ where
 
     /// Create copies at specified offsets in flash.
     pub fn new_at(
-        flash: &mut FlashWriter, flash_offset1: u32, flash_offset2: u32, reserved: usize, erase: bool,
+        flash: &mut FlashWriter, crc: &mut Crc, flash_offset1: u32, flash_offset2: u32, reserved: usize,
+        erase: bool,
     ) -> Self {
         assert!(size_of::<T>() % 2 == 0, "data must have even size");
         assert!(reserved % flash_page_size() == 0, "reserved size must be a multiple of flash page size");
@@ -66,27 +66,31 @@ where
         if erase {
             this.erase(flash);
         } else {
-            this.load(flash);
+            this.load(flash, crc);
         }
 
         this
     }
 
     /// Create copies with end offset in flash specified.
-    pub fn new_at_end(flash: &mut FlashWriter, reserved: usize, end_offset: u32, erase: bool) -> Self {
+    pub fn new_at_end(
+        flash: &mut FlashWriter, crc: &mut Crc, reserved: usize, end_offset: u32, erase: bool,
+    ) -> Self {
         let flash_offset2 = end_offset - reserved as u32;
         let flash_offset1 = flash_offset2 - reserved as u32;
-        Self::new_at(flash, flash_offset1, flash_offset2, reserved, erase)
+        Self::new_at(flash, crc, flash_offset1, flash_offset2, reserved, erase)
     }
 
     /// Read copy from flash and verify CRC32.
-    fn load_from<'a>(flash: &'a FlashWriter, offset: u32, reserved: usize) -> Option<(u8, &'a MaybeUninit<T>)> {
+    fn load_from<'a>(
+        flash: &'a FlashWriter, crc: &mut Crc, offset: u32, reserved: usize,
+    ) -> Option<(u8, &'a MaybeUninit<T>)> {
         let mut crc_buf = [0; 4];
         flash.read_into(offset, &mut crc_buf);
-        let crc = u32::from_le_bytes(crc_buf);
+        let crc_read = u32::from_le_bytes(crc_buf);
 
         let protected = flash.read_unwrap(offset + 4, reserved - 4);
-        if crc != crc32c(protected) {
+        if crc_read != crc32(crc, protected) {
             return None;
         }
 
@@ -97,7 +101,7 @@ where
     }
 
     /// Save copy to flash protected with CRC32 checksum.
-    fn save_to(flash: &mut FlashWriter, offset: u32, version: u8, reserved: usize, value: &T) {
+    fn save_to(flash: &mut FlashWriter, crc: &mut Crc, offset: u32, version: u8, reserved: usize, value: &T) {
         flash.erase_unwrap(offset, reserved);
 
         flash.write_unwrap(offset + 4, &[version, 0, 0, 0]);
@@ -111,14 +115,14 @@ where
         }
 
         let protected = flash.read_unwrap(offset + 4, reserved - 4);
-        let crc_buf = crc32c(protected).to_le_bytes();
+        let crc_buf = crc32(crc, protected).to_le_bytes();
         flash.write_unwrap(offset, &crc_buf);
     }
 
     /// Load data from flash.
-    pub fn load(&mut self, flash: &mut FlashWriter) {
-        let data1 = Self::load_from(flash, self.flash_offset1, self.reserved);
-        let data2 = Self::load_from(flash, self.flash_offset2, self.reserved);
+    pub fn load(&mut self, flash: &mut FlashWriter, crc: &mut Crc) {
+        let data1 = Self::load_from(flash, crc, self.flash_offset1, self.reserved);
+        let data2 = Self::load_from(flash, crc, self.flash_offset2, self.reserved);
 
         let (version, data, next_save) = match (data1, data2) {
             (Some((version1, data1)), None) => (version1, *data1, FlashCopy::Copy2),
@@ -140,15 +144,15 @@ where
     }
 
     /// Save data to flash.
-    fn save(&mut self, flash: &mut FlashWriter) {
+    fn save(&mut self, flash: &mut FlashWriter, crc: &mut Crc) {
         self.version = self.version.wrapping_add(1);
         self.next_save = match self.next_save {
             FlashCopy::Copy1 => {
-                Self::save_to(flash, self.flash_offset1, self.version, self.reserved, &self.data);
+                Self::save_to(flash, crc, self.flash_offset1, self.version, self.reserved, &self.data);
                 FlashCopy::Copy2
             }
             FlashCopy::Copy2 => {
-                Self::save_to(flash, self.flash_offset2, self.version, self.reserved, &self.data);
+                Self::save_to(flash, crc, self.flash_offset2, self.version, self.reserved, &self.data);
                 FlashCopy::Copy1
             }
         };
@@ -166,7 +170,7 @@ where
     }
 
     /// Modify data and save to flash if changed.
-    pub fn modify(&mut self, flash: &mut FlashWriter, modify: impl FnOnce(&mut T)) {
+    pub fn modify(&mut self, flash: &mut FlashWriter, crc: &mut Crc, modify: impl FnOnce(&mut T)) {
         let old_data = self.data;
         modify(&mut self.data);
 
@@ -175,7 +179,7 @@ where
         }
 
         self.data.notify_changed();
-        self.save(flash);
+        self.save(flash, crc);
     }
 }
 

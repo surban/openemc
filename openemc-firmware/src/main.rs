@@ -21,6 +21,21 @@
 #![no_std]
 #![no_main]
 
+// Logging provider.
+#[cfg(feature = "defmt-ringbuf")]
+use defmt_ringbuf as _;
+#[cfg(feature = "defmt-rtt")]
+use defmt_rtt as _;
+
+// Panic handler.
+#[cfg(not(feature = "defmt-rtt"))]
+use panic_halt as _;
+#[cfg(feature = "defmt-rtt")]
+use panic_probe as _;
+
+// Hardware abstraction.
+use stm32f1xx_hal as _;
+
 mod adc;
 mod backup;
 mod board;
@@ -40,20 +55,6 @@ mod rtc;
 mod supply;
 mod util;
 mod watchman;
-
-// Logging provider.
-#[cfg(feature = "defmt-ringbuf")]
-use defmt_ringbuf as _;
-#[cfg(feature = "defmt-rtt")]
-use defmt_rtt as _;
-
-// Panic handler.
-#[cfg(not(feature = "defmt-rtt"))]
-use panic_halt as _;
-#[cfg(feature = "defmt-rtt")]
-use panic_probe as _;
-
-use stm32f1xx_hal as _;
 
 use core::{
     cell::Cell,
@@ -276,6 +277,8 @@ mod app {
     struct Shared {
         /// Flash.
         flash: flash::Parts,
+        /// CRC32 engine.
+        crc: Crc,
         /// Flash-backened configuration.
         cfg: FlashBackened<Cfg>,
         /// I2C slave request handling status.
@@ -315,8 +318,6 @@ mod app {
     struct Local {
         /// I2C slave.
         i2c_reg_slave: Option<RemappableI2CRegSlave>,
-        /// CRC engine.
-        crc: Crc,
         /// User GPIO.
         ugpio: MaskedGpio<{ board::PORTS }>,
         /// PWM timers.
@@ -344,7 +345,7 @@ mod app {
 
         // Create HAL objects.
         let rcc = cx.device.RCC.constrain();
-        let crc = cx.device.CRC.new();
+        let mut crc = cx.device.CRC.new();
         let mut bkp = rcc.bkp.constrain(cx.device.BKP, &mut cx.device.PWR);
         let mut flash = cx.device.FLASH.constrain();
         let mut afio = cx.device.AFIO.constrain();
@@ -379,7 +380,8 @@ mod app {
             defmt::info!("Erasing configuration due to factory reset");
         }
         let mut fw = FlashWriter::new(&mut flash);
-        let cfg = FlashBackened::new_at_end(&mut fw, cfg_size, cfg_addr as u32 - FLASH_START, erase_cfg);
+        let cfg =
+            FlashBackened::new_at_end(&mut fw, &mut crc, cfg_size, cfg_addr as u32 - FLASH_START, erase_cfg);
 
         // Create board handler.
         defmt::info!("board new");
@@ -576,6 +578,7 @@ mod app {
         (
             Shared {
                 flash,
+                crc,
                 cfg,
                 i2c_req: I2cReqHandling::Idle,
                 start_bootloader: false,
@@ -593,7 +596,7 @@ mod app {
                 battery: None,
                 power_mode,
             },
-            Local { i2c_reg_slave, crc, adc, adc_inp, ugpio, pwm_timers },
+            Local { i2c_reg_slave, adc, adc_inp, ugpio, pwm_timers },
             init::Monotonics(mono),
         )
     }
@@ -1061,20 +1064,19 @@ mod app {
         binds = I2C1_EV,
         local = [
             i2c_reg_slave,
-            crc,
             checksum_enabled: bool = false,
             request_crc32: u32 = 0,
             request_ok: bool = false,
             response: [u8; I2C_BUFFER_SIZE] = [0; I2C_BUFFER_SIZE],
             response_len: u8 = 0,
         ],
-        shared = [i2c_req],
+        shared = [i2c_req, crc],
         priority = 3,
     )]
-    fn i2c1_ev(mut cx: i2c1_ev::Context) {
+    fn i2c1_ev(cx: i2c1_ev::Context) {
         let Some(i2c_reg_slave) = cx.local.i2c_reg_slave.as_mut() else { return };
 
-        cx.shared.i2c_req.lock(|i2c_req| loop {
+        (cx.shared.i2c_req, cx.shared.crc).lock(|i2c_req, crc| loop {
             match i2c_req {
                 I2cReqHandling::Idle => match i2c_reg_slave.event() {
                     Ok(evt) => match evt {
@@ -1097,10 +1099,8 @@ mod app {
                             let response_part = &cx.local.response
                                 [..cx.local.response.len().min(*cx.local.response_len as usize)];
                             defmt::unwrap!(buf.push(*cx.local.request_ok as u8));
-                            defmt::unwrap!(
-                                buf.extend_from_slice(&crc32(cx.local.crc, response_part).to_le_bytes())
-                            );
-                            defmt::unwrap!(buf.extend_from_slice(&crc32(cx.local.crc, &buf).to_le_bytes()));
+                            defmt::unwrap!(buf.extend_from_slice(&crc32(crc, response_part).to_le_bytes()));
+                            defmt::unwrap!(buf.extend_from_slice(&crc32(crc, &buf).to_le_bytes()));
                             i2c_reg_slave.respond(buf.into());
                         }
                         Event::Write { reg: reg::CHECKSUM, value } => {
@@ -1125,7 +1125,7 @@ mod app {
                                         buf
                                     }
                                 };
-                                if crc32(cx.local.crc, &buf) != *cx.local.request_crc32 {
+                                if crc32(crc, &buf) != *cx.local.request_crc32 {
                                     defmt::warn!("CRC32 mismatch for request 0x{:02x}", buf[0]);
                                     *cx.local.request_ok = false;
                                     if let Event::Read { .. } = &evt {
@@ -1196,8 +1196,20 @@ mod app {
             pwm_channel_index: u8 = 0,
             echo: [u8; I2C_BUFFER_SIZE] = [0; I2C_BUFFER_SIZE],
         ],
-        shared = [i2c_req, start_bootloader, irq, bkp, watchman, rtc, adc_buf, board, power_supply, battery,
-            flash, cfg],
+        shared = [
+            i2c_req,
+            start_bootloader,
+            irq,
+            bkp,
+            watchman,
+            rtc,
+            adc_buf,
+            board,
+            power_supply,
+            battery,
+            flash,
+            crc, cfg
+        ],
         priority = 2,
     )]
     fn i2c_slave_req(mut cx: i2c_slave_req::Context, evt: Event<I2C_BUFFER_SIZE>) {
@@ -1430,16 +1442,18 @@ mod app {
                 respond_u8(cx.shared.cfg.lock(|cfg| cfg.prohibit_power_off.into()))
             }
             Event::Write { reg: reg::POWER_OFF_PROHIBITED, value } => {
-                (cx.shared.flash, cx.shared.cfg).lock(|flash, cfg| {
-                    cfg.modify(&mut FlashWriter::new(flash), |cfg| cfg.prohibit_power_off = value.as_u8() != 0);
+                (cx.shared.flash, cx.shared.crc, cx.shared.cfg).lock(|flash, crc, cfg| {
+                    cfg.modify(&mut FlashWriter::new(flash), crc, |cfg| {
+                        cfg.prohibit_power_off = value.as_u8() != 0
+                    });
                 })
             }
             Event::Read { reg: reg::POWER_ON_BY_CHARGING } => {
                 respond_u8(cx.shared.cfg.lock(|cfg| cfg.charger_attached as u8))
             }
             Event::Write { reg: reg::POWER_ON_BY_CHARGING, value } => {
-                (cx.shared.flash, cx.shared.cfg).lock(|flash, cfg| {
-                    cfg.modify(&mut FlashWriter::new(flash), |cfg| {
+                (cx.shared.flash, cx.shared.crc, cx.shared.cfg).lock(|flash, crc, cfg| {
+                    cfg.modify(&mut FlashWriter::new(flash), crc, |cfg| {
                         cfg.charger_attached = value.as_u8().try_into().unwrap_or_default()
                     });
                 })
