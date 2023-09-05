@@ -100,15 +100,18 @@ fn main() -> io::Result<()> {
     assert_eq!(data.len() % size_of::<u32>(), 0);
 
     // Pad to fill whole flash page.
+    let mut padding_size = 0;
     while data.len() % flash.page_size as usize != 0 {
         data.write_u32::<LE>(id)?;
+        padding_size += 1;
     }
 
     // Verify length.
     let Some(avail) = (flash.length as usize).checked_sub(data.len()) else {
         panic!("program too big for flash ({} / {} kB)", data.len() / 1024, flash.length / 1024)
     };
-    if avail < 2 * CFG_FLASH_PAGES * flash.page_size as usize {
+    let cfg_size = 2 * CFG_FLASH_PAGES * flash.page_size as usize;
+    if avail < cfg_size {
         panic!(
             "no flash space available for configuration (program size: {} / {} kB)",
             data.len() / 1024,
@@ -123,13 +126,13 @@ fn main() -> io::Result<()> {
     dst_file.flush()?;
 
     eprintln!(
-        "{} -> {} @ 0x{:x} % 0x{:x} (id: {id:08x}, CRC32: {file_crc32:08x}, size: {} / {} kB)",
+        "{} -> {} @ 0x{:x} % 0x{:x} (id: {id:08x}, CRC32: {file_crc32:08x}, size: {} / {} bytes)",
         args.src.to_string_lossy(),
         dst.to_string_lossy(),
         flash.origin,
         flash.page_size,
-        data.len() / 1024,
-        flash.length / 1024,
+        data.len() - padding_size + cfg_size,
+        flash.length,
     );
 
     Ok(())
