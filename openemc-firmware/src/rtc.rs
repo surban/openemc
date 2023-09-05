@@ -43,11 +43,11 @@ impl ClockSrc {
 /// Clock value.
 #[derive(Clone, Copy, PartialEq, Eq, Format)]
 pub struct Clock {
-    /// Number of clock ticks.
+    /// Number of clock ticks. (32 bits)
     pub clock: u32,
-    /// Number of prescaler ticks.
+    /// Number of prescaler ticks. (20 bits)
     pub prescaler: u32,
-    /// Maximum value of prescaler.
+    /// Maximum value of prescaler. (20 bits)
     pub prescaler_max: u32,
 }
 
@@ -59,11 +59,13 @@ impl Clock {
 
     /// Number of milliseconds since last whole second.
     pub fn millis(&self) -> u32 {
-        ((1000 * (self.prescaler_max - self.prescaler) as u64) / (self.prescaler_max as u64)) as u32
+        // Accurate calculation is possible using u32 because prescaler and prescaler_max
+        // are 20 bit values and 1000 < 1024 = 1 << 10.
+        1000 * (self.prescaler_max - self.prescaler) / self.prescaler_max
     }
 }
 
-/// Real-time clock (RTC.)
+/// Real-time clock (RTC).
 pub struct Rtc {
     rtc: RTC,
     prescaler: Option<u32>,
