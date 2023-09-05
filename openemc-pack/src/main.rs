@@ -47,12 +47,12 @@ struct FlashParams {
 impl FlashParams {
     pub fn from_linker_script(linker_script: &str) -> Self {
         let re = Regex::new(r"FLASH : ORIGIN = 0x(\w+), LENGTH = 0x(\w+)").unwrap();
-        let cap = re.captures(linker_script).unwrap();
+        let cap = re.captures(linker_script).expect("cannot parse linker script");
         let origin = cap.get(1).unwrap().as_str();
         let length = cap.get(2).unwrap().as_str();
 
         let re = Regex::new(r"__flash_page_size = 0x(\w+)").unwrap();
-        let fps = re.captures(linker_script).unwrap().get(1).unwrap().as_str();
+        let fps = re.captures(linker_script).expect("cannot parse linker script").get(1).unwrap().as_str();
 
         Self {
             origin: u32::from_str_radix(origin, 16).unwrap(),
@@ -105,9 +105,15 @@ fn main() -> io::Result<()> {
     }
 
     // Verify length.
-    let avail = (flash.length as usize).checked_sub(data.len()).expect("program too big for flash");
+    let Some(avail) = (flash.length as usize).checked_sub(data.len()) else {
+        panic!("program too big for flash ({} / {} kB)", data.len() / 1024, flash.length / 1024)
+    };
     if avail < 2 * CFG_FLASH_PAGES * flash.page_size as usize {
-        panic!("no flash space available for configuration (program size: {} kB)", data.len() / 1024);
+        panic!(
+            "no flash space available for configuration (program size: {} / {} kB)",
+            data.len() / 1024,
+            flash.length / 1024
+        );
     }
 
     let file_crc32 = crc32fast::hash(&data);
