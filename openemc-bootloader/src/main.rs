@@ -165,7 +165,7 @@ fn main() -> ! {
     backup::write(BACKUP_REG_BOOT_REASON, BootReason::SurpriseInBootloader as _);
 
     // Start watchdog.
-    if boot_reason != BootReason::PowerOff as _ && boot_reason == BootReason::PowerOffBootloader as _ {
+    if boot_reason != BootReason::PowerOff as _ && boot_reason != BootReason::PowerOffBootloader as _ {
         watchdog::start();
     }
 
