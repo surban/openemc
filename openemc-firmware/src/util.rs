@@ -1,18 +1,10 @@
-//! Debug functions.
+//! Utility functions.
 
 use core::{mem::size_of, ptr};
 use defmt::{panic, unwrap};
 use stm32f1xx_hal::flash::{self, FlashSize, FlashWriter, SectorSize, FLASH_START};
 
 use crate::{flash_end, flash_page_size};
-
-// use crate::CPU_CLOCK;
-//
-// /// Approximately delay execution by specified amount of milliseconds.
-// pub fn delay_ms(ms: u32) {
-//     let cycles = ms * (crate::CPU_CLOCK / 1000);
-//     cortex_m::asm::delay(cycles)
-// }
 
 /// Byte representation of an array of u64s.
 pub fn array_from_u64<const D: usize, const F: usize>(data: &[u64; D]) -> [u8; F] {
@@ -89,16 +81,16 @@ pub trait FlashUtil {
     fn new(parts: &mut flash::Parts) -> FlashWriter;
 
     /// Read and panic if failed.
-    fn read_unwrap(&self, offset: u32, length: usize) -> &[u8];
+    fn read_unwrap(&self, addr: usize, length: usize) -> &[u8];
 
     /// Read from flash into provided buffer.
-    fn read_into(&self, offset: u32, buf: &mut [u8]);
+    fn read_into(&self, addr: usize, buf: &mut [u8]);
 
     /// Erase and panic if failed.
-    fn erase_unwrap(&mut self, offset: u32, length: usize);
+    fn erase_unwrap(&mut self, addr: usize, length: usize);
 
     /// Write and panic if failed.
-    fn write_unwrap(&mut self, offset: u32, data: &[u8]);
+    fn write_unwrap(&mut self, addr: usize, data: &[u8]);
 }
 
 impl<'a> FlashUtil for FlashWriter<'a> {
@@ -126,28 +118,28 @@ impl<'a> FlashUtil for FlashWriter<'a> {
         parts.writer(sector_size, flash_size)
     }
 
-    fn read_unwrap(&self, offset: u32, length: usize) -> &[u8] {
-        let Ok(data) = self.read(offset, length) else {
-            panic!("flash read of length {} at offset 0x{:x} failed", length, offset);
+    fn read_unwrap(&self, addr: usize, length: usize) -> &[u8] {
+        let Ok(data) = self.read(addr as u32 - FLASH_START, length) else {
+            panic!("flash read of length {} at 0x{:x} failed", length, addr);
         };
         data
     }
 
-    fn read_into(&self, offset: u32, buf: &mut [u8]) {
+    fn read_into(&self, addr: usize, buf: &mut [u8]) {
         let len = buf.len();
-        let data = self.read_unwrap(offset, len);
+        let data = self.read_unwrap(addr, len);
         buf.copy_from_slice(data);
     }
 
-    fn erase_unwrap(&mut self, offset: u32, length: usize) {
-        let Ok(()) = self.erase(offset, length) else {
-            panic!("flash erase of length {} at offset 0x{:x} failed", length, offset);
+    fn erase_unwrap(&mut self, addr: usize, length: usize) {
+        let Ok(()) = self.erase(addr as u32 - FLASH_START, length) else {
+            panic!("flash erase of length {} at 0x{:x} failed", length, addr);
         };
     }
 
-    fn write_unwrap(&mut self, offset: u32, data: &[u8]) {
-        let Ok(()) = self.write(offset, data) else {
-            panic!("flash write of length {} at offset 0x{:x} failed", data.len(), offset);
+    fn write_unwrap(&mut self, addr: usize, data: &[u8]) {
+        let Ok(()) = self.write(addr as u32 - FLASH_START, data) else {
+            panic!("flash write of length {} at 0x{:x} failed", data.len(), addr);
         };
     }
 }
