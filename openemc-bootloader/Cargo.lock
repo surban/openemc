@@ -178,7 +178,7 @@ checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
 
 [[package]]
 name = "openemc-bootloader"
-version = "0.2.8"
+version = "0.3.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -186,10 +186,15 @@ dependencies = [
  "defmt-ringbuf",
  "defmt-rtt",
  "defmt-test",
+ "openemc-build",
  "openemc-shared",
  "panic-probe",
  "stm32f1",
 ]
+
+[[package]]
+name = "openemc-build"
+version = "0.0.0"
 
 [[package]]
 name = "openemc-shared"

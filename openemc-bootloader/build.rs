@@ -7,6 +7,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use openemc_build::read_settings;
+
 fn main() {
     let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
 
@@ -15,15 +17,14 @@ fn main() {
 
     let board = env::var("OPENEMC_BOARD").unwrap_or_else(|_| "generic".to_string());
 
-    let board_version_file = format!("src/boards/{}.version", board.to_lowercase());
-    if !Path::new(&board_version_file).is_file() {
+    let board_file = Path::new(&format!("src/boards/{}.rs", board.to_lowercase())).to_path_buf();
+    if !board_file.is_file() {
         panic!("board {board} is unknown");
     }
-    println!("cargo:rerun-if-changed={board_version_file}");
-    let board_version = fs::read_to_string(&board_version_file)
-        .unwrap_or_else(|_| panic!("cannot read board version from {board_version_file}"))
-        .trim()
-        .to_string();
+    println!("cargo:rerun-if-changed={}", board_file.display());
+    let board_settings = read_settings(&board_file).expect("cannot read board file");
+
+    let board_version = board_settings.get("BOARD-VERSION").map(|v| v.as_str()).unwrap_or_else(|| "0");
     let pkg_version = env::var("CARGO_PKG_VERSION").unwrap();
     fs::write(out.join("bootloader_version.txt"), format!("{pkg_version}/{board_version}")).unwrap();
 
@@ -42,9 +43,11 @@ fn main() {
     writeln!(&mut board_mods, "pub use {board}::BoardImpl as Chosen;").unwrap();
 
     println!("cargo:rerun-if-env-changed=OPENEMC_BOOTLOADER");
+    println!("cargo:rerun-if-changed=emc-bootloader.x");
     println!("cargo:rerun-if-changed=emc-bootloader-big.x");
     println!("cargo:rerun-if-changed=emc-bootloader-normal.x");
 
+    fs::copy("emc-bootloader.x", out.join("emc-bootloader.x")).unwrap();
     let ld_script = fs::read(if env::var("OPENEMC_BOOTLOADER").unwrap_or_default() == "big" {
         "emc-bootloader-big.x"
     } else {

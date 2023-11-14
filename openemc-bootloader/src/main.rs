@@ -173,12 +173,12 @@ fn main() -> ! {
     defmt::info!("EMC model:    0x{:02x}", emc_model());
     defmt::info!("board model:  {:a}", board.model());
     defmt::info!("I2C address:  0x{:02x} (remap: {:?})", ThisBoard::I2C_ADDR, ThisBoard::I2C_REMAP);
-    defmt::info!("flash:        {} bytes", Flash::size());
+    defmt::info!("flash:        {} bytes (page size: {} bytes)", Flash::size(), Flash::page_size());
     defmt::info!(
-        "user flash:   0x{:08x} - 0x{:08x} (page 0x{:x})",
+        "user flash:   {} bytes (0x{:08x} - 0x{:08x})",
+        Flash::end() - user_flash_start(),
         user_flash_start(),
         Flash::end(),
-        Flash::page_size()
     );
     defmt::info!("boot reason:  0x{:04x}", boot_reason);
     defmt::info!(

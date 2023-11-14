@@ -1,5 +1,5 @@
 [workspace]
-members = ["openemc-log", "openemc-pack", "xtask"]
+members = ["openemc-build", "openemc-log", "openemc-pack", "xtask"]
 exclude = [
     "defmt-ringbuf",
     "openemc-bootloader",

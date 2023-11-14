@@ -1,4 +1,7 @@
 //! STM Nucleo-F103RB evaluation board.
+//
+// OPENEMC-BOARD-VERSION: 1
+//
 
 use openemc_shared::{BootInfo, ResetStatus};
 use stm32f1::stm32f103::Peripherals;

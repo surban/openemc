@@ -1,4 +1,7 @@
 //! Generic board.
+//
+// OPENEMC-BOARD-VERSION: 1
+//
 
 use crate::board::Board;
 

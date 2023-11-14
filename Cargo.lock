@@ -453,6 +453,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "openemc-build"
+version = "0.0.0"
+
+[[package]]
 name = "openemc-log"
 version = "0.5.0"
 dependencies = [
