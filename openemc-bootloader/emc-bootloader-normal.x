@@ -1,7 +1,20 @@
+/* Normal memory configuration with bootloader size 12 kB */
+
+/* Flash size is determined dynamically at runtime;
+   the value provided here is just a lower limit.
+   The RAM size specified here only applies to the
+   bootloader; the user program can use more RAM.   */
+
+MEMORY
+{
+  FLASH : ORIGIN = 0x08000000, LENGTH = 16K
+  RAM   : ORIGIN = 0x20000000, LENGTH = 10K
+}
+
 SECTIONS
 {
   /* Flash space for user program. */
-  .user_flash ORIGIN(FLASH) + 0x3000 : ALIGN(__flash_page_size)
+  .user_flash ORIGIN(FLASH) + 0x3000 : ALIGN(0x800)
   {
     __user_flash_start = .;
   } > FLASH
@@ -33,6 +46,4 @@ SECTIONS
   } > RAM
 }
 INSERT BEFORE .data;
-
-__user_flash_end = ORIGIN(FLASH) + LENGTH(FLASH);
 

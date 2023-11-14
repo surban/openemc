@@ -15,15 +15,10 @@ fn main() {
 
     let board = env::var("OPENEMC_BOARD").unwrap_or_else(|_| "generic".to_string());
 
-    let src = format!("src/boards/{}.x", board.to_lowercase());
-    if !Path::new(&src).is_file() {
+    let board_version_file = format!("src/boards/{}.version", board.to_lowercase());
+    if !Path::new(&board_version_file).is_file() {
         panic!("board {board} is unknown");
     }
-    println!("cargo:rerun-if-changed={src}");
-    let memory = fs::read(&src).unwrap_or_else(|_| panic!("cannot read board memory from {src}"));
-    fs::write(out.join("memory.x"), memory).unwrap();
-
-    let board_version_file = format!("src/boards/{}.version", board.to_lowercase());
     println!("cargo:rerun-if-changed={board_version_file}");
     let board_version = fs::read_to_string(&board_version_file)
         .unwrap_or_else(|_| panic!("cannot read board version from {board_version_file}"))
@@ -56,7 +51,7 @@ fn main() {
         "emc-bootloader-normal.x"
     })
     .unwrap();
-    fs::write(out.join("emc-bootloader.x"), ld_script).unwrap();
+    fs::write(out.join("memory.x"), ld_script).unwrap();
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rustc-link-search={}", out.display());

@@ -1,10 +1,7 @@
 //! Flash driver.
 
 use core::{mem::size_of, ptr};
-
 use stm32f1::stm32f103::Peripherals;
-
-use crate::__flash_page_size;
 
 /// Flash writer.
 pub struct Flash {
@@ -15,9 +12,30 @@ pub struct Flash {
 static mut ACTIVE: bool = false;
 
 impl Flash {
+    /// Address of start of flash memory.
+    pub const START: usize = 0x08000000;
+
+    /// Total flash size.
+    pub fn size() -> usize {
+        const BASE: usize = 0x1ffff7e0;
+        let mem_kb = unsafe { ptr::read_unaligned(BASE as *const u16) };
+        usize::from(mem_kb) * 1024
+    }
+
+    /// Address of end of flash memory (exclusive).
+    ///
+    /// Returned address is first byte beyond end of flash memory.
+    pub fn end() -> usize {
+        Self::START + Self::size()
+    }
+
     /// Flash page size.
     pub fn page_size() -> usize {
-        unsafe { &__flash_page_size as *const _ as usize }
+        if Self::size() <= 0x2_0000 {
+            0x400
+        } else {
+            0x800
+        }
     }
 
     /// Base address of a flash page.
