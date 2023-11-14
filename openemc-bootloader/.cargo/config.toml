@@ -2,7 +2,6 @@
 target = "thumbv7m-none-eabi"
 rustflags = [
     "-C", "link-arg=-Tlink.x",
-    "-C", "link-arg=-Temc-bootloader.x",
     "-C", "link-arg=-Tdefmt.x",
     "-C", "link-arg=--nmagic",
 ]
@@ -12,4 +11,4 @@ build-std = ["core", "panic_abort"]
 build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-run --chip STM32F103RB"
+runner = "probe-rs run --chip STM32F103RB"
