@@ -26,7 +26,7 @@ mod board;
 mod boards;
 mod bootloader;
 mod crc32;
-mod flash;
+mod flash_writer;
 mod i2c_reg_slave;
 mod i2c_slave;
 mod timer;
@@ -50,12 +50,14 @@ use stm32f1::stm32f103::Peripherals;
 use crate::{
     board::Board,
     bootloader::{BootloaderInfo, BootloaderResult},
-    flash::Flash,
     i2c_reg_slave::I2CRegTransaction,
     i2c_slave::I2CSlave,
     util::delay_ms,
 };
-use openemc_shared::{BootInfo, BootReason, ResetStatus};
+use openemc_shared::{
+    boot::{BootInfo, BootReason, ResetStatus},
+    flash,
+};
 
 /// OpenEMC bootloader version.
 pub static VERSION: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bootloader_version.txt"));
@@ -173,12 +175,12 @@ fn main() -> ! {
     defmt::info!("EMC model:    0x{:02x}", emc_model());
     defmt::info!("board model:  {:a}", board.model());
     defmt::info!("I2C address:  0x{:02x} (remap: {:?})", ThisBoard::I2C_ADDR, ThisBoard::I2C_REMAP);
-    defmt::info!("flash:        {} bytes (page size: {} bytes)", Flash::size(), Flash::page_size());
+    defmt::info!("flash:        {} bytes (page size: {} bytes)", flash::size(), flash::page_size());
     defmt::info!(
         "user flash:   {} bytes (0x{:08x} - 0x{:08x})",
-        Flash::end() - user_flash_start(),
+        flash::end() - user_flash_start(),
         user_flash_start(),
-        Flash::end(),
+        flash::end(),
     );
     defmt::info!("boot reason:  0x{:04x}", boot_reason);
     defmt::info!(
@@ -226,7 +228,7 @@ fn main() -> ! {
 
     // Verify current user program.
     watchdog::pet();
-    let program = bootloader::verify_program(user_flash_start(), Flash::end());
+    let program = bootloader::verify_program(user_flash_start(), flash::end());
     match &program {
         Ok(p) => {
             defmt::info!("user program is valid with CRC32 0x{:x} and id 0x{:x}", p.crc32, p.id);
@@ -287,7 +289,7 @@ fn main() -> ! {
                 emc_model: emc_model(),
                 board_model: board_cell.borrow().model(),
                 user_flash_start: user_flash_start(),
-                user_flash_end: Flash::end(),
+                user_flash_end: flash::end(),
                 timeout_ticks,
                 boot_reason,
                 reset_status,
@@ -333,7 +335,7 @@ fn main() -> ! {
     // Verify program and get vector table address.
     defmt::info!("verifying user program");
     watchdog::pet();
-    match bootloader::verify_program(user_flash_start(), Flash::end()) {
+    match bootloader::verify_program(user_flash_start(), flash::end()) {
         Ok(program) => {
             // Write new boot reason.
             backup::write(BACKUP_REG_BOOT_REASON, BootReason::SurpriseInUser as _);

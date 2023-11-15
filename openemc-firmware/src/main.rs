@@ -364,9 +364,12 @@ mod app {
         unsafe { BootInfo::init(&bkp) };
         let bi = BootInfo::get();
 
+        // Caclulate CRC32 of bootloader.
+        let bootloader_crc32 = boot::bootloader_crc32(&mut crc);
+
         // Load configuration from flash.
-        let cfg_size = CFG_FLASH_PAGES * flash_page_size();
-        let cfg_addr2 = flash_end() - cfg_size;
+        let cfg_size = CFG_FLASH_PAGES * flash::page_size();
+        let cfg_addr2 = flash::end() - cfg_size;
         let cfg_addr1 = cfg_addr2 - cfg_size;
         defmt::debug!("program ends at 0x{:x} and configuration is at 0x{:x}", flash_program_end(), cfg_addr1);
         defmt::assert!(flash_program_end() <= cfg_addr1, "no space for configuration in flash");
@@ -380,7 +383,6 @@ mod app {
         // Create board handler.
         defmt::info!("board new");
         let mut board = ThisBoard::new(bi, &mut afio, &mut delay, &cfg);
-        let power_mode = board.power_mode();
         defmt::info!("board new done");
         board.set_power_led(bi.powered_on);
 
@@ -391,13 +393,14 @@ mod app {
         defmt::info!("EMC model:      0x{:02x}", bi.emc_model);
         defmt::info!("board model:    {:a}", bi.board_model());
         defmt::info!("unique id:      {:024x}", unique_device_id());
+        defmt::info!("bootloader crc: {:08x}", bootloader_crc32);
         defmt::debug!(
             "I2C address:    0x{:02x} (pins remapped: {:?})",
             ThisBoard::I2C_ADDR,
             ThisBoard::I2C_REMAP
         );
         defmt::debug!("IRQ pin:        {} (mode: 0b{:04b})", ThisBoard::IRQ_PIN, ThisBoard::IRQ_PIN_CFG);
-        defmt::info!("Configuration:  {:?}", &*cfg);
+        defmt::info!("configuration:  {:?}", &*cfg);
         BootReason::log(bi.boot_reason);
         bi.reset_status.log();
         defmt::info!("start reason:   0x{:02x}", bi.start_reason);
@@ -1211,7 +1214,9 @@ mod app {
             power_supply,
             battery,
             flash,
-            crc, cfg
+            crc,
+            cfg,
+            &bootloader_crc32,
         ],
         priority = 2,
     )]
@@ -1267,6 +1272,7 @@ mod app {
             Event::Read { reg: reg::RESET_STATUS } => respond_u8(BootInfo::get().reset_status.0),
             Event::Read { reg: reg::START_REASON } => respond_u8(BootInfo::get().start_reason),
             Event::Read { reg: reg::PROGRAM_ID } => respond_u32(BootInfo::get().id),
+            Event::Read { reg: reg::FLASH_TOTAL_SIZE } => respond_u32(flash::size() as u32),
             Event::Read { reg: reg::IRQ_MASK } => respond_u32(cx.shared.irq.lock(|irq| irq.get_mask())),
             Event::Write { reg: reg::IRQ_MASK, value } => cx.shared.irq.lock(|irq| irq.set_mask(value.as_u32())),
             Event::Read { reg: reg::IRQ_PENDING } => {
@@ -1640,9 +1646,8 @@ mod app {
                 #[cfg(not(feature = "defmt-ringbuf"))]
                 respond_slice(&[0]);
             }
-            Event::Read { reg: reg::ECHO } => {
-                respond_slice(cx.local.echo);
-            }
+            Event::Read { reg: reg::BOOTLOADER_CRC32 } => respond_u32(*cx.shared.bootloader_crc32),
+            Event::Read { reg: reg::ECHO } => respond_slice(cx.local.echo),
             Event::Write { reg: reg::ECHO, value } => {
                 cx.local.echo[..value.len()].copy_from_slice(&value);
                 cx.local.echo[value.len()..].fill(0);

@@ -40,6 +40,9 @@ pub const START_REASON: u8 = 0x0a;
 /// Reads the firmware CRC32 (u32).
 pub const PROGRAM_ID: u8 = 0x0b;
 
+/// Reads the total size of the flash memory (u32).
+pub const FLASH_TOTAL_SIZE: u8 = 0x0c;
+
 /// Interrupt mask (u32).
 /// Bits 0 - 15 each represent an EXTI line.
 /// (0 = masked, 1 = unmasked)
@@ -308,6 +311,9 @@ pub const LOG_READ: u8 = 0xfa;
 /// 32 bytes.
 /// First byte: length
 pub const BOOTLOADER_LOG_READ: u8 = 0xfb;
+
+/// Reads the CRC32 of the bootloader. (read-only, u32)
+pub const BOOTLOADER_CRC32: u8 = 0xfc;
 
 /// Read/write the same data.
 pub const ECHO: u8 = 0xfe;

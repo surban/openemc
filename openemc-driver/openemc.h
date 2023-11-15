@@ -32,6 +32,7 @@
 #define OPENEMC_RESET_STATUS 0x09
 #define OPENEMC_START_REASON 0x0a
 #define OPENEMC_PROGRAM_ID 0x0b
+#define OPENEMC_FLASH_TOTAL_SIZE 0x0c
 
 /* IRQ register definitions */
 #define OPENEMC_IRQ_MASK 0x10
@@ -118,6 +119,7 @@
 #define OPENEMC_REREAD 0xf9
 #define OPENEMC_LOG_READ 0xfa
 #define OPENEMC_BOOTLOADER_LOG_READ 0xfb
+#define OPENEMC_BOOTLOADER_CRC32 0xfc
 #define OPENEMC_ECHO 0xfe
 #define OPENEMC_START_BOOTLOADER 0xff
 
@@ -224,7 +226,9 @@ struct openemc {
 	char firmware[128 + OPENEMC_MAX_DATA_SIZE];
 	char version[OPENEMC_MAX_DATA_SIZE + 1];
 	char bootloader_version[OPENEMC_MAX_DATA_SIZE + 1];
+	u32 bootloader_crc32;
 	char copyright[8 * OPENEMC_MAX_DATA_SIZE];
+	u32 flash_total_size;
 	u8 emc_model;
 	char board_model[OPENEMC_MAX_DATA_SIZE + 1];
 	u64 unique_id[2];

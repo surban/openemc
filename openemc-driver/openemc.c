@@ -490,13 +490,20 @@ static int openemc_flash_firmware_page(struct openemc *emc,
 				       u32 start, u32 page, u32 page_size)
 {
 	u32 addr = start + page;
-	u32 firmware_crc32 = openemc_crc32(firmware->data + page, page_size);
-	u32 i, flash_crc32;
+	u32 i, flash_crc32, firmware_crc32;
+	u8 page_data[page_size];
 	u8 len, status;
 	int ret;
 
 	dev_info(emc->dev, "flashing 0x%08x - 0x%08x\n", addr,
 		 addr + page_size - 1);
+
+	for (i = 0; i < page_size; i++) {
+		if (page + i < firmware->size)
+			page_data[i] = firmware->data[page + i];
+		else
+			page_data[i] = 0;
+	}
 
 	ret = openemc_write_u32(emc, OPENEMC_BOOTLOADER_FLASH_ADDR, addr);
 	if (ret < 0)
@@ -522,7 +529,7 @@ static int openemc_flash_firmware_page(struct openemc *emc,
 	for (i = 0; i < page_size; i += OPENEMC_MAX_DATA_SIZE) {
 		len = min((u32)OPENEMC_MAX_DATA_SIZE, page_size - i);
 		ret = openemc_write_data(emc, OPENEMC_BOOTLOADER_FLASH_WRITE,
-					 len, firmware->data + page + i);
+					 len, page_data + i);
 		if (ret < 0)
 			return ret;
 	}
@@ -545,6 +552,8 @@ static int openemc_flash_firmware_page(struct openemc *emc,
 			       &flash_crc32);
 	if (ret < 0)
 		return ret;
+
+	firmware_crc32 = openemc_crc32(page_data, page_size);
 	if (flash_crc32 != firmware_crc32) {
 		dev_err(emc->dev,
 			"CRC32 mismatch after flashing page "
@@ -591,13 +600,6 @@ static int openemc_flash_firmware(struct openemc *emc,
 		dev_err(emc->dev,
 			"flash has only %u bytes, but firmware has %zu bytes",
 			size, firmware->size);
-		return -ENODEV;
-	}
-	if (firmware->size % page_size != 0) {
-		dev_err(emc->dev,
-			"firmware size %zu bytes is not a multiple "
-			"of flash page size %d",
-			firmware->size, page_size);
 		return -ENODEV;
 	}
 
@@ -1275,6 +1277,15 @@ static ssize_t openemc_bootloader_version_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(openemc_bootloader_version);
 
+static ssize_t openemc_bootloader_crc32_show(struct device *dev,
+					     struct device_attribute *attr,
+					     char *buf)
+{
+	struct openemc *emc = dev_get_drvdata(dev);
+	return sprintf(buf, "%08x", emc->bootloader_crc32);
+}
+static DEVICE_ATTR_RO(openemc_bootloader_crc32);
+
 static ssize_t openemc_copyright_show(struct device *dev,
 				      struct device_attribute *attr, char *buf)
 {
@@ -1294,6 +1305,15 @@ static ssize_t openemc_flashable_show(struct device *dev,
 		return sprintf(buf, "no");
 }
 static DEVICE_ATTR_RO(openemc_flashable);
+
+static ssize_t openemc_flash_size_show(struct device *dev,
+				       struct device_attribute *attr,
+				       char *buf)
+{
+	struct openemc *emc = dev_get_drvdata(dev);
+	return sprintf(buf, "%d", emc->flash_total_size);
+}
+static DEVICE_ATTR_RO(openemc_flash_size);
 
 static ssize_t openemc_emc_model_show(struct device *dev,
 				      struct device_attribute *attr, char *buf)
@@ -1493,8 +1513,10 @@ static struct attribute *openemc_attrs[] = {
 	&dev_attr_openemc_firmware.attr,
 	&dev_attr_openemc_version.attr,
 	&dev_attr_openemc_bootloader_version.attr,
+	&dev_attr_openemc_bootloader_crc32,
 	&dev_attr_openemc_copyright.attr,
 	&dev_attr_openemc_flashable.attr,
+	&dev_attr_openemc_flash_size,
 	&dev_attr_openemc_emc_model.attr,
 	&dev_attr_openemc_board_model.attr,
 	&dev_attr_openemc_unique_id.attr,
@@ -1574,6 +1596,11 @@ static int openemc_get_info(struct openemc *emc)
 	if (ret < 0)
 		return ret;
 
+	ret = openemc_read_u32(emc, OPENEMC_BOOTLOADER_CRC32,
+	       		       &emc->bootloader_crc32);
+	if (ret < 0)
+		return ret;
+
 	for (i = 0; i < ARRAY_SIZE(emc->copyright);
 	     i += OPENEMC_MAX_DATA_SIZE) {
 		ret = openemc_write_u8(emc, OPENEMC_COPYRIGHT, i);
@@ -1587,6 +1614,11 @@ static int openemc_get_info(struct openemc *emc)
 			return ret;
 	}
 	emc->copyright[ARRAY_SIZE(emc->copyright) - 1] = 0;
+
+	ret = openemc_read_u32(emc, OPENEMC_FLASH_TOTAL_SIZE,
+	       		       &emc->flash_total_size);
+	if (ret < 0)
+		return ret;
 
 	ret = openemc_read_u8(emc, OPENEMC_EMC_MODEL, &emc->emc_model);
 	if (ret < 0)
