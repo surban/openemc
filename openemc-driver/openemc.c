@@ -491,13 +491,15 @@ static int openemc_flash_firmware_page(struct openemc *emc,
 {
 	u32 addr = start + page;
 	u32 i, flash_crc32, firmware_crc32;
-	u8 page_data[page_size];
+	u8 page_data[OPENEMC_MAX_PAGE_SIZE];
 	u8 len, status;
 	int ret;
 
 	dev_info(emc->dev, "flashing 0x%08x - 0x%08x\n", addr,
 		 addr + page_size - 1);
 
+	if (page_size > OPENEMC_MAX_PAGE_SIZE)
+		return -EINVAL;
 	for (i = 0; i < page_size; i++) {
 		if (page + i < firmware->size)
 			page_data[i] = firmware->data[page + i];
@@ -1513,10 +1515,10 @@ static struct attribute *openemc_attrs[] = {
 	&dev_attr_openemc_firmware.attr,
 	&dev_attr_openemc_version.attr,
 	&dev_attr_openemc_bootloader_version.attr,
-	&dev_attr_openemc_bootloader_crc32,
+	&dev_attr_openemc_bootloader_crc32.attr,
 	&dev_attr_openemc_copyright.attr,
 	&dev_attr_openemc_flashable.attr,
-	&dev_attr_openemc_flash_size,
+	&dev_attr_openemc_flash_size.attr,
 	&dev_attr_openemc_emc_model.attr,
 	&dev_attr_openemc_board_model.attr,
 	&dev_attr_openemc_unique_id.attr,
