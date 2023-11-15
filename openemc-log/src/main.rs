@@ -28,6 +28,7 @@ use nix::{
     errno::Errno,
     poll::{poll, PollFd, PollFlags},
 };
+use std::os::fd::AsFd;
 use std::{
     ffi::{c_int, OsString},
     fmt::Write,
@@ -193,7 +194,8 @@ fn perform(opts: &Opts) -> Result<bool> {
         match log.read(&mut buf) {
             Ok(0) if is_dev && !opts.oneshot && !opts.bootloader => {
                 // Wait for data to arrive.
-                let poll_fd = PollFd::new(log.as_raw_fd(), PollFlags::POLLPRI | PollFlags::POLLERR);
+                let log_fd = log.as_fd();
+                let poll_fd = PollFd::new(&log_fd, PollFlags::POLLPRI | PollFlags::POLLERR);
                 match poll(&mut [poll_fd], POLL_TIMEOUT) {
                     Ok(_) => (),
                     Err(Errno::EINTR) => sleep(Duration::from_millis(100)),
