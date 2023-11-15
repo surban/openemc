@@ -21,6 +21,7 @@ fn main() {
     if !board_file.is_file() {
         panic!("board {board} is unknown");
     }
+    println!("cargo:rustc-cfg=board=\"{board}\"");
     println!("cargo:rerun-if-changed={}", board_file.display());
     let board_settings = read_settings(&board_file).expect("cannot read board file");
 
