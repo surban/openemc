@@ -12,4 +12,7 @@ build-std = ["core", "panic_abort"]
 build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-rs run --chip STM32F103RB"
+runner = "probe-run --chip STM32F103RB"
+
+# probe-rs has problems with reset.
+#runner = "probe-rs run --chip STM32F103RB"
