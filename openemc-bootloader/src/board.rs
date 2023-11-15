@@ -2,9 +2,8 @@
 
 use core::num::NonZeroU32;
 
-use openemc_shared::{BootInfo, ResetStatus};
-
 use crate::{i2c_reg_slave::I2CRegTransaction, util::enter_standby, BoardInitResult};
+use openemc_shared::boot::{BootInfo, ResetStatus};
 
 /// Board-specific functionality.
 pub trait Board {

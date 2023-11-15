@@ -1,10 +1,15 @@
 //! Generic board.
+//
+// OPENEMC-BOARD-VERSION: 1
+// OPENEMC-FLASH-SIZE: 65536
+// OPENEMC-RAM-SIZE: 20480
+//
 
-use openemc_shared::BootInfo;
 use stm32f1xx_hal::afio;
 
 use crate::cfg::Cfg;
 use crate::{board::Board, Delay};
+use openemc_shared::boot::BootInfo;
 
 /// Generic board.
 pub struct BoardImpl;

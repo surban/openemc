@@ -1,10 +1,7 @@
 //! Utility functions.
 
-use core::{mem::size_of, ptr};
-use defmt::{panic, unwrap};
-use stm32f1xx_hal::flash::{self, FlashSize, FlashWriter, SectorSize, FLASH_START};
-
-use crate::{flash_end, flash_page_size};
+use core::mem::size_of;
+use defmt::unwrap;
 
 /// Byte representation of an array of u64s.
 pub fn array_from_u64<const D: usize, const F: usize>(data: &[u64; D]) -> [u8; F] {
@@ -60,86 +57,4 @@ pub fn array_to_u16<const D: usize>(flat: &[u8]) -> [u16; D] {
         *d = u16::from_le_bytes(b);
     }
     data
-}
-
-/// 96-bit unique device identifier.
-pub fn unique_device_id() -> u128 {
-    const BASE: usize = 0x1FFFF7E8;
-    unsafe {
-        let a = ptr::read_unaligned(BASE as *const u16) as u128;
-        let b = ptr::read_unaligned((BASE + 2) as *const u16) as u128;
-        let c = ptr::read_unaligned((BASE + 4) as *const u32) as u128;
-        let d = ptr::read_unaligned((BASE + 8) as *const u32) as u128;
-        a | (b << 16) | (c << 32) | (d << 64)
-    }
-}
-
-/// Flash utility function.
-pub trait FlashUtil {
-    /// Create flash writer.
-    #[allow(clippy::new_ret_no_self)]
-    fn new(parts: &mut flash::Parts) -> FlashWriter;
-
-    /// Read and panic if failed.
-    fn read_unwrap(&self, addr: usize, length: usize) -> &[u8];
-
-    /// Read from flash into provided buffer.
-    fn read_into(&self, addr: usize, buf: &mut [u8]);
-
-    /// Erase and panic if failed.
-    fn erase_unwrap(&mut self, addr: usize, length: usize);
-
-    /// Write and panic if failed.
-    fn write_unwrap(&mut self, addr: usize, data: &[u8]);
-}
-
-impl<'a> FlashUtil for FlashWriter<'a> {
-    fn new(parts: &mut flash::Parts) -> FlashWriter {
-        let sector_size = match flash_page_size() {
-            1024 => SectorSize::Sz1K,
-            2048 => SectorSize::Sz2K,
-            4096 => SectorSize::Sz4K,
-            _ => panic!("unknown flash page size"),
-        };
-
-        let flash_size = match flash_end() - FLASH_START as usize {
-            16_384 => FlashSize::Sz16K,
-            32_768 => FlashSize::Sz32K,
-            65_536 => FlashSize::Sz64K,
-            131_072 => FlashSize::Sz128K,
-            262_144 => FlashSize::Sz256K,
-            393_216 => FlashSize::Sz384K,
-            524_288 => FlashSize::Sz512K,
-            786_432 => FlashSize::Sz768K,
-            1_048_576 => FlashSize::Sz1M,
-            _ => panic!("unknown flash size"),
-        };
-
-        parts.writer(sector_size, flash_size)
-    }
-
-    fn read_unwrap(&self, addr: usize, length: usize) -> &[u8] {
-        let Ok(data) = self.read(addr as u32 - FLASH_START, length) else {
-            panic!("flash read of length {} at 0x{:x} failed", length, addr);
-        };
-        data
-    }
-
-    fn read_into(&self, addr: usize, buf: &mut [u8]) {
-        let len = buf.len();
-        let data = self.read_unwrap(addr, len);
-        buf.copy_from_slice(data);
-    }
-
-    fn erase_unwrap(&mut self, addr: usize, length: usize) {
-        let Ok(()) = self.erase(addr as u32 - FLASH_START, length) else {
-            panic!("flash erase of length {} at 0x{:x} failed", length, addr);
-        };
-    }
-
-    fn write_unwrap(&mut self, addr: usize, data: &[u8]) {
-        let Ok(()) = self.write(addr as u32 - FLASH_START, data) else {
-            panic!("flash write of length {} at 0x{:x} failed", data.len(), addr);
-        };
-    }
 }

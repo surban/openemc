@@ -7,11 +7,14 @@ use core::{
     slice,
 };
 use cortex_m::peripheral::{scb::Exception, SCB};
-use openemc_shared::{BootInfo, BootReason, ResetStatus};
 use stm32f1::stm32f103::Peripherals;
-use stm32f1xx_hal::{backup_domain::BackupDomain, prelude::_stm32_hal_gpio_GpioExt};
+use stm32f1xx_hal::{backup_domain::BackupDomain, crc::Crc, prelude::_stm32_hal_gpio_GpioExt};
 
-use crate::{backup::BackupReg, board::Board, ThisBoard};
+use crate::{backup::BackupReg, board::Board, bootloader_max_size, crc::crc32, ThisBoard};
+use openemc_shared::{
+    boot::{BootInfo, BootReason, ResetStatus},
+    flash,
+};
 
 /// Boot reason extension.
 pub trait BootReasonExt {
@@ -196,6 +199,12 @@ pub fn start_bootloader() -> ! {
         cp.SCB.vtor.write(BOOTLOADER_ADDR as u32);
         cortex_m::asm::bootload(BOOTLOADER_ADDR as *const u32)
     }
+}
+
+/// Calculates the CRC32 checksum of the bootloader.
+pub fn bootloader_crc32(crc: &mut Crc) -> u32 {
+    let data = unsafe { slice::from_raw_parts(flash::START as *const u8, bootloader_max_size()) };
+    crc32(crc, data)
 }
 
 /// Powers off system by entering standby mode after reset.

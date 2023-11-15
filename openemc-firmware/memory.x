@@ -1,9 +1,8 @@
-__flash_page_size = 0x400;
 
 MEMORY
 {
-  FLASH : ORIGIN = 0x08003000, LENGTH = 0xd000
-  RAM   : ORIGIN = 0x20000000, LENGTH = 20K
+  FLASH : ORIGIN = 0x08000000 + __bootloader_max_size, LENGTH = __flash_size - __bootloader_max_size - __cfg_size
+  RAM   : ORIGIN = 0x20000000, LENGTH = __ram_size
 }
 
 SECTIONS
@@ -39,5 +38,3 @@ SECTIONS
   } > FLASH
 }
 INSERT AFTER .gnu.sgstubs;
-
-__flash_end = ORIGIN(FLASH) + LENGTH(FLASH);

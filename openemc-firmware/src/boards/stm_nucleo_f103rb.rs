@@ -1,7 +1,11 @@
 //! STM Nucleo-F103RB evaluation board.
+//
+// OPENEMC-BOARD-VERSION: 1
+// OPENEMC-FLASH-SIZE: 65536
+// OPENEMC-RAM-SIZE: 20480
+//
 
 use cortex_m::peripheral::SCB;
-use openemc_shared::BootInfo;
 use stm32f1::stm32f103::Peripherals;
 use stm32f1xx_hal::{
     afio,
@@ -17,6 +21,7 @@ use crate::{
     i2c_reg_slave::Response,
     Delay, I2C_BUFFER_SIZE,
 };
+use openemc_shared::boot::BootInfo;
 
 /// I2C development mode register.
 const REG_DEVELOPMENT_MODE: u8 = 0xe0;
@@ -71,7 +76,7 @@ impl Board for BoardImpl {
         b"stm_nucleo_f103rb"
     }
 
-    fn power_on(&mut self, _delay: &mut Delay) {
+    fn power_on(&mut self, _afio: &mut afio::Parts, _delay: &mut Delay) {
         let dp = unsafe { Peripherals::steal() };
 
         // Turn on LED.

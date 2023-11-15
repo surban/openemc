@@ -8,7 +8,8 @@ use core::{
 use defmt::assert;
 use stm32f1xx_hal::{crc::Crc, flash::FlashWriter};
 
-use crate::{crc::crc32, flash_page_size, util::FlashUtil};
+use crate::{crc::crc32, flash_util::FlashUtil};
+use openemc_shared::flash;
 
 /// Data storable in flash.
 pub trait FlashData: Sized + Copy + Eq + Sized + 'static {
@@ -46,13 +47,13 @@ where
         erase: bool,
     ) -> Self {
         assert!(size_of::<T>() % 2 == 0, "data must have even size");
-        assert!(reserved % flash_page_size() == 0, "reserved size must be a multiple of flash page size");
+        assert!(reserved % flash::page_size() == 0, "reserved size must be a multiple of flash page size");
         assert!(
             reserved >= size_of::<T>() + Self::HEADER_SIZE,
             "reserved size must be at least size of data plus header size"
         );
-        assert!(flash_addr1 % flash_page_size() == 0, "flash copy 1 is not aligned to page boundary");
-        assert!(flash_addr2 % flash_page_size() == 0, "flash copy 2 is not aligned to page boundary");
+        assert!(flash::is_page_aligned(flash_addr1), "flash copy 1 is not aligned to page boundary");
+        assert!(flash::is_page_aligned(flash_addr2), "flash copy 2 is not aligned to page boundary");
 
         let mut this = Self {
             flash_addr1,

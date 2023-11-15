@@ -3,51 +3,17 @@
 use core::{mem::size_of, ptr};
 use stm32f1::stm32f103::Peripherals;
 
+use openemc_shared::flash;
+
 /// Flash writer.
-pub struct Flash {
+pub struct FlashWriter {
     dp: Peripherals,
     cp: cortex_m::Peripherals,
 }
 
 static mut ACTIVE: bool = false;
 
-impl Flash {
-    /// Address of start of flash memory.
-    pub const START: usize = 0x08000000;
-
-    /// Total flash size.
-    pub fn size() -> usize {
-        const BASE: usize = 0x1ffff7e0;
-        let mem_kb = unsafe { ptr::read_unaligned(BASE as *const u16) };
-        usize::from(mem_kb) * 1024
-    }
-
-    /// Address of end of flash memory (exclusive).
-    ///
-    /// Returned address is first byte beyond end of flash memory.
-    pub fn end() -> usize {
-        Self::START + Self::size()
-    }
-
-    /// Flash page size.
-    pub fn page_size() -> usize {
-        if Self::size() <= 0x2_0000 {
-            0x400
-        } else {
-            0x800
-        }
-    }
-
-    /// Base address of a flash page.
-    pub fn page_base(addr: usize) -> usize {
-        (addr / Self::page_size()) * Self::page_size()
-    }
-
-    /// Returns true, if the address point to the beginning of a flash page.
-    pub fn is_page_aligned(addr: usize) -> bool {
-        addr % Self::page_size() == 0
-    }
-
+impl FlashWriter {
     /// Creates a flash writer.
     pub fn new() -> Result<Self, UnlockError> {
         defmt::assert!(!unsafe { ACTIVE }, "Flash already active");
@@ -87,7 +53,7 @@ impl Flash {
     ///
     /// Verifies that the page has been erased.
     pub fn erase_page(&mut self, addr: usize) -> Result<(), EraseError> {
-        let page = Self::page_base(addr);
+        let page = flash::page_base(addr);
 
         self.wait_idle();
         self.clear_state();
@@ -100,7 +66,7 @@ impl Flash {
 
         self.cp.SCB.clean_invalidate_dcache(&mut self.cp.CPUID);
 
-        for addr in (page..page + Self::page_size()).step_by(size_of::<u32>()) {
+        for addr in (page..page + flash::page_size()).step_by(size_of::<u32>()) {
             let data = unsafe { ptr::read_volatile(addr as *const u32) };
             if data != 0xffffffff {
                 return Err(EraseError);
@@ -152,7 +118,7 @@ pub struct EraseError;
 /// Writing to flash failed.
 pub struct WriteError;
 
-impl Drop for Flash {
+impl Drop for FlashWriter {
     fn drop(&mut self) {
         self.dp.FLASH.cr.write(|w| w.lock().set_bit());
         cortex_m::asm::nop();

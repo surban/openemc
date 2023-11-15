@@ -36,6 +36,10 @@ heapless = "0.7"
 [dev-dependencies]
 defmt-test = "0.3"
 
+[build-dependencies]
+openemc-build = { path = "../openemc-build" }
+openemc-shared = { path = "../openemc-shared" }
+
 [profile.devrel]
 inherits = "release"
 lto = false

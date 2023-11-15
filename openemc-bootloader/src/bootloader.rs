@@ -1,18 +1,20 @@
 //! Bootloader with an I2C interface.
 
 use core::{mem::size_of, num::NonZeroU32, ptr};
-
 use cortex_m::peripheral::{scb::Exception, SCB};
 use defmt::Format;
-use openemc_shared::{ResetStatus, PROGRAM_SIGNATURE};
 
 use crate::{
     crc32::Crc32,
-    flash::{Flash, UnlockError},
+    flash_writer::{FlashWriter, UnlockError},
     i2c_reg_slave::{I2CRegSlave, I2CRegTransaction},
     i2c_slave::I2CSlave,
     timer::Timer4,
     watchdog,
+};
+use openemc_shared::{
+    boot::{ResetStatus, PROGRAM_SIGNATURE},
+    flash,
 };
 
 /// Code for unlocking writing to flash.
@@ -202,7 +204,7 @@ where
                 tx.send_u32(info.user_flash_end as u32);
             }
             Some(I2CRegTransaction::Read(mut tx)) if tx.reg() == REG_FLASH_PAGE_SIZE => {
-                tx.send_u32(Flash::page_size() as u32);
+                tx.send_u32(flash::page_size() as u32);
             }
             Some(I2CRegTransaction::Read(mut tx)) if tx.reg() == REG_FLASH_ADDR => {
                 tx.send_u32(flash_addr as u32);
@@ -221,12 +223,12 @@ where
                 }
             }
             Some(I2CRegTransaction::Read(mut tx)) if tx.reg() == REG_FLASH_PAGE_CRC32 => {
-                flash_addr = Flash::page_base(flash_addr);
+                flash_addr = flash::page_base(flash_addr);
                 if info.user_flash_start <= flash_addr && flash_addr < info.user_flash_end {
                     defmt::debug!("bootloader: calculate CRC32 of page 0x{:08x}", flash_addr);
 
                     let mut crc = Crc32::new();
-                    for addr in (flash_addr..(flash_addr + Flash::page_size())).step_by(size_of::<u32>()) {
+                    for addr in (flash_addr..(flash_addr + flash::page_size())).step_by(size_of::<u32>()) {
                         let data = unsafe { ptr::read_volatile(addr as *const u32) };
                         crc.write(data);
                     }
@@ -242,7 +244,7 @@ where
             Some(I2CRegTransaction::Write(mut rx)) if rx.reg() == REG_FLASH_MODIFY_UNLOCK => {
                 let code = [rx.recv_u8(), rx.recv_u8(), rx.recv_u8(), rx.recv_u8()];
                 if code == MODIFY_UNLOCK_CODE {
-                    match Flash::new() {
+                    match FlashWriter::new() {
                         Ok(w) => {
                             defmt::debug!("bootloader: flashing unlocked");
                             writer = Some(w);
@@ -260,7 +262,7 @@ where
             Some(I2CRegTransaction::Write(rx)) if rx.reg() == REG_FLASH_ERASE_PAGE => match &mut writer {
                 Some(writer) if info.user_flash_start <= flash_addr && flash_addr < info.user_flash_end => {
                     verify_result = None;
-                    flash_addr = Flash::page_base(flash_addr);
+                    flash_addr = flash::page_base(flash_addr);
                     defmt::info!("bootloader: erase page 0x{:08x}", flash_addr);
                     flash_fail |= writer.erase_page(flash_addr).is_err();
                 }
@@ -418,7 +420,7 @@ pub struct VerifiedProgram {
 pub fn verify_program(
     user_flash_start: usize, user_flash_end: usize,
 ) -> Result<VerifiedProgram, ProgramNotSigned> {
-    defmt::assert!(Flash::is_page_aligned(user_flash_start));
+    defmt::assert!(flash::is_page_aligned(user_flash_start));
 
     let mut crc = Crc32::new();
     let mut sig = SignatureMatch::default();
@@ -431,7 +433,7 @@ pub fn verify_program(
 
         if !sig.is_signed() {
             sig = sig.next(data, user_flash_start, len, crc.crc32());
-        } else if Flash::is_page_aligned(addr) {
+        } else if flash::is_page_aligned(addr) {
             break;
         }
 
