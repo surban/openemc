@@ -1,6 +1,8 @@
 [build]
 target = "thumbv7m-none-eabi"
 rustflags = [
+  "-C", "link-arg=-Tbootloader.x",
+  "-C", "link-arg=-Tboard.x",
   "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=-Tdefmt.x",
   "-C", "link-arg=--nmagic",
@@ -12,3 +14,6 @@ build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 runner = "probe-run --chip STM32F103RB"
+
+# probe-rs has problems with reset.
+#runner = "probe-rs run --chip STM32F103RB"

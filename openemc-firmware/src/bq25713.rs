@@ -164,17 +164,17 @@ pub struct Battery {
     /// Battery present?
     pub present: bool,
     /// Battery voltage in mV.
-    pub voltage_mv: u32,
+    pub voltage_mv: Option<u32>,
     /// Battery current in mA.
     ///
     /// Positive is charging, negative is discharging.
-    pub current_ma: i32,
+    pub current_ma: Option<i32>,
     /// System voltage in mV.
-    pub system_voltage_mv: u32,
+    pub system_voltage_mv: Option<u32>,
     /// Input voltage in mV.
-    pub input_voltage_mv: u32,
+    pub input_voltage_mv: Option<u32>,
     /// Input current in mA.
-    pub input_current_ma: u32,
+    pub input_current_ma: Option<u32>,
     /// Is input current optimizer (ICO) active?
     pub input_current_optimized: bool,
     /// Maximum battery voltage in mV.
@@ -191,11 +191,14 @@ impl Battery {
         const DIFF: u32 = 75;
 
         self.present != other.present
-            || self.voltage_mv.abs_diff(other.voltage_mv) >= DIFF
-            || self.current_ma.abs_diff(other.current_ma) >= DIFF
-            || self.system_voltage_mv.abs_diff(other.system_voltage_mv) >= DIFF
-            || self.input_voltage_mv.abs_diff(other.input_voltage_mv) >= DIFF
-            || self.input_current_ma.abs_diff(other.input_current_ma) >= DIFF
+            || self.voltage_mv.unwrap_or(u32::MAX).abs_diff(other.voltage_mv.unwrap_or(u32::MAX)) >= DIFF
+            || self.current_ma.unwrap_or(i32::MAX).abs_diff(other.current_ma.unwrap_or(i32::MAX)) >= DIFF
+            || self.system_voltage_mv.unwrap_or(u32::MAX).abs_diff(other.system_voltage_mv.unwrap_or(u32::MAX))
+                >= DIFF
+            || self.input_voltage_mv.unwrap_or(u32::MAX).abs_diff(other.input_voltage_mv.unwrap_or(u32::MAX))
+                >= DIFF
+            || self.input_current_ma.unwrap_or(u32::MAX).abs_diff(other.input_current_ma.unwrap_or(u32::MAX))
+                >= DIFF
             || self.max_voltage_mv != other.max_voltage_mv
             || self.max_charge_current_ma != other.max_charge_current_ma
             || self.charging != other.charging
@@ -243,7 +246,7 @@ pub struct Bq25713<I2C> {
     measurement: Option<Bq25713Measurement>,
     status: Bq25713Status,
     charge_enabled: bool,
-    max_input_current_ma: u32,
+    max_input_current_ma: Option<u32>,
     ico: bool,
     chrg_ok: bool,
     _i2c: PhantomData<I2C>,
@@ -296,7 +299,7 @@ where
             measurement: None,
             status: Default::default(),
             charge_enabled: false,
-            max_input_current_ma: 0,
+            max_input_current_ma: None,
             ico: false,
             chrg_ok: false,
             _i2c: PhantomData,
@@ -374,9 +377,6 @@ where
         // Read initial status.
         self.update_status(i2c)?;
 
-        // Program maximum input current limit.
-        self.program_max_input_current(i2c)?;
-
         defmt::info!("BQ25713 initialized");
         Ok(())
     }
@@ -389,7 +389,7 @@ where
 
         // Disable input current.
         self.chrg_ok = false;
-        self.max_input_current_ma = 0;
+        self.max_input_current_ma = Some(0);
         self.program_max_input_current(i2c)?;
         self.program_charge_enabled(i2c)?;
 
@@ -470,7 +470,7 @@ where
         self.check_initialized()?;
 
         defmt::debug!("Setting maximum input current to {} mA and ICO to {}", ma, ico);
-        self.max_input_current_ma = ma;
+        self.max_input_current_ma = Some(ma);
         self.ico = ico;
         self.program_max_input_current(i2c)?;
 
@@ -479,11 +479,16 @@ where
 
     /// Gets the input current limit in mA.
     pub fn max_input_current(&self) -> u32 {
-        self.max_input_current_ma
+        self.max_input_current_ma.unwrap_or_default()
     }
 
     /// Programs the maximum input current into the BQ25713.
     fn program_max_input_current(&mut self, i2c: &mut I2C) -> Result<()> {
+        let Some(max_input_current_ma) = self.max_input_current_ma else {
+            defmt::trace!("No maximum input current has been set");
+            return Ok(());
+        };
+
         // Enable IDPM.
         self.modify(i2c, REG_CHARGE_OPTION_0_LO, |v| v | (1 << 1))?;
 
@@ -494,7 +499,7 @@ where
             self.set_ico(i2c, self.ico)?;
 
             // Program input current.
-            let v = (self.max_input_current_ma / 50) as u8 & 0b01111111;
+            let v = (max_input_current_ma / 50) as u8 & 0b01111111;
             self.write(i2c, REG_IIN_HOST, &[v])?;
 
             // Enable or disable ICO.
@@ -637,25 +642,17 @@ where
     pub fn battery(&self) -> Option<Battery> {
         self.initialized.then(|| Battery {
             present: true,
-            voltage_mv: self.measurement.as_ref().map(|m| m.v_bat_mv).unwrap_or_default(),
-            current_ma: self
-                .measurement
-                .as_ref()
-                .map(|m| {
-                    if self.status.ac_stat {
-                        m.i_chg_ma.try_into().unwrap_or_default()
-                    } else {
-                        -i32::try_from(m.i_dchg_ma).unwrap_or_default()
-                    }
-                })
-                .unwrap_or_default(),
-            system_voltage_mv: self.measurement.as_ref().map(|m| m.v_sys_mv).unwrap_or_default(),
-            input_voltage_mv: self
-                .measurement
-                .as_ref()
-                .map(|m| if m.v_bus_mv >= 3300 { m.v_bus_mv } else { 0 })
-                .unwrap_or_default(),
-            input_current_ma: self.measurement.as_ref().map(|m| m.i_in_ma).unwrap_or_default(),
+            voltage_mv: self.measurement.as_ref().map(|m| m.v_bat_mv),
+            current_ma: self.measurement.as_ref().map(|m| {
+                if self.status.ac_stat {
+                    m.i_chg_ma.try_into().unwrap_or_default()
+                } else {
+                    -i32::try_from(m.i_dchg_ma).unwrap_or_default()
+                }
+            }),
+            system_voltage_mv: self.measurement.as_ref().map(|m| m.v_sys_mv),
+            input_voltage_mv: self.measurement.as_ref().map(|m| if m.v_bus_mv >= 3300 { m.v_bus_mv } else { 0 }),
+            input_current_ma: self.measurement.as_ref().map(|m| m.i_in_ma),
             input_current_optimized: self.status.ico_done,
             max_voltage_mv: self.cfg.max_battery_mv,
             max_charge_current_ma: self.cfg.max_charge_ma,
@@ -698,6 +695,18 @@ where
             defmt::warn!("BQ25713 failed: {}", err);
             self.initialized = false;
         }
+    }
+
+    /// Update status and measurements without programming charger.
+    pub fn update(&mut self, i2c: &mut I2C) -> Result<()> {
+        if !self.initialized {
+            self.init(i2c)?;
+        }
+
+        self.update_status(i2c)?;
+        self.update_adc(i2c)?;
+
+        Ok(())
     }
 
     fn do_chrg_ok_changed(&mut self, i2c: &mut I2C) -> Result<()> {

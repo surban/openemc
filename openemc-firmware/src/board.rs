@@ -11,7 +11,7 @@ use crate::{
     supply::{max14636::Max14636, FixedSinkPdo},
     Delay, Duration, PowerMode, I2C_BUFFER_SIZE,
 };
-use openemc_shared::BootInfo;
+use openemc_shared::boot::BootInfo;
 
 /// Number of IO ports (PA, PB, PC, etc.).
 pub const PORTS: usize = 4;
@@ -65,6 +65,10 @@ pub trait Board {
     /// Battery voltage in mV that triggers immediate low voltage shutdown.
     const CRITICAL_LOW_BATTERY_VOLTAGE: Option<u32> = None;
 
+    /// Time to charge battery before attempting to power on, if it is below
+    /// [`CRITICAL_LOW_BATTERY_VOLTAGE`](Self::CRITICAL_LOW_BATTERY_VOLTAGE).
+    const CRITICAL_LOW_BATTERY_CHARGING_TIME: Duration = Duration::minutes(5);
+
     /// Battery voltage in mV that is used for switching charging LED from blinking to steady.
     const CHARGING_LED_END_VOLTAGE: u32 = 10000;
 
@@ -87,8 +91,11 @@ pub trait Board {
         PowerMode::Full
     }
 
+    /// Sets the mode for powering up.
+    fn set_power_mode(&mut self, _power_mode: PowerMode) {}
+
     /// Powers on the system.
-    fn power_on(&mut self, _delay: &mut Delay) {}
+    fn power_on(&mut self, _afio: &mut afio::Parts, _delay: &mut Delay) {}
 
     /// Shutdown the system and go to sleep.
     fn shutdown(&mut self) -> ! {

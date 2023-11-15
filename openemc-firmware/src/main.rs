@@ -45,6 +45,7 @@ mod bq25713;
 mod cfg;
 mod crc;
 mod flash_data;
+mod flash_util;
 mod i2c_reg_slave;
 mod i2c_slave;
 mod irq;
@@ -69,7 +70,6 @@ use stm32f1xx_hal::{
     adc::Adc,
     backup_domain::BackupDomain,
     crc::Crc,
-    flash,
     flash::FlashWriter,
     gpio::{Alternate, OpenDrain, Pin},
     i2c,
@@ -89,16 +89,20 @@ use crate::{
     cfg::Cfg,
     crc::crc32,
     flash_data::FlashBackened,
+    flash_util::{unique_device_id, FlashUtil},
     i2c_reg_slave::{Event, I2CRegSlave, Response},
     i2c_slave::I2cSlave,
     pio::MaskedGpio,
     pwm::PwmTimer,
     rtc::{ClockSrc, Rtc},
     supply::{max14636::Max14636, stusb4500::StUsb4500, PowerSupply},
-    util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64, unique_device_id, FlashUtil},
+    util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64},
     watchman::Watchman,
 };
-use openemc_shared::{BootInfo, BootReason, CFG_FLASH_PAGES};
+use openemc_shared::{
+    boot::{BootInfo, BootReason},
+    flash, CFG_FLASH_PAGES,
+};
 
 /// OpenEMC firmware version.
 pub static VERSION: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/version.txt"));
@@ -149,29 +153,21 @@ static mut BOOTLOADER_LOG_REF: Option<
 > = None;
 
 extern "C" {
+    /// Space reserved for bootloader (from linker).
+    pub static __bootloader_max_size: c_void;
+
     /// End of program in flash (from linker).
     pub static __flash_program_end: c_void;
+}
 
-    /// End of flash (from linker).
-    pub static __flash_end: c_void;
-
-    /// Flash page size (from linker).
-    pub static __flash_page_size: c_void;
+/// Space reserved for bootloader.
+pub fn bootloader_max_size() -> usize {
+    unsafe { &__bootloader_max_size as *const _ as usize }
 }
 
 /// End of program in flash.
 pub fn flash_program_end() -> usize {
     unsafe { &__flash_program_end as *const _ as usize }
-}
-
-/// End of user flash.
-pub fn flash_end() -> usize {
-    unsafe { &__flash_end as *const _ as usize }
-}
-
-/// Flash page size.
-pub fn flash_page_size() -> usize {
-    unsafe { &__flash_page_size as *const _ as usize }
 }
 
 /// System power mode.
@@ -270,7 +266,7 @@ mod app {
     #[shared]
     struct Shared {
         /// Flash.
-        flash: flash::Parts,
+        flash: stm32f1xx_hal::flash::Parts,
         /// CRC32 engine.
         crc: Crc,
         /// Flash-backened configuration.
@@ -305,6 +301,8 @@ mod app {
         board: ThisBoard,
         /// Power mode.
         power_mode: PowerMode,
+        /// CRC32 of bootlaoder.
+        bootloader_crc32: u32,
     }
 
     /// Exclusive resources.
@@ -435,7 +433,7 @@ mod app {
 
         // Start watchdog and its manager.
         let dog = IndependentWatchdog::new(cx.device.IWDG);
-        let watchman = Watchman::new(dog, 120u64.secs(), power_mode == PowerMode::Full);
+        let mut watchman = Watchman::new(dog, 120u64.secs(), false);
         unwrap!(watchdog_petter::spawn());
 
         // Initialize RTC.
@@ -451,17 +449,11 @@ mod app {
         unwrap!(print_rtc_info::spawn());
 
         // Power off if requested.
-        if power_mode == PowerMode::Off {
+        if board.power_mode() == PowerMode::Off {
             defmt::info!("power off requested by board");
             delay.delay(10u32.millis());
             boot::power_off(&mut bkp);
         }
-
-        // Power on board.
-        defmt::info!("board power on in mode {:?}", power_mode);
-        board.set_power_led(power_mode == PowerMode::Full);
-        board.power_on(&mut delay);
-        defmt::info!("board power on done");
 
         // Configure user GPIO.
         let mut usable = [0xffff; board::PORTS];
@@ -475,7 +467,7 @@ mod app {
         let ugpio = MaskedGpio::new(usable);
 
         // Initialize I2C bus 2 master.
-        let i2c2 = ThisBoard::I2C2_MODE.map(|mode| {
+        let mut i2c2 = ThisBoard::I2C2_MODE.map(|mode| {
             // Required for I2C timeouts to work.
             cx.core.DCB.enable_trace();
             cx.core.DWT.enable_cycle_counter();
@@ -487,7 +479,7 @@ mod app {
         });
 
         // Initialize BQ25713.
-        let bq25713 = match ThisBoard::BQ25713_CFG {
+        let mut bq25713 = match ThisBoard::BQ25713_CFG {
             Some(cfg) => {
                 defmt::unwrap!(bq25713_periodic::spawn_after(1u64.secs()));
                 Some(Bq25713::new(cfg))
@@ -505,6 +497,67 @@ mod app {
         };
         let max14636 = board.max14636();
         defmt::unwrap!(power_supply_update::spawn_after(500u64.millis()));
+
+        // Check if there is some form of charger attached.
+        let mut charger_attached = false;
+        if stusb4500.is_some() {
+            charger_attached |= board.check_stusb4500_attached();
+        }
+        if let Some(max14636) = &max14636 {
+            charger_attached |= max14636.report().is_connected();
+        }
+        defmt::info!("charger:        {}", charger_attached);
+
+        // Check that battery voltage is sufficient.
+        if let (Some(bq25713), Some(i2c2)) = (&mut bq25713, &mut i2c2) {
+            bq25713.periodic(i2c2, board.check_bq25713_chrg_ok());
+
+            let v_bat = loop {
+                if let Err(err) = bq25713.update(i2c2) {
+                    defmt::warn!("cannot update BQ25713: {}", err);
+                    break None;
+                }
+                if let Some(Battery { voltage_mv: Some(mv), .. }) = bq25713.battery() {
+                    break Some(mv);
+                }
+            };
+
+            if let Some(v_bat) = v_bat {
+                defmt::info!("battery:       {} mV", v_bat);
+                match ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE {
+                    Some(min) if v_bat < min && board.power_mode() == PowerMode::Full => {
+                        defmt::warn!("Battery is under critical low battery voltage of {} V", min);
+
+                        if charger_attached {
+                            defmt::warn!("Switching to charging mode");
+                            board.set_power_mode(PowerMode::Charging);
+                            defmt::unwrap!(power_restart::spawn_after(
+                                ThisBoard::CRITICAL_LOW_BATTERY_CHARGING_TIME
+                            ));
+                            defmt::unwrap!(undervoltage_power_off::spawn(false));
+                        } else {
+                            defmt::warn!("Switching off");
+                            board.set_power_mode(PowerMode::Off);
+                            defmt::unwrap!(undervoltage_power_off::spawn(true));
+                        }
+                    }
+                    _ => (),
+                }
+            }
+        }
+
+        // Power on board.
+        defmt::info!("board power on in mode {:?}", board.power_mode());
+        let led_on = board.power_mode() == PowerMode::Full;
+        board.set_power_led(led_on);
+        board.power_on(&mut afio, &mut delay);
+        defmt::info!("board power on done");
+
+        // Activate watchdog reset via I2C.
+        if board.power_mode() == PowerMode::Full {
+            defmt::debug!("requiring watchdog reset via I2C");
+            watchman.force_set_active(true);
+        }
 
         // Initialize PWM timers.
         delay.release();
@@ -527,7 +580,7 @@ mod app {
         }
 
         // Enable I2C register slave.
-        let i2c_reg_slave = match power_mode {
+        let i2c_reg_slave = match board.power_mode() {
             PowerMode::Full => {
                 let slave = match ThisBoard::I2C_REMAP {
                     true => {
@@ -588,6 +641,7 @@ mod app {
                 watchman,
                 rtc,
                 adc_buf: None,
+                power_mode: board.power_mode(),
                 board,
                 i2c2,
                 stusb4500,
@@ -595,7 +649,7 @@ mod app {
                 bq25713,
                 power_supply: None,
                 battery: None,
-                power_mode,
+                bootloader_crc32,
             },
             Local { i2c_reg_slave, adc, adc_inp, ugpio, pwm_timers },
             init::Monotonics(mono),
@@ -649,7 +703,7 @@ mod app {
     }
 
     /// Power off system and then restart it.
-    #[task(shared = [bkp])]
+    #[task(shared = [bkp], capacity = 3)]
     fn power_restart(mut cx: power_restart::Context) {
         defmt::info!("requesting restart");
         cx.shared.bkp.lock(|bkp| boot::restart(bkp));
@@ -885,7 +939,7 @@ mod app {
                                 && m.v_bat_mv < min_mv
                                 && monotonics::now().checked_duration_since(*first) >= Some(grace_period) =>
                         {
-                            if undervoltage_power_off::spawn().is_ok() {
+                            if undervoltage_power_off::spawn(true).is_ok() {
                                 defmt::warn!(
                                     "Battery voltage of {} mV is below critical voltage of {} mV, shutting down",
                                     m.v_bat_mv,
@@ -916,15 +970,20 @@ mod app {
 
     /// Performs power off when battery has reached lower voltage limit.
     #[task(shared = [board], local = [blink_state: bool = false, blink_count: u8 = 0], capacity = 1)]
-    fn undervoltage_power_off(mut cx: undervoltage_power_off::Context) {
+    fn undervoltage_power_off(mut cx: undervoltage_power_off::Context, power_off: bool) {
         if *cx.local.blink_count < 100 {
             *cx.local.blink_state = !*cx.local.blink_state;
             *cx.local.blink_count += 1;
             cx.shared.board.lock(|board| board.set_power_led(*cx.local.blink_state));
-            defmt::unwrap!(undervoltage_power_off::spawn_after(100u64.millis()));
-        } else {
+            cx.shared.board.lock(|board| board.set_charging_led(!*cx.local.blink_state));
+            defmt::unwrap!(undervoltage_power_off::spawn_after(100u64.millis(), power_off));
+        } else if power_off {
             defmt::warn!("Undervoltage power off");
             defmt::unwrap!(power_off::spawn());
+        } else {
+            cx.shared.board.lock(|board| board.set_power_led(false));
+            cx.shared.board.lock(|board| board.set_charging_led(false));
+            *cx.local.blink_count += 0;
         }
     }
 
@@ -955,8 +1014,9 @@ mod app {
                 .as_ref()
                 .map(|b| {
                     (
-                        b.voltage_mv < ThisBoard::CHARGING_LED_END_VOLTAGE,
-                        !b.charging.is_charging() || b.current_ma < ThisBoard::CHARGING_LED_MIN_CURRENT,
+                        b.voltage_mv.unwrap_or_default() < ThisBoard::CHARGING_LED_END_VOLTAGE,
+                        !b.charging.is_charging()
+                            || b.current_ma.unwrap_or_default() < ThisBoard::CHARGING_LED_MIN_CURRENT,
                     )
                 })
                 .unwrap_or_default();
@@ -1519,7 +1579,7 @@ mod app {
             Event::Read { reg: reg::BATTERY_VOLTAGE } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        respond_u32(battery.voltage_mv);
+                        respond_u32(battery.voltage_mv.unwrap_or_default());
                     }
                 });
             }
@@ -1557,14 +1617,14 @@ mod app {
             Event::Read { reg: reg::BATTERY_CURRENT } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        respond_u32(battery.current_ma as u32);
+                        respond_u32(battery.current_ma.unwrap_or_default() as u32);
                     }
                 });
             }
             Event::Read { reg: reg::BATTERY_SYSTEM_VOLTAGE } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        respond_u32(battery.system_voltage_mv);
+                        respond_u32(battery.system_voltage_mv.unwrap_or_default());
                     }
                 });
             }
@@ -1605,14 +1665,14 @@ mod app {
             Event::Read { reg: reg::SUPPLY_VOLTAGE } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        respond_u32(battery.input_voltage_mv);
+                        respond_u32(battery.input_voltage_mv.unwrap_or_default());
                     }
                 });
             }
             Event::Read { reg: reg::SUPPLY_CURRENT } => {
                 cx.shared.battery.lock(|battery| {
                     if let Some(battery) = battery {
-                        respond_u32(battery.input_current_ma);
+                        respond_u32(battery.input_current_ma.unwrap_or_default());
                     }
                 });
             }
