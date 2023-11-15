@@ -491,21 +491,12 @@ static int openemc_flash_firmware_page(struct openemc *emc,
 {
 	u32 addr = start + page;
 	u32 i, flash_crc32, firmware_crc32;
-	u8 page_data[OPENEMC_MAX_PAGE_SIZE];
+	u8 *page_data;
 	u8 len, status;
 	int ret;
 
 	dev_info(emc->dev, "flashing 0x%08x - 0x%08x\n", addr,
 		 addr + page_size - 1);
-
-	if (page_size > OPENEMC_MAX_PAGE_SIZE)
-		return -EINVAL;
-	for (i = 0; i < page_size; i++) {
-		if (page + i < firmware->size)
-			page_data[i] = firmware->data[page + i];
-		else
-			page_data[i] = 0;
-	}
 
 	ret = openemc_write_u32(emc, OPENEMC_BOOTLOADER_FLASH_ADDR, addr);
 	if (ret < 0)
@@ -528,13 +519,29 @@ static int openemc_flash_firmware_page(struct openemc *emc,
 		return -ENODEV;
 	}
 
+	if (page_size > OPENEMC_MAX_PAGE_SIZE)
+		return -EINVAL;
+	page_data = devm_kzalloc(emc->dev, page_size, GFP_KERNEL);
+	if (!page_data)
+		return -ENOMEM;
+	for (i = 0; i < page_size; i++) {
+		if (page + i < firmware->size)
+			page_data[i] = firmware->data[page + i];
+		else
+			page_data[i] = 0;
+	}
+
 	for (i = 0; i < page_size; i += OPENEMC_MAX_DATA_SIZE) {
 		len = min((u32)OPENEMC_MAX_DATA_SIZE, page_size - i);
 		ret = openemc_write_data(emc, OPENEMC_BOOTLOADER_FLASH_WRITE,
 					 len, page_data + i);
-		if (ret < 0)
+		if (ret < 0) {
+			devm_kfree(emc->dev, page_data);
 			return ret;
+		}
 	}
+
+	devm_kfree(emc->dev, page_data);
 
 	ret = openemc_read_u8(emc, OPENEMC_BOOTLOADER_FLASH_STATUS, &status);
 	if (ret < 0)
