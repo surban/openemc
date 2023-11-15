@@ -6,7 +6,7 @@
 use stm32f1::stm32f103::Peripherals;
 
 use crate::{board::Board, i2c_reg_slave::I2CRegTransaction, util::delay_ms, watchdog, BoardInitResult};
-use openemc_shared::{boot::BootInfo, boot::ResetStatus};
+use openemc_shared::boot::{BootInfo, ResetStatus};
 
 /// I2C development mode register.
 const REG_DEVELOPMENT_MODE: u8 = 0xe0;

@@ -13,3 +13,5 @@ cargo +nightly fmt --manifest-path openemc-firmware/Cargo.toml
 cargo +nightly fmt --manifest-path openemc-shared/Cargo.toml
 cargo +nightly fmt --manifest-path xtask/Cargo.toml
 
+rustup run nightly rustfmt openemc-bootloader/src/boards/*.rs
+rustup run nightly rustfmt openemc-firmware/src/boards/*.rs

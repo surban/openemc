@@ -15,9 +15,9 @@ use stm32f1xx_hal::{
 };
 use systick_monotonic::fugit::Rate;
 
-use crate::cfg::Cfg;
 use crate::{
     board::{Board, UnknownI2cRegister, PORTS},
+    cfg::Cfg,
     i2c_reg_slave::Response,
     Delay, I2C_BUFFER_SIZE,
 };

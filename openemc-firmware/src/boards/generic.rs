@@ -7,8 +7,7 @@
 
 use stm32f1xx_hal::afio;
 
-use crate::cfg::Cfg;
-use crate::{board::Board, Delay};
+use crate::{board::Board, cfg::Cfg, Delay};
 use openemc_shared::boot::BootInfo;
 
 /// Generic board.
