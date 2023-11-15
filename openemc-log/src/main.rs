@@ -28,13 +28,12 @@ use nix::{
     errno::Errno,
     poll::{poll, PollFd, PollFlags},
 };
-use std::os::fd::AsFd;
 use std::{
     ffi::{c_int, OsString},
     fmt::Write,
     fs::{self, File},
     io::{ErrorKind, Read, Seek},
-    os::{fd::AsRawFd, unix::prelude::OsStringExt},
+    os::{fd::AsFd, unix::prelude::OsStringExt},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     thread::sleep,
