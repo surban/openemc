@@ -23,6 +23,7 @@ use clap::Parser;
 use defmt_decoder::{DecodeError, Frame, Location, Table};
 use defmt_parser::Level as DefmtLevel;
 use env_logger::Target;
+use flate2::read::GzDecoder;
 use log::{Level, LevelFilter};
 use nix::{
     errno::Errno,
@@ -44,6 +45,7 @@ mod syslog;
 
 const READ_BUFFER_SIZE: usize = 128;
 const POLL_TIMEOUT: c_int = 60_000;
+const FIRMWARE_DIR: &'static str = "/lib/firmware";
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
@@ -123,27 +125,45 @@ fn get_paths(opts: &Opts, bootloader: bool) -> Result<(PathBuf, PathBuf)> {
 
     let firmware_elf = match &opts.firmware_elf {
         Some(firmware_elf) => firmware_elf.clone(),
+
+        None if bootloader => {
+            let firmware_bin = PathBuf::from(OsString::from_vec(
+                fs::read(openemc_log.with_file_name("openemc_firmware"))
+                    .context("OpenEMC firmware location not available")?,
+            ));
+            let firmware_dir = match firmware_bin.parent() {
+                Some(dir) if firmware_bin.has_root() => dir,
+                _ => Path::new(FIRMWARE_DIR),
+            };
+
+            let bootloader_crc32 = fs::read_to_string(openemc_log.with_file_name("openemc_bootloader_crc32"))
+                .context("OpenEMC bootloader CRC32 not available")?;
+
+            let bootloader_elf = firmware_dir.join(format!("openemc_bootloader_{bootloader_crc32}.elf.gz"));
+            if !bootloader_elf.is_file() {
+                bail!("OpenEMC bootloader ELF not found");
+            }
+            bootloader_elf
+        }
+
         None => {
             let mut firmware_bin = PathBuf::from(OsString::from_vec(
                 fs::read(openemc_log.with_file_name("openemc_firmware"))
                     .context("OpenEMC firmware location not available")?,
             ));
             if !firmware_bin.has_root() {
-                firmware_bin = Path::new("/lib/firmware").join(firmware_bin);
+                firmware_bin = Path::new(FIRMWARE_DIR).join(firmware_bin);
             }
 
             let firmware_dir = firmware_bin.parent().context("no firmware directory")?;
             let mut firmware = firmware_bin.file_stem().context("unrecognized firmware name")?.to_os_string();
-            if bootloader {
-                firmware = firmware.to_string_lossy().replace("openemc_", "openemc_bootloader_").into();
-            }
 
             loop {
                 if firmware.is_empty() {
                     bail!("OpenEMC firmware ELF not found");
                 }
 
-                let firmware_elf = firmware_dir.join(&firmware).with_extension("elf");
+                let firmware_elf = firmware_dir.join(&firmware).with_extension("elf.gz");
                 if firmware_elf.is_file() {
                     break firmware_elf;
                 }
@@ -169,7 +189,11 @@ fn perform(opts: &Opts) -> Result<bool> {
         firmware_elf.display()
     );
 
-    let bytes = fs::read(&firmware_elf).context("cannot read firmware")?;
+    let mut bytes = Vec::new();
+    {
+        let mut file = GzDecoder::new(File::open(&firmware_elf).context("cannot open firmware")?);
+        file.read_to_end(&mut bytes).context("cannot read firmware")?;
+    }
     let table = Table::parse(&bytes)?.context(".defmt data not found")?;
     let locs = table.get_locations(&bytes)?;
     drop(bytes);

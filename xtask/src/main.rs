@@ -4,12 +4,16 @@
 
 use clap::Parser;
 use devx_cmd::cmd;
+use flate2::{write::GzEncoder, Compression};
 use std::{
     env, fs,
+    fs::File,
+    io::{copy, Write},
     path::{Path, PathBuf},
 };
 
 const ARCH: &str = "thumbv7m-none-eabi";
+const GZ_LEVEL: Compression = Compression::best();
 
 /// Build OpenEMC images.
 #[derive(Parser, Debug)]
@@ -44,6 +48,15 @@ fn project_root() -> PathBuf {
     Path::new(&env!("CARGO_MANIFEST_DIR")).ancestors().nth(1).unwrap().to_path_buf()
 }
 
+fn gzip(src: impl AsRef<Path>, dest: impl AsRef<Path>) -> std::io::Result<()> {
+    let mut in_file = File::open(src)?;
+    let out_file = File::create(dest)?;
+    let mut gz = GzEncoder::new(out_file, GZ_LEVEL);
+    copy(&mut in_file, &mut gz)?;
+    gz.finish()?.flush()?;
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let board = &args.board;
@@ -60,22 +73,14 @@ fn main() -> anyhow::Result<()> {
 
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
 
-    if !args.no_bootloader {
+    let bootloader_elf_gz = if !args.no_bootloader {
         cmd!(&cargo, "build", "--release", "--no-default-features", "--features", "defmt-ringbuf")
             .current_dir(project_root().join("openemc-bootloader"))
             .env("OPENEMC_BOARD", board)
             .env("OPENEMC_BOOTLOADER", bootloader_variant)
             .env("DEFMT_LOG", &args.bootloader_log)
             .run()?;
-        fs::copy(
-            project_root()
-                .join("openemc-bootloader")
-                .join("target")
-                .join(ARCH)
-                .join("release")
-                .join("openemc-bootloader"),
-            project_root().join("image").join(format!("{bootloader}.elf")),
-        )?;
+
         cmd!(
             &cargo,
             "objcopy",
@@ -93,7 +98,25 @@ fn main() -> anyhow::Result<()> {
         .env("OPENEMC_BOOTLOADER", bootloader_variant)
         .env("DEFMT_LOG", &args.bootloader_log)
         .run()?;
-    }
+
+        let bootloader_bin_data = fs::read(project_root().join("image").join(format!("{bootloader}.bin")))?;
+        let bootloader_bin_crc32 = crc32fast::hash(&bootloader_bin_data);
+        let bootloader_elf_gz = format!("openemc_bootloader_{bootloader_bin_crc32:08x}.elf.gz");
+
+        gzip(
+            project_root()
+                .join("openemc-bootloader")
+                .join("target")
+                .join(ARCH)
+                .join("release")
+                .join("openemc-bootloader"),
+            project_root().join("image").join(&bootloader_elf_gz),
+        )?;
+
+        Some(bootloader_elf_gz)
+    } else {
+        None
+    };
 
     cmd!(&cargo, "build", "--release", "--no-default-features", "--features", "defmt-ringbuf")
         .args(args.features.iter().flat_map(|feature| ["--features", feature]))
@@ -102,15 +125,16 @@ fn main() -> anyhow::Result<()> {
         .env("OPENEMC_BOOTLOADER", bootloader_variant)
         .env("DEFMT_LOG", &args.log)
         .run()?;
-    fs::copy(
+    gzip(
         project_root()
             .join("openemc-firmware")
             .join("target")
             .join(ARCH)
             .join("release")
             .join("openemc-firmware"),
-        project_root().join("image").join(format!("{firmware}.elf")),
+        project_root().join("image").join(format!("{firmware}.elf.gz")),
     )?;
+
     cmd!(&cargo, "objcopy", "--release", "--no-default-features", "--features", "defmt-ringbuf",)
         .args(args.features.iter().flat_map(|feature| ["--features", feature]))
         .args(["--", "-O", "binary", &format!("../image/{firmware}.bin")])
@@ -140,12 +164,12 @@ fn main() -> anyhow::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         let mut files = vec![
             project_root().join("image").join(format!("{firmware}.emc")),
-            project_root().join("image").join(format!("{firmware}.elf")),
+            project_root().join("image").join(format!("{firmware}.elf.gz")),
         ];
-        if !args.no_bootloader {
+        if let Some(bootloader_elf_gz) = &bootloader_elf_gz {
             files.extend([
                 project_root().join("image").join(format!("{bootloader}.bin")),
-                project_root().join("image").join(format!("{bootloader}.elf")),
+                project_root().join("image").join(bootloader_elf_gz),
             ]);
         }
         for file in files {
@@ -157,14 +181,12 @@ fn main() -> anyhow::Result<()> {
 
     println!();
     println!("Board {board}:");
-    if !args.no_bootloader {
-        println!(
-            "Built {}bootloader image/{bootloader}.{{bin,elf}} with log level {}",
-            if emc_model == 0xd1 { "debug " } else { "" },
-            &args.bootloader_log
-        );
+    if let Some(bootloader_elf_gz) = &bootloader_elf_gz {
+        let debug = if emc_model == 0xd1 { "debug " } else { "" };
+        println!("Built {debug}bootloader image/{bootloader}.bin with log level {}", &args.bootloader_log);
+        println!("Built {debug}bootloader image/{bootloader_elf_gz}");
     }
-    println!("Built OpenEMC firmware image/{firmware}.{{emc,elf}} with log level {}", &args.log);
+    println!("Built OpenEMC firmware image/{firmware}.{{emc,elf.gz}} with log level {}", &args.log);
     println!();
 
     Ok(())
