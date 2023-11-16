@@ -4,6 +4,14 @@ All notable changes to OpenEMC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.8.0 - 2023-11-16
+### Added
+- allow querying of bootloader CRC32 and flash size via sysfs
+- power: switch to charging mode when battery is below critical voltage
+- bootloader: dynamic flash size detection
+- logging: gzip ELF images to save space on target
+- logging: find bootloader ELF image based on CRC32 of bootloader
+
 ## 0.7.2 - 2023-09-06
 ### Fixed
 - configuration location in flash
