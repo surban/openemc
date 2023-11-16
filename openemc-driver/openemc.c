@@ -500,30 +500,37 @@ static int openemc_flash_firmware_page(struct openemc *emc,
 
 	ret = openemc_write_u32(emc, OPENEMC_BOOTLOADER_FLASH_ADDR, addr);
 	if (ret < 0)
-		return ret;
+		goto out;
 
 	ret = openemc_read_u8(emc, OPENEMC_BOOTLOADER_FLASH_STATUS, &status);
 	if (ret < 0)
-		return ret;
+		goto out;
 
 	ret = openemc_cmd(emc, OPENEMC_BOOTLOADER_FLASH_ERASE_PAGE);
 	if (ret < 0)
-		return ret;
+		goto out;
 
 	ret = openemc_read_u8(emc, OPENEMC_BOOTLOADER_FLASH_STATUS, &status);
 	if (ret < 0)
-		return ret;
+		goto out;
 	if (status != 0x00) {
 		dev_err(emc->dev, "erasing page 0x%08x failed: %d\n", addr,
 			status);
-		return -ENODEV;
+		ret = -ENODEV;
+		goto out;
 	}
 
-	if (page_size > OPENEMC_MAX_PAGE_SIZE)
-		return -EINVAL;
+	if (page_size > OPENEMC_MAX_PAGE_SIZE) {
+		ret = -EINVAL;
+		goto out;
+	}
+
 	page_data = devm_kzalloc(emc->dev, page_size, GFP_KERNEL);
-	if (!page_data)
-		return -ENOMEM;
+	if (!page_data) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
 	for (i = 0; i < page_size; i++) {
 		if (page + i < firmware->size)
 			page_data[i] = firmware->data[page + i];
@@ -531,47 +538,49 @@ static int openemc_flash_firmware_page(struct openemc *emc,
 			page_data[i] = 0;
 	}
 
+	firmware_crc32 = openemc_crc32(page_data, page_size);
+
 	for (i = 0; i < page_size; i += OPENEMC_MAX_DATA_SIZE) {
 		len = min((u32)OPENEMC_MAX_DATA_SIZE, page_size - i);
 		ret = openemc_write_data(emc, OPENEMC_BOOTLOADER_FLASH_WRITE,
 					 len, page_data + i);
-		if (ret < 0) {
-			devm_kfree(emc->dev, page_data);
-			return ret;
-		}
+		if (ret < 0)
+			goto out;
 	}
-
-	devm_kfree(emc->dev, page_data);
 
 	ret = openemc_read_u8(emc, OPENEMC_BOOTLOADER_FLASH_STATUS, &status);
 	if (ret < 0)
-		return ret;
+		goto out;
 	if (status != 0x00) {
 		dev_err(emc->dev, "flashing page 0x%08x failed: %d\n", addr,
 			status);
-		return -ENODEV;
+		ret = -ENODEV;
+		goto out;
 	}
 
 	addr = start + page;
 	ret = openemc_write_u32(emc, OPENEMC_BOOTLOADER_FLASH_ADDR, addr);
 	if (ret < 0)
-		return ret;
+		goto out;
 
 	ret = openemc_read_u32(emc, OPENEMC_BOOTLOADER_FLASH_PAGE_CRC32,
 			       &flash_crc32);
 	if (ret < 0)
-		return ret;
+		goto out;
 
-	firmware_crc32 = openemc_crc32(page_data, page_size);
 	if (flash_crc32 != firmware_crc32) {
 		dev_err(emc->dev,
 			"CRC32 mismatch after flashing page "
 			"0x%08x (flash 0x%08x, firmware 0x%08x)\n",
 			addr, flash_crc32, firmware_crc32);
-		return -EIO;
+		ret = -EIO;
+		goto out;
 	}
 
-	return 0;
+out:
+	if (page_data)
+		devm_kfree(emc->dev, page_data);
+	return ret;
 }
 
 static int openemc_flash_firmware(struct openemc *emc,
