@@ -422,7 +422,7 @@ mod app {
         );
         defmt::debug!("IRQ pin:        {} (mode: 0b{:04b})", ThisBoard::IRQ_PIN, ThisBoard::IRQ_PIN_CFG);
         defmt::info!("configuration:  {:?}", &*cfg);
-        defmt::info!("boot reason:    0x{:04x} {}", BootReason::str(bi.boot_reason), bi.boot_reason);
+        defmt::info!("boot reason:    0x{:04x} {}", bi.boot_reason, BootReason::str(bi.boot_reason));
         defmt::info!("reset status:   {:?}", &bi.reset_status);
         defmt::info!("start reason:   0x{:02x}", bi.start_reason);
         defmt::info!("powered on:     {}", bi.powered_on);
