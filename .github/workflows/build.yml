@@ -31,12 +31,12 @@ jobs:
           cargo fmt --check --manifest-path xtask/Cargo.toml
       - name: Lint code
         run: |
-          cd openemc-bootloader ; cargo clippy --quiet
-          cd openemc-firmware ; cargo clippy --quiet
-          cd openemc-log ; cargo clippy --quiet
-          cd openemc-pack ; cargo clippy --quiet
-          cd openemc-shared ; cargo clippy --quiet
-          cd xtask ; cargo clippy --quiet
+          cd openemc-bootloader ; cargo clippy --quiet ; cd ..
+          cd openemc-firmware ; cargo clippy --quiet ; cd ..
+          cd openemc-log ; cargo clippy --quiet ; cd ..
+          cd openemc-pack ; cargo clippy --quiet ; cd ..
+          cd openemc-shared ; cargo clippy --quiet ; cd ..
+          cd xtask ; cargo clippy --quiet ; cd ..
       - name: Build bootloader
         run: cd openemc-bootloader ; cargo build --release --quiet
       - name: Build firmware
