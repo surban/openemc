@@ -404,7 +404,6 @@ mod app {
         defmt::info!("board new");
         let mut board = ThisBoard::new(bi, &mut afio, &mut delay, &cfg);
         defmt::info!("board new done");
-        board.set_power_led(bi.powered_on);
         blink_charging!(board, delay, watchman, 1);
 
         // Print boot information.
