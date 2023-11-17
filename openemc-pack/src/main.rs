@@ -42,7 +42,7 @@ impl FlashParams {
         let cap = re.captures(linker_script).expect("cannot parse linker script");
         let bootloader_max_size_kb = cap.get(1).unwrap().as_str();
 
-        Self { bootloader_max_size: u32::from_str_radix(bootloader_max_size_kb, 10).unwrap() * 1024 }
+        Self { bootloader_max_size: bootloader_max_size_kb.parse::<u32>().unwrap() * 1024 }
     }
 
     pub fn user_program_start(&self) -> u32 {

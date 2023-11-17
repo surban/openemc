@@ -45,7 +45,7 @@ mod syslog;
 
 const READ_BUFFER_SIZE: usize = 128;
 const POLL_TIMEOUT: c_int = 60_000;
-const FIRMWARE_DIR: &'static str = "/lib/firmware";
+const FIRMWARE_DIR: &str = "/lib/firmware";
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
