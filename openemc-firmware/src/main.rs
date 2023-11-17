@@ -372,17 +372,17 @@ mod app {
         let (_pa15, _pb3, _pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
         afio.mapr.modify_mapr(|_, w| w.pd01_remap().set_bit());
 
-        // Start watchdog and its manager.
-        let dog = IndependentWatchdog::new(cx.device.IWDG);
-        let mut watchman = Watchman::new(dog, 120u64.secs());
-        unwrap!(watchdog_petter::spawn());
-
         // Initialize backup registers.
         BackupReg::init(&mut bkp);
 
         // Get boot information.
         unsafe { BootInfo::init(&bkp) };
         let bi = BootInfo::get();
+
+        // Start watchdog and its manager.
+        let dog = IndependentWatchdog::new(cx.device.IWDG);
+        let mut watchman = Watchman::new(dog, 120u64.secs(), bi.boot_reason != BootReason::PowerOff as _);
+        unwrap!(watchdog_petter::spawn());
 
         // Caclulate CRC32 of bootloader.
         let bootloader_crc32 = boot::bootloader_crc32(&mut crc);

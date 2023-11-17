@@ -14,6 +14,7 @@ pub struct Watchman {
     unlocked: bool,
     interval: Duration,
     active: bool,
+    biting: bool,
     last_pet: Instant,
     pet_code: u32,
 }
@@ -23,11 +24,21 @@ impl Watchman {
     pub const UNLOCK_CODE: u64 = 0x1984_0902_0406_1986;
 
     /// Creates a new watchdog manager.
-    pub fn new(mut dog: IndependentWatchdog, interval: Duration) -> Self {
-        dog.start(3u32.secs());
-        dog.feed();
+    pub fn new(mut dog: IndependentWatchdog, interval: Duration, biting: bool) -> Self {
+        if biting {
+            dog.start(3u32.secs());
+            dog.feed();
+        }
 
-        Self { dog, interval, active: false, last_pet: monotonics::now(), unlocked: false, pet_code: 0x11223344 }
+        Self {
+            dog,
+            interval,
+            active: false,
+            biting,
+            last_pet: monotonics::now(),
+            unlocked: false,
+            pet_code: 0x11223344,
+        }
     }
 
     /// Necessary watchdog pet interval.
@@ -102,26 +113,34 @@ impl Watchman {
     /// Returns whether petting was possible.
     pub fn pet_hardware_watchdog(&mut self) -> bool {
         if !self.active {
-            self.dog.feed();
+            if self.biting {
+                self.dog.feed();
+            }
             return true;
         }
 
         // Reset system as quickly as possible if interval is set to zero.
         if self.interval.ticks() == 0 {
             defmt::info!("resetting system using watchdog");
-            self.dog.start(10u32.millis());
+            if self.biting {
+                self.dog.start(10u32.millis());
+            }
             return false;
         }
 
         match monotonics::now().checked_duration_since(self.last_pet) {
             Some(elapsed) if elapsed <= self.interval => {
                 defmt::trace!("petting hardware watchdog");
-                self.dog.feed();
+                if self.biting {
+                    self.dog.feed();
+                }
                 true
             }
             _ if option_env!("DISABLE_WATCHDOG").is_some() => {
                 defmt::warn!("petting hardware watchdog because watchdog is disabled");
-                self.dog.feed();
+                if self.biting {
+                    self.dog.feed();
+                }
                 true
             }
             _ => {
@@ -133,6 +152,8 @@ impl Watchman {
 
     /// Pets the hardware watchdog, unconditionally.
     pub fn force_pet(&mut self) {
-        self.dog.feed();
+        if self.biting {
+            self.dog.feed();
+        }
     }
 }
