@@ -143,6 +143,8 @@ pub const POWER_OFF: u8 = 0x40;
 
 /// Restart system.
 /// u16 specifying the time delay in milliseconds.
+/// If bit 15 is set, system restarts into charging mode,
+/// even when POWER_ON_BY_CHARGING is enabled.
 pub const POWER_RESTART: u8 = 0x41;
 
 /// Prohibit power off.

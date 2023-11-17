@@ -1,6 +1,6 @@
 //! Boot information.
 
-use defmt::{intern, Format};
+use defmt::intern;
 
 /// Information about the boot for the user program.
 #[repr(C)]
@@ -64,7 +64,7 @@ pub const PROGRAM_SIGNATURE: [u32; 6] = [0xecececec, 0x84190902, 0x6e65704f, 0x2
 
 /// Reset status.
 #[repr(C)]
-#[derive(Default, Clone, Copy, PartialEq, Eq, Format)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub struct ResetStatus(pub u8);
 
 impl ResetStatus {
@@ -134,20 +134,33 @@ impl ResetStatus {
     pub fn is_low_power(&self) -> bool {
         self.0 & Self::LOW_POWER != 0
     }
+}
 
-    /// Logs the reset status.
-    pub fn log(&self) {
-        defmt::info!(
-            "reset status:   0x{:02x} {}{}{}{}{}{}{}",
-            self.0,
-            if self.is_wakeup() { intern!("wakeup ") } else { intern!("") },
-            if self.is_external() { intern!("external ") } else { intern!("") },
-            if self.is_power_on() { intern!("power-on ") } else { intern!("") },
-            if self.is_firmware() { intern!("firmware ") } else { intern!("") },
-            if self.is_independent_watchdog() { intern!("independent-watchdog ") } else { intern!("") },
-            if self.is_window_watchdog() { intern!("window-watchdog ") } else { intern!("") },
-            if self.is_low_power() { intern!("low-power ") } else { intern!("") },
-        );
+impl defmt::Format for ResetStatus {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "0x{:02x} (", self.0);
+        if self.is_wakeup() {
+            defmt::write!(fmt, "wakeup ")
+        }
+        if self.is_external() {
+            defmt::write!(fmt, "external ")
+        }
+        if self.is_power_on() {
+            defmt::write!(fmt, "power-on ")
+        }
+        if self.is_firmware() {
+            defmt::write!(fmt, "firmware ")
+        }
+        if self.is_independent_watchdog() {
+            defmt::write!(fmt, "independent-watchdog ")
+        }
+        if self.is_window_watchdog() {
+            defmt::write!(fmt, "window-watchdog ")
+        }
+        if self.is_low_power() {
+            defmt::write!(fmt, "low-power ")
+        }
+        defmt::write!(fmt, ")");
     }
 }
 
@@ -188,6 +201,8 @@ pub enum BootReason {
     StartBootloader = 0xb014,
     /// Power off system and go to standby mode when entering bootloader.
     PowerOffBootloader = 0xb015,
+    /// Go into charging mode.
+    Charge = 0xb016,
     /// Boot caused by factory reset.
     ///
     /// This clears the backup domain and prevents automatic start of user program.
@@ -197,9 +212,9 @@ pub enum BootReason {
 }
 
 impl BootReason {
-    /// Logs the boot reason.
-    pub fn log(boot_reason: u16) {
-        let reason = match boot_reason {
+    /// Interned string for the boot reason.
+    pub fn str(boot_reason: u16) -> defmt::Str {
+        match boot_reason {
             v if v == Self::Unknown as _ => intern!("unknown"),
             v if v == Self::SurpriseInBootloader as _ => intern!("surprise in boot loader"),
             v if v == Self::SurpriseInUser as _ => intern!("surprise in user program"),
@@ -210,10 +225,16 @@ impl BootReason {
             v if v == Self::Reset as _ => intern!("reset"),
             v if v == Self::StartBootloader as _ => intern!("start boot loader"),
             v if v == Self::PowerOffBootloader as _ => intern!("power off in boot loader"),
+            v if v == Self::Charge as _ => intern!("charge"),
             v if v == Self::FactoryReset as _ => intern!("factory reset"),
             v if v == Self::WatchdogTimeout as _ => intern!("watchdog timeout"),
             _ => intern!(""),
-        };
-        defmt::info!("boot reason:    0x{:04x} {}", boot_reason, reason);
+        }
+    }
+}
+
+impl defmt::Format for BootReason {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "0x{:04x} ({})", *self as u16, Self::str(*self as _));
     }
 }

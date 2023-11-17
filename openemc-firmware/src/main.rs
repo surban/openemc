@@ -422,8 +422,8 @@ mod app {
         );
         defmt::debug!("IRQ pin:        {} (mode: 0b{:04b})", ThisBoard::IRQ_PIN, ThisBoard::IRQ_PIN_CFG);
         defmt::info!("configuration:  {:?}", &*cfg);
-        BootReason::log(bi.boot_reason);
-        bi.reset_status.log();
+        defmt::info!("boot reason:    0x{:04x} {}", BootReason::str(bi.boot_reason), bi.boot_reason);
+        defmt::info!("reset status:   {:?}", &bi.reset_status);
         defmt::info!("start reason:   0x{:02x}", bi.start_reason);
         defmt::info!("powered on:     {}", bi.powered_on);
 
@@ -440,15 +440,20 @@ mod app {
 
         // If configured, power on when charger is connected.
         let charger_attachment_power_on = match (board.power_mode(), cfg.charger_attached) {
-            (PowerMode::Charging, ChargerAttached::PowerOn) => {
+            (PowerMode::Charging, ChargerAttached::PowerOn) if bi.boot_reason != BootReason::Charge as _ => {
                 defmt::info!("powering on due to charger connection");
                 board.set_power_mode(PowerMode::Full { quiet: false });
                 true
             }
-            (PowerMode::Charging, ChargerAttached::QuietPowerOn) => {
+            (PowerMode::Charging, ChargerAttached::QuietPowerOn) if bi.boot_reason != BootReason::Charge as _ => {
                 defmt::info!("powering on quietly due to charger connection");
                 board.set_power_mode(PowerMode::Full { quiet: true });
                 true
+            }
+            _ if bi.boot_reason == BootReason::Charge as _ => {
+                defmt::info!("charging mode was requested");
+                board.set_power_mode(PowerMode::Charging);
+                false
             }
             _ => false,
         };
@@ -573,7 +578,8 @@ mod app {
                             defmt::warn!("Switching to charging mode");
                             board.set_power_mode(PowerMode::Charging);
                             defmt::unwrap!(power_restart::spawn_after(
-                                ThisBoard::CRITICAL_LOW_BATTERY_CHARGING_TIME
+                                ThisBoard::CRITICAL_LOW_BATTERY_CHARGING_TIME,
+                                BootReason::Restart,
                             ));
                             defmt::unwrap!(undervoltage_power_off::spawn(false));
                         } else {
@@ -732,7 +738,7 @@ mod app {
         let prohibit_power_off = cx.shared.cfg.lock(|cfg| cfg.prohibit_power_off);
         if prohibit_power_off {
             defmt::info!("requesting restart instead of power off because it is prohibited");
-            cx.shared.bkp.lock(|bkp| boot::restart(bkp));
+            cx.shared.bkp.lock(|bkp| boot::restart(bkp, BootReason::Restart));
         } else {
             defmt::info!("requesting power off");
             cx.shared.bkp.lock(|bkp| boot::power_off(bkp));
@@ -741,9 +747,9 @@ mod app {
 
     /// Power off system and then restart it.
     #[task(shared = [bkp], capacity = 3)]
-    fn power_restart(mut cx: power_restart::Context) {
+    fn power_restart(mut cx: power_restart::Context, reason: BootReason) {
         defmt::info!("requesting restart");
-        cx.shared.bkp.lock(|bkp| boot::restart(bkp));
+        cx.shared.bkp.lock(|bkp| boot::restart(bkp, reason));
     }
 
     /// Reads ADC values and stores them in the ADC buffer.
@@ -924,7 +930,7 @@ mod app {
                     if *cx.shared.power_mode == PowerMode::Charging {
                         if board.check_power_on_requested() {
                             defmt::info!("Power on requested");
-                            let _ = power_restart::spawn();
+                            let _ = power_restart::spawn(BootReason::Restart);
                         }
 
                         if !report.is_connected() && monotonics::now() - *first > grace_period {
@@ -1123,7 +1129,7 @@ mod app {
         } else if *cx.shared.power_mode == PowerMode::Charging
             && cx.shared.board.lock(|board| board.check_power_on_requested())
         {
-            if power_restart::spawn().is_ok() {
+            if power_restart::spawn(BootReason::Restart).is_ok() {
                 defmt::info!("Power on requested");
             }
         } else {
@@ -1559,9 +1565,12 @@ mod app {
                 unwrap!(power_off::spawn_after((delay as u64).millis()));
             }
             Event::Write { reg: reg::POWER_RESTART, value } => {
-                let delay = value.as_u16();
-                defmt::info!("requesting restart in {} ms", delay);
-                unwrap!(power_restart::spawn_after((delay as u64).millis()));
+                const CHARGE_MODE: u16 = 1 << 15;
+                let value = value.as_u16();
+                let reason = if value & CHARGE_MODE != 0 { BootReason::Charge } else { BootReason::Restart };
+                let delay = value & !CHARGE_MODE;
+                defmt::info!("requesting restart in {} ms", delay,);
+                unwrap!(power_restart::spawn_after((delay as u64).millis(), reason));
             }
             Event::Read { reg: reg::POWER_OFF_PROHIBITED } => {
                 respond_u8(cx.shared.cfg.lock(|cfg| cfg.prohibit_power_off.into()))

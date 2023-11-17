@@ -215,9 +215,9 @@ pub fn power_off(bkp: &mut BackupDomain) -> ! {
 }
 
 /// Restart system by powering it off and then on again.
-pub fn restart(bkp: &mut BackupDomain) -> ! {
-    defmt::warn!("resetting for restart");
-    BootReason::Restart.set(bkp);
+pub fn restart(bkp: &mut BackupDomain, reason: BootReason) -> ! {
+    defmt::warn!("restarting with boot reason {:?}", reason);
+    reason.set(bkp);
     SCB::sys_reset();
 }
 

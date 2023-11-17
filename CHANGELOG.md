@@ -4,6 +4,12 @@ All notable changes to OpenEMC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.8.1 - 2023-11-17
+### Added
+- allow usage of charge LED during init for debugging, enabled by feature `debug-blink`
+### Changed
+- handle board power on by charger connection in global init
+
 ## 0.8.0 - 2023-11-16
 ### Added
 - allow querying of bootloader CRC32 and flash size via sysfs

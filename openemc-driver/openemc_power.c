@@ -13,6 +13,8 @@
 
 #include "openemc.h"
 
+#define CHARGE_MODE (1 << 15)
+
 static const struct of_device_id openemc_power_of_match[] = {
 	{ .compatible = "openemc,openemc_power" },
 	{}
@@ -27,6 +29,7 @@ struct openemc_power {
 	struct notifier_block *reboot_notifier;
 
 	bool i2c_has_atomic;
+	bool reboot_into_charging_mode;
 };
 
 static struct openemc_power *openemc_power_restart_data = NULL;
@@ -75,6 +78,7 @@ static int openemc_power_restart_prepare(struct notifier_block *nb,
 {
 	struct openemc_power *power = openemc_power_restart_data;
 	struct openemc *emc;
+	u16 delay = 1000;
 	int ret;
 
 	if (!power || action != SYS_RESTART)
@@ -84,7 +88,12 @@ static int openemc_power_restart_prepare(struct notifier_block *nb,
 
 	dev_crit(power->dev, "Restarting system in 1 second\n");
 
-	ret = openemc_write_u16(emc, OPENEMC_POWER_RESTART, 1000);
+	if (power->reboot_into_charging_mode) {
+		dev_crit(power->dev, "Requesting charging mode\n");
+		delay |= CHARGE_MODE;
+	}
+
+	ret = openemc_write_u16(emc, OPENEMC_POWER_RESTART, delay);
 	if (ret < 0)
 		dev_err(power->dev, "Requesting restart failed: %d\n", ret);
 
@@ -96,6 +105,7 @@ static int openemc_power_restart(struct notifier_block *nb,
 {
 	struct openemc_power *power = openemc_power_restart_data;
 	struct openemc *emc;
+	u16 delay = 0;
 	int ret;
 
 	if (!power)
@@ -106,7 +116,12 @@ static int openemc_power_restart(struct notifier_block *nb,
 	if (power->i2c_has_atomic) {
 		dev_crit(power->dev, "Restarting system\n");
 
-		ret = openemc_write_u16(emc, OPENEMC_POWER_RESTART, 0);
+		if (power->reboot_into_charging_mode) {
+			dev_crit(power->dev, "Requesting charging mode\n");
+			delay |= CHARGE_MODE;
+		}
+
+		ret = openemc_write_u16(emc, OPENEMC_POWER_RESTART, delay);
 		if (ret < 0)
 			dev_err(power->dev, "Requesting restart failed: %d\n",
 				ret);
@@ -228,10 +243,41 @@ static ssize_t openemc_power_powered_on_by_charger_show(
 }
 static DEVICE_ATTR_RO(openemc_power_powered_on_by_charger);
 
+static ssize_t openemc_power_reboot_into_charging_mode_show(
+	struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct openemc_power *power = dev_get_drvdata(dev);
+	return sprintf(buf, "%hhu", power->reboot_into_charging_mode);
+}
+static ssize_t
+openemc_power_reboot_into_charging_mode_store(struct device *dev,
+					      struct device_attribute *attr,
+					      const char *buf, size_t count)
+{
+	struct openemc_power *power = dev_get_drvdata(dev);
+
+	if (count < 1)
+		return -EINVAL;
+	switch (buf[0]) {
+	case '0':
+		power->reboot_into_charging_mode = false;
+		break;
+	case '1':
+		power->reboot_into_charging_mode = true;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return count;
+}
+static DEVICE_ATTR_RW(openemc_power_reboot_into_charging_mode);
+
 static struct attribute *openemc_power_attrs[] = {
 	&dev_attr_openemc_power_power_off_prohibited.attr,
 	&dev_attr_openemc_power_power_on_by_charging.attr,
 	&dev_attr_openemc_power_powered_on_by_charger.attr,
+	&dev_attr_openemc_power_reboot_into_charging_mode.attr,
 	NULL,
 };
 
