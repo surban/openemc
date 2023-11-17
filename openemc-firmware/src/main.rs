@@ -86,7 +86,7 @@ use crate::{
     board::Board,
     boot::{BootInfoExt, BootReasonExt},
     bq25713::{Battery, Bq25713},
-    cfg::Cfg,
+    cfg::{Cfg, ChargerAttached},
     crc::crc32,
     flash_data::FlashBackened,
     flash_util::{unique_device_id, FlashUtil},
@@ -96,7 +96,7 @@ use crate::{
     pwm::PwmTimer,
     rtc::{ClockSrc, Rtc},
     supply::{max14636::Max14636, stusb4500::StUsb4500, PowerSupply},
-    util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64},
+    util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64, blink},
     watchman::Watchman,
 };
 use openemc_shared::{
@@ -297,6 +297,8 @@ mod app {
         power_supply: Option<PowerSupply>,
         /// Latest battery report.
         battery: Option<Battery>,
+        /// Undervoltage power off in progress?
+        undervoltage_power_off: bool,
         /// Board.
         board: ThisBoard,
         /// Power mode.
@@ -333,6 +335,9 @@ mod app {
         defmt::warn!("OpenEMC version {:a}", VERSION);
         defmt::warn!("{:a}", COPYRIGHT);
 
+        #[cfg(feature = "debug-blink")]
+        defmt::warn!("debug blinking is active");
+
         boot::init();
 
         // Create HAL objects.
@@ -354,6 +359,11 @@ mod app {
         // Configure GPIO remapping.
         let (_pa15, _pb3, _pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
         afio.mapr.modify_mapr(|_, w| w.pd01_remap().set_bit());
+
+        // Start watchdog and its manager.
+        let dog = IndependentWatchdog::new(cx.device.IWDG);
+        let mut watchman = Watchman::new(dog, 120u64.secs());
+        unwrap!(watchdog_petter::spawn());
 
         // Initialize backup registers.
         BackupReg::init(&mut bkp);
@@ -383,6 +393,7 @@ mod app {
         let mut board = ThisBoard::new(bi, &mut afio, &mut delay, &cfg);
         defmt::info!("board new done");
         board.set_power_led(bi.powered_on);
+        blink_charging!(board, delay, watchman, 1);
 
         // Print boot information.
         if !BootInfo::is_from_bootloader() {
@@ -413,6 +424,13 @@ mod app {
                 defmt::panic!("unsupported board model");
             }
         }
+        blink_charging!(board, delay, watchman, 2);
+
+        // If configured, power on when charger is connected.
+        if cfg.charger_attached == ChargerAttached::PowerOn && board.power_mode() == PowerMode::Charging {
+            defmt::info!("powering on due to charger connection");
+            board.set_power_mode(PowerMode::Full);
+        }
 
         // Handle boot reason.
         BootReason::SurpriseInUser.set(&mut bkp);
@@ -430,11 +448,7 @@ mod app {
             BootReason::PowerOn.set(&mut bkp);
             board.shutdown();
         }
-
-        // Start watchdog and its manager.
-        let dog = IndependentWatchdog::new(cx.device.IWDG);
-        let mut watchman = Watchman::new(dog, 120u64.secs(), false);
-        unwrap!(watchdog_petter::spawn());
+        blink_charging!(board, delay, watchman, 3);
 
         // Initialize RTC.
         let mut rtc = Rtc::new(cx.device.RTC, &mut bkp);
@@ -442,11 +456,10 @@ mod app {
             let _ = rtc.set_prescalar(prescaler - Rtc::PRESCALER_NEG_OFFSET);
         }
         unwrap!(check_rtc_src::spawn_after(5u64.secs()));
-
-        // Print RTC information.
         defmt::info!("RTC source:     {}", rtc.clock_src());
         defmt::info!("RTC ready:      {}", rtc.is_ready());
         unwrap!(print_rtc_info::spawn());
+        blink_charging!(board, delay, watchman, 4);
 
         // Power off if requested.
         if board.power_mode() == PowerMode::Off {
@@ -454,6 +467,7 @@ mod app {
             delay.delay(10u32.millis());
             boot::power_off(&mut bkp);
         }
+        blink_charging!(board, delay, watchman, 5);
 
         // Configure user GPIO.
         let mut usable = [0xffff; board::PORTS];
@@ -465,6 +479,7 @@ mod app {
         }
         usable[ThisBoard::IRQ_PIN as usize / 16] &= !(1 << (ThisBoard::IRQ_PIN % 16));
         let ugpio = MaskedGpio::new(usable);
+        blink_charging!(board, delay, watchman, 6);
 
         // Initialize I2C bus 2 master.
         let mut i2c2 = ThisBoard::I2C2_MODE.map(|mode| {
@@ -477,6 +492,7 @@ mod app {
             let i2c2 = I2c::i2c2(cx.device.I2C2, (scl, sda), mode, clocks);
             i2c2.blocking_default(clocks)
         });
+        blink_charging!(board, delay, watchman, 7);
 
         // Initialize BQ25713.
         let mut bq25713 = match ThisBoard::BQ25713_CFG {
@@ -486,6 +502,7 @@ mod app {
             }
             None => None,
         };
+        blink_charging!(board, delay, watchman, 8);
 
         // Initialize power supplies.
         let stusb4500 = match ThisBoard::STUSB4500_I2C_ADDR {
@@ -497,8 +514,10 @@ mod app {
         };
         let max14636 = board.max14636();
         defmt::unwrap!(power_supply_update::spawn_after(500u64.millis()));
+        blink_charging!(board, delay, watchman, 9);
 
         // Check if there is some form of charger attached.
+        watchman.force_pet();
         let mut charger_attached = false;
         if stusb4500.is_some() {
             charger_attached |= board.check_stusb4500_attached();
@@ -512,6 +531,7 @@ mod app {
         if let (Some(bq25713), Some(i2c2)) = (&mut bq25713, &mut i2c2) {
             bq25713.periodic(i2c2, board.check_bq25713_chrg_ok());
 
+            watchman.force_pet();
             let v_bat = loop {
                 if let Err(err) = bq25713.update(i2c2) {
                     defmt::warn!("cannot update BQ25713: {}", err);
@@ -545,13 +565,16 @@ mod app {
                 }
             }
         }
+        blink_charging!(board, delay, watchman, 10);
 
         // Power on board.
+        watchman.force_pet();
         defmt::info!("board power on in mode {:?}", board.power_mode());
         let led_on = board.power_mode() == PowerMode::Full;
         board.set_power_led(led_on);
         board.power_on(&mut afio, &mut delay);
         defmt::info!("board power on done");
+        blink_charging!(board, delay, watchman, 11);
 
         // Activate watchdog reset via I2C.
         if board.power_mode() == PowerMode::Full {
@@ -649,6 +672,7 @@ mod app {
                 bq25713,
                 power_supply: None,
                 battery: None,
+                undervoltage_power_off: false,
                 bootloader_crc32,
             },
             Local { i2c_reg_slave, adc, adc_inp, ugpio, pwm_timers },
@@ -969,9 +993,14 @@ mod app {
     }
 
     /// Performs power off when battery has reached lower voltage limit.
-    #[task(shared = [board], local = [blink_state: bool = false, blink_count: u8 = 0], capacity = 1)]
+    #[task(
+        shared = [board, undervoltage_power_off],
+        local = [blink_state: bool = false, blink_count: u8 = 0],
+        capacity = 1,
+    )]
     fn undervoltage_power_off(mut cx: undervoltage_power_off::Context, power_off: bool) {
         if *cx.local.blink_count < 100 {
+            cx.shared.undervoltage_power_off.lock(|v| *v = true);
             *cx.local.blink_state = !*cx.local.blink_state;
             *cx.local.blink_count += 1;
             cx.shared.board.lock(|board| board.set_power_led(*cx.local.blink_state));
@@ -983,55 +1012,62 @@ mod app {
         } else {
             cx.shared.board.lock(|board| board.set_power_led(false));
             cx.shared.board.lock(|board| board.set_charging_led(false));
-            *cx.local.blink_count += 0;
+            *cx.local.blink_count = 0;
+            cx.shared.undervoltage_power_off.lock(|v| *v = false);
         }
     }
 
     /// Controls the charging LED.
     #[task(
-        shared = [battery, power_supply, board],
+        shared = [battery, power_supply, board, undervoltage_power_off],
         local = [blink_state: u8 = 0, supplying_since: Option<Instant> = None],
     )]
     fn charge_led(cx: charge_led::Context) {
-        (cx.shared.battery, cx.shared.power_supply, cx.shared.board).lock(|battery, power_supply, board| {
-            let supplying = power_supply.as_ref().map(|s| s.is_connected()).unwrap_or_default();
-            if supplying {
-                if cx.local.supplying_since.is_none() {
-                    *cx.local.supplying_since = Some(monotonics::now());
+        (cx.shared.battery, cx.shared.power_supply, cx.shared.board, cx.shared.undervoltage_power_off).lock(
+            |battery, power_supply, board, undervoltage_power_off| {
+                if *undervoltage_power_off {
+                    return;
                 }
-            } else {
-                *cx.local.supplying_since = None;
-            }
 
-            let grace_period: Duration = 12u64.secs();
-            let grace = cx
-                .local
-                .supplying_since
-                .map(|since| monotonics::now() - since <= grace_period)
-                .unwrap_or_default();
+                let supplying = power_supply.as_ref().map(|s| s.is_connected()).unwrap_or_default();
+                if supplying {
+                    if cx.local.supplying_since.is_none() {
+                        *cx.local.supplying_since = Some(monotonics::now());
+                    }
+                } else {
+                    *cx.local.supplying_since = None;
+                }
 
-            let (should_charge, charging_error) = battery
-                .as_ref()
-                .map(|b| {
-                    (
-                        b.voltage_mv.unwrap_or_default() < ThisBoard::CHARGING_LED_END_VOLTAGE,
-                        !b.charging.is_charging()
-                            || b.current_ma.unwrap_or_default() < ThisBoard::CHARGING_LED_MIN_CURRENT,
-                    )
-                })
-                .unwrap_or_default();
+                let grace_period: Duration = 12u64.secs();
+                let grace = cx
+                    .local
+                    .supplying_since
+                    .map(|since| monotonics::now() - since <= grace_period)
+                    .unwrap_or_default();
 
-            let led = match (supplying, should_charge, charging_error) {
-                (false, _, _) => false,
-                (true, true, false) => *cx.local.blink_state / 10 == 1,
-                (true, true, true) if grace => true,
-                (true, true, true) => *cx.local.blink_state % 2 == 1,
-                (true, false, _) => true,
-            };
-            board.set_charging_led(led);
+                let (should_charge, charging_error) = battery
+                    .as_ref()
+                    .map(|b| {
+                        (
+                            b.voltage_mv.unwrap_or_default() < ThisBoard::CHARGING_LED_END_VOLTAGE,
+                            !b.charging.is_charging()
+                                || b.current_ma.unwrap_or_default() < ThisBoard::CHARGING_LED_MIN_CURRENT,
+                        )
+                    })
+                    .unwrap_or_default();
 
-            *cx.local.blink_state = (*cx.local.blink_state + 1) % 20;
-        });
+                let led = match (supplying, should_charge, charging_error) {
+                    (false, _, _) => false,
+                    (true, true, false) => *cx.local.blink_state / 10 == 1,
+                    (true, true, true) if grace => true,
+                    (true, true, true) => *cx.local.blink_state % 2 == 1,
+                    (true, false, _) => true,
+                };
+                board.set_charging_led(led);
+
+                *cx.local.blink_state = (*cx.local.blink_state + 1) % 20;
+            },
+        );
 
         defmt::unwrap!(charge_led::spawn_after(100u64.millis()));
     }

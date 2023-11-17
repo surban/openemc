@@ -68,7 +68,7 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .expect("cannot read OPENEMC-RAM-SIZE from board");
 
-    let cfg_size = CFG_FLASH_PAGES * flash::page_size_for(flash_size);
+    let cfg_size = 2 * CFG_FLASH_PAGES * flash::page_size_for(flash_size);
 
     let mut board = File::create(out.join("board.x")).unwrap();
     write!(board, "__flash_size = {flash_size};").unwrap();

@@ -3,6 +3,8 @@
 use core::mem::size_of;
 use defmt::unwrap;
 
+use crate::{watchman::Watchman, Delay};
+
 /// Byte representation of an array of u64s.
 pub fn array_from_u64<const D: usize, const F: usize>(data: &[u64; D]) -> [u8; F] {
     defmt::assert!(F == D * size_of::<u64>());
@@ -57,4 +59,37 @@ pub fn array_to_u16<const D: usize>(flat: &[u8]) -> [u16; D] {
         *d = u16::from_le_bytes(b);
     }
     data
+}
+
+/// Blink a LED.
+#[allow(unused_variables, unused_mut)]
+pub fn blink(mut set: impl FnMut(bool), delay: &mut Delay, mut watchman: &mut Watchman, times: usize) {
+    #[cfg(feature = "debug-blink")]
+    {
+        use systick_monotonic::fugit::ExtU32;
+
+        watchman.force_pet();
+        set(false);
+        delay.delay(1u32.secs());
+
+        for _ in 0..times {
+            watchman.force_pet();
+
+            set(true);
+            delay.delay(300u32.millis());
+            set(false);
+            delay.delay(300u32.millis());
+        }
+
+        delay.delay(700u32.millis());
+        watchman.force_pet();
+    }
+}
+
+/// Blinks the charging LED of a board.
+#[macro_export]
+macro_rules! blink_charging {
+    ($board:expr, $delay:expr, $watchman:expr, $times:expr) => {
+        blink(|v| $board.set_charging_led(v), &mut $delay, &mut $watchman, $times);
+    };
 }

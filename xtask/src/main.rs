@@ -135,7 +135,7 @@ fn main() -> anyhow::Result<()> {
         project_root().join("image").join(format!("{firmware}.elf.gz")),
     )?;
 
-    cmd!(&cargo, "objcopy", "--release", "--no-default-features", "--features", "defmt-ringbuf",)
+    cmd!(&cargo, "objcopy", "--release", "--no-default-features", "--features", "defmt-ringbuf")
         .args(args.features.iter().flat_map(|feature| ["--features", feature]))
         .args(["--", "-O", "binary", &format!("../image/{firmware}.bin")])
         .current_dir(project_root().join("openemc-firmware"))

@@ -9,6 +9,7 @@ edition = "2021"
 
 [features]
 default = ["defmt-rtt"]
+debug-blink = []
 
 [dependencies]
 openemc-shared = { path = "../openemc-shared" }

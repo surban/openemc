@@ -23,11 +23,11 @@ impl Watchman {
     pub const UNLOCK_CODE: u64 = 0x1984_0902_0406_1986;
 
     /// Creates a new watchdog manager.
-    pub fn new(mut dog: IndependentWatchdog, interval: Duration, active: bool) -> Self {
+    pub fn new(mut dog: IndependentWatchdog, interval: Duration) -> Self {
         dog.start(3u32.secs());
         dog.feed();
 
-        Self { dog, interval, active, last_pet: monotonics::now(), unlocked: false, pet_code: 0x11223344 }
+        Self { dog, interval, active: false, last_pet: monotonics::now(), unlocked: false, pet_code: 0x11223344 }
     }
 
     /// Necessary watchdog pet interval.
@@ -129,5 +129,10 @@ impl Watchman {
                 false
             }
         }
+    }
+
+    /// Pets the hardware watchdog, unconditionally.
+    pub fn force_pet(&mut self) {
+        self.dog.feed();
     }
 }
