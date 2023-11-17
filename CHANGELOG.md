@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.8.1 - 2023-11-17
 ### Added
+- allow querying whether power on was by charger attachment
+- allow explicit reboot into charging mode
 - allow usage of charge LED during init for debugging, enabled by feature `debug-blink`
 ### Changed
 - handle board power on by charger connection in global init
