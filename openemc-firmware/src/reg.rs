@@ -151,9 +151,13 @@ pub const POWER_RESTART: u8 = 0x41;
 pub const POWER_OFF_PROHIBITED: u8 = 0x42;
 
 /// Power on system when charger is connected.
-/// u8 with 1=power on, 0=charge mode.
+/// u8 with 2=quiet power on, 1=power on, 0=charge mode.
 /// This is stored in flash.
 pub const POWER_ON_BY_CHARGING: u8 = 0x43;
+
+/// Whether the current power on is due to charger attachment.
+/// u8 with 1=yes, 0=no.
+pub const POWERED_ON_BY_CHARGER: u8 = 0x44;
 
 /// GPIO count.
 pub const GPIO_COUNT: u8 = 0x50;

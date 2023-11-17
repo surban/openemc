@@ -174,11 +174,21 @@ pub fn flash_program_end() -> usize {
 #[derive(Clone, Copy, Format, PartialEq, Eq)]
 pub enum PowerMode {
     /// Full power on.
-    Full,
+    Full {
+        /// Whether power on should be quiet.
+        quiet: bool,
+    },
     /// Power only components required for charging.
     Charging,
     /// Shutdown.
     Off,
+}
+
+impl PowerMode {
+    /// Whether this is a full power on.
+    pub fn is_full(&self) -> bool {
+        matches!(self, Self::Full { .. })
+    }
 }
 
 /// I2C register slave that may have remapped pins.
@@ -305,6 +315,8 @@ mod app {
         power_mode: PowerMode,
         /// CRC32 of bootlaoder.
         bootloader_crc32: u32,
+        /// Power on due to charger attachment.
+        charger_attachment_power_on: bool,
     }
 
     /// Exclusive resources.
@@ -427,10 +439,19 @@ mod app {
         blink_charging!(board, delay, watchman, 2);
 
         // If configured, power on when charger is connected.
-        if cfg.charger_attached == ChargerAttached::PowerOn && board.power_mode() == PowerMode::Charging {
-            defmt::info!("powering on due to charger connection");
-            board.set_power_mode(PowerMode::Full);
-        }
+        let charger_attachment_power_on = match (board.power_mode(), cfg.charger_attached) {
+            (PowerMode::Charging, ChargerAttached::PowerOn) => {
+                defmt::info!("powering on due to charger connection");
+                board.set_power_mode(PowerMode::Full { quiet: false });
+                true
+            }
+            (PowerMode::Charging, ChargerAttached::QuietPowerOn) => {
+                defmt::info!("powering on quietly due to charger connection");
+                board.set_power_mode(PowerMode::Full { quiet: true });
+                true
+            }
+            _ => false,
+        };
 
         // Handle boot reason.
         BootReason::SurpriseInUser.set(&mut bkp);
@@ -545,7 +566,7 @@ mod app {
             if let Some(v_bat) = v_bat {
                 defmt::info!("battery:       {} mV", v_bat);
                 match ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE {
-                    Some(min) if v_bat < min && board.power_mode() == PowerMode::Full => {
+                    Some(min) if v_bat < min && board.power_mode().is_full() => {
                         defmt::warn!("Battery is under critical low battery voltage of {} V", min);
 
                         if charger_attached {
@@ -570,14 +591,17 @@ mod app {
         // Power on board.
         watchman.force_pet();
         defmt::info!("board power on in mode {:?}", board.power_mode());
-        let led_on = board.power_mode() == PowerMode::Full;
+        let led_on = match board.power_mode() {
+            PowerMode::Full { quiet } => !quiet,
+            _ => false,
+        };
         board.set_power_led(led_on);
         board.power_on(&mut afio, &mut delay);
         defmt::info!("board power on done");
         blink_charging!(board, delay, watchman, 11);
 
         // Activate watchdog reset via I2C.
-        if board.power_mode() == PowerMode::Full {
+        if board.power_mode().is_full() {
             defmt::debug!("requiring watchdog reset via I2C");
             watchman.force_set_active(true);
         }
@@ -603,46 +627,34 @@ mod app {
         }
 
         // Enable I2C register slave.
-        let i2c_reg_slave = match board.power_mode() {
-            PowerMode::Full => {
-                let slave = match ThisBoard::I2C_REMAP {
-                    true => {
-                        let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
-                        let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
-                        let mut i2c = I2cSlave::i2c1(
-                            cx.device.I2C1,
-                            (scl, sda),
-                            &mut afio.mapr,
-                            ThisBoard::I2C_ADDR,
-                            clocks,
-                        );
-                        i2c.listen_buffer();
-                        i2c.listen_error();
-                        i2c.listen_event();
-                        RemappableI2CRegSlave::Remapped(I2CRegSlave::<_, _, I2C_BUFFER_SIZE>::new(i2c))
-                    }
-                    false => {
-                        let scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);
-                        let sda = gpiob.pb7.into_alternate_open_drain(&mut gpiob.crl);
-                        let mut i2c = I2cSlave::i2c1(
-                            cx.device.I2C1,
-                            (scl, sda),
-                            &mut afio.mapr,
-                            ThisBoard::I2C_ADDR,
-                            clocks,
-                        );
-                        i2c.listen_buffer();
-                        i2c.listen_error();
-                        i2c.listen_event();
-                        RemappableI2CRegSlave::Normal(I2CRegSlave::<_, _, I2C_BUFFER_SIZE>::new(i2c))
-                    }
-                };
-                unsafe { NVIC::unmask(Interrupt::I2C1_ER) };
-                unsafe { NVIC::unmask(Interrupt::I2C1_EV) };
-                Some(slave)
-            }
-            PowerMode::Charging => None,
-            PowerMode::Off => None,
+        let i2c_reg_slave = if board.power_mode().is_full() {
+            let slave = match ThisBoard::I2C_REMAP {
+                true => {
+                    let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
+                    let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
+                    let mut i2c =
+                        I2cSlave::i2c1(cx.device.I2C1, (scl, sda), &mut afio.mapr, ThisBoard::I2C_ADDR, clocks);
+                    i2c.listen_buffer();
+                    i2c.listen_error();
+                    i2c.listen_event();
+                    RemappableI2CRegSlave::Remapped(I2CRegSlave::<_, _, I2C_BUFFER_SIZE>::new(i2c))
+                }
+                false => {
+                    let scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);
+                    let sda = gpiob.pb7.into_alternate_open_drain(&mut gpiob.crl);
+                    let mut i2c =
+                        I2cSlave::i2c1(cx.device.I2C1, (scl, sda), &mut afio.mapr, ThisBoard::I2C_ADDR, clocks);
+                    i2c.listen_buffer();
+                    i2c.listen_error();
+                    i2c.listen_event();
+                    RemappableI2CRegSlave::Normal(I2CRegSlave::<_, _, I2C_BUFFER_SIZE>::new(i2c))
+                }
+            };
+            unsafe { NVIC::unmask(Interrupt::I2C1_ER) };
+            unsafe { NVIC::unmask(Interrupt::I2C1_EV) };
+            Some(slave)
+        } else {
+            None
         };
 
         // Drive charging LED.
@@ -674,6 +686,7 @@ mod app {
                 battery: None,
                 undervoltage_power_off: false,
                 bootloader_crc32,
+                charger_attachment_power_on,
             },
             Local { i2c_reg_slave, adc, adc_inp, ugpio, pwm_timers },
             init::Monotonics(mono),
@@ -957,9 +970,10 @@ mod app {
                         ac = status.ac_stat;
                     }
 
-                    match (bq25713.measurement(), ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE, cx.shared.power_mode) {
-                        (Some(m), Some(min_mv), PowerMode::Full)
-                            if !ac
+                    match (bq25713.measurement(), ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE) {
+                        (Some(m), Some(min_mv))
+                            if cx.shared.power_mode.is_full()
+                                && !ac
                                 && m.v_bat_mv < min_mv
                                 && monotonics::now().checked_duration_since(*first) >= Some(grace_period) =>
                         {
@@ -1313,6 +1327,7 @@ mod app {
             crc,
             cfg,
             &bootloader_crc32,
+            &charger_attachment_power_on,
         ],
         priority = 2,
     )]
@@ -1567,6 +1582,9 @@ mod app {
                         cfg.charger_attached = value.as_u8().try_into().unwrap_or_default()
                     });
                 })
+            }
+            Event::Read { reg: reg::POWERED_ON_BY_CHARGER } => {
+                respond_u8(*cx.shared.charger_attachment_power_on as u8)
             }
             Event::Read { reg: reg::PWM_TIMERS } => respond_u8(cx.local.pwm_timers.len() as u8),
             Event::Read { reg: reg::PWM_TIMER } => respond_u8(*cx.local.pwm_timer_index),

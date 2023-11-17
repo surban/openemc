@@ -175,7 +175,16 @@ static ssize_t openemc_power_power_on_by_charging_show(
 	if (ret != 0)
 		return ret;
 
-	return sprintf(buf, "%hhu", value);
+	switch (value) {
+	case 0:
+		return sprintf(buf, "off");
+	case 1:
+		return sprintf(buf, "on");
+	case 2:
+		return sprintf(buf, "quiet-on");
+	default:
+		return sprintf(buf, "unknown");
+	}
 }
 static ssize_t
 openemc_power_power_on_by_charging_store(struct device *dev,
@@ -186,18 +195,14 @@ openemc_power_power_on_by_charging_store(struct device *dev,
 	u8 value;
 	int ret;
 
-	if (count < 1)
-		return -EINVAL;
-	switch (buf[0]) {
-	case '0':
+	if (sysfs_streq(buf, "off"))
 		value = 0;
-		break;
-	case '1':
+	else if (sysfs_streq(buf, "on"))
 		value = 1;
-		break;
-	default:
+	else if (sysfs_streq(buf, "quiet-on"))
+		value = 2;
+	else
 		return -EINVAL;
-	}
 
 	ret = openemc_write_u8(power->emc, OPENEMC_POWER_ON_BY_CHARGING, value);
 	if (ret != 0)
@@ -207,9 +212,27 @@ openemc_power_power_on_by_charging_store(struct device *dev,
 }
 static DEVICE_ATTR_RW(openemc_power_power_on_by_charging);
 
+static ssize_t openemc_power_powered_on_by_charger_show(
+	struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct openemc_power *power = dev_get_drvdata(dev);
+	u8 value;
+	int ret;
+
+	ret = openemc_read_u8(power->emc, OPENEMC_POWERED_ON_BY_CHARGER,
+			      &value);
+	if (ret != 0)
+		return ret;
+
+	return sprintf(buf, "%hhu", value);
+}
+static DEVICE_ATTR_RO(openemc_power_powered_on_by_charger);
+
 static struct attribute *openemc_power_attrs[] = {
 	&dev_attr_openemc_power_power_off_prohibited.attr,
-	&dev_attr_openemc_power_power_on_by_charging.attr, NULL
+	&dev_attr_openemc_power_power_on_by_charging.attr,
+	&dev_attr_openemc_power_powered_on_by_charger.attr,
+	NULL,
 };
 
 static const struct attribute_group openemc_power_group = {

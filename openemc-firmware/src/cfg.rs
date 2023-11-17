@@ -14,6 +14,10 @@ pub enum ChargerAttached {
     ChargeMode = 0,
     /// Power on device.
     PowerOn = 1,
+    /// Power on device, but quietly.
+    ///
+    /// Power LED stays off.
+    QuietPowerOn = 2,
 }
 
 impl TryFrom<u8> for ChargerAttached {
@@ -23,6 +27,7 @@ impl TryFrom<u8> for ChargerAttached {
         match value {
             0 => Ok(Self::ChargeMode),
             1 => Ok(Self::PowerOn),
+            2 => Ok(Self::QuietPowerOn),
             _ => Err(()),
         }
     }
@@ -46,8 +51,8 @@ impl FlashData for Cfg {
             let ptr = this.as_mut_ptr();
 
             let charger_attached_ptr = addr_of_mut!((*ptr).charger_attached) as *mut u8;
-            if charger_attached_ptr.read() > 1 {
-                charger_attached_ptr.write(0);
+            if ChargerAttached::try_from(charger_attached_ptr.read()).is_err() {
+                charger_attached_ptr.write(ChargerAttached::default() as _);
             }
 
             let prohibit_power_off_ptr = addr_of_mut!((*ptr).prohibit_power_off) as *mut u8;

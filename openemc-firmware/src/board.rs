@@ -88,7 +88,7 @@ pub trait Board {
 
     /// The mode for powering up.
     fn power_mode(&mut self) -> PowerMode {
-        PowerMode::Full
+        PowerMode::Full { quiet: false }
     }
 
     /// Sets the mode for powering up.
