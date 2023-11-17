@@ -47,8 +47,13 @@ jobs:
         run: cd openemc-pack ; cargo build --quiet
       - name: Build generic firmware package
         run: cargo xtask
-      - name: Build firmware package for STM NUCLEO-F103RB
-        run: cargo xtask stm_nucleo_f103rb
+      - name: Build firmware package for STM NUCLEO-F103RB using nightly Rust
+        run: |
+          TOOLCHAIN="nightly-2023-11-13"
+          rustup toolchain install $TOOLCHAIN
+          rustup target add --toolchain $TOOLCHAIN thumbv7m-none-eabi
+          rustup component add --toolchain $TOOLCHAIN llvm-tools-preview rust-src
+          cargo +$TOOLCHAIN xtask stm_nucleo_f103rb
       - uses: actions/upload-artifact@v3
         with:
           name: firmware-images
