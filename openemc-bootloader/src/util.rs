@@ -14,11 +14,17 @@ pub fn delay_ms(ms: u32) {
 /// Enters standby mode.
 #[allow(dead_code)]
 pub fn enter_standby() -> ! {
+    defmt::warn!("entering standby mode");
+
     let mut cp = unsafe { cortex_m::Peripherals::steal() };
     let dp = unsafe { Peripherals::steal() };
 
+    // Enable GPIO A.
+    dp.RCC.apb2enr.modify(|_, w| w.afioen().enabled().iopaen().enabled());
+
     // Check if WKUP pin is low.
     dp.GPIOA.crl.modify(|_, w| w.cnf0().open_drain().mode0().input());
+    delay_ms(10);
     let wkup = dp.GPIOA.idr.read().idr0();
     if wkup.is_high() {
         // Device should stay awake, convert shutdown into reset.
@@ -49,8 +55,6 @@ pub fn enter_standby() -> ! {
     cp.SCB.set_sleepdeep();
 
     // Enter standby mode.
-    defmt::warn!("entering standby mode");
-    delay_ms(10);
     loop {
         wfi()
     }

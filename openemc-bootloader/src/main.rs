@@ -283,19 +283,20 @@ fn main() -> ! {
         loop {
             defmt::info!("bootloader start");
 
-            let timeout_ticks = board.timeout_ticks();
             let board_cell = RefCell::new(board);
             let info = BootloaderInfo {
                 emc_model: emc_model(),
                 board_model: board_cell.borrow().model(),
                 user_flash_start: user_flash_start(),
                 user_flash_end: flash::end(),
-                timeout_ticks,
+                cpu_clock: ThisBoard::CPU_CLOCK,
                 boot_reason,
                 reset_status,
                 id: program.map(|p| p.id).unwrap_or_default(),
                 extend_fn: |req: I2CRegTransaction| board_cell.borrow_mut().bootloader_request(req),
-                idle_fn: || board_cell.borrow_mut().idle(),
+                idle_fn: |total, idle, timeout_enabled| {
+                    board_cell.borrow_mut().idle(total, idle, timeout_enabled)
+                },
             };
 
             let i2c_slave = I2CSlave::new(

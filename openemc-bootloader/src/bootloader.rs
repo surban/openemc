@@ -1,6 +1,6 @@
 //! Bootloader with an I2C interface.
 
-use core::{mem::size_of, num::NonZeroU32, ptr};
+use core::{mem::size_of, num::Saturating, ptr};
 use cortex_m::peripheral::{scb::Exception, SCB};
 use defmt::Format;
 
@@ -116,8 +116,8 @@ pub struct BootloaderInfo<'a, Ext, Idle> {
     pub user_flash_start: usize,
     /// User flash end address (non-inclusive).
     pub user_flash_end: usize,
-    /// Bootloader timeout value in clock ticks.
-    pub timeout_ticks: Option<NonZeroU32>,
+    /// Processor clock speed in Hz.
+    pub cpu_clock: u32,
     /// Boot reason.
     pub boot_reason: u16,
     /// Reset status.
@@ -132,7 +132,7 @@ pub struct BootloaderInfo<'a, Ext, Idle> {
 
 /// Result of running the bootloader.
 #[repr(u8)]
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Format)]
 pub enum BootloaderResult {
     /// Start the user program.
     Start = 0x01,
@@ -148,30 +148,37 @@ pub enum BootloaderResult {
 pub fn run<Ext, Idle>(mut info: BootloaderInfo<Ext, Idle>, i2c_slave: I2CSlave) -> BootloaderResult
 where
     Ext: FnMut(I2CRegTransaction),
-    Idle: FnMut(),
+    Idle: FnMut(u16, u16, bool) -> Option<BootloaderResult>,
 {
     let mut i2c = I2CRegSlave::new(i2c_slave);
     let mut flash_addr = info.user_flash_start;
     let mut writer = None;
     let mut flash_fail = false;
     let mut verify_result = None;
+
     let mut timeout_enabled = true;
-    let mut timer = match info.timeout_ticks {
-        Some(ticks) => {
-            let mut timer = Timer4::new();
-            timer.set_auto_reload(ticks.get() as u16);
-            timer.set_prescaler((ticks.get() >> 16) as u16);
-            timer.set_one_pulse_mode(true);
-            timer.generate_update();
-            timer.set_enabled(true);
-            Some(timer)
-        }
-        None => None,
-    };
+    let mut total_seconds = Saturating(0);
+    let mut idle_seconds = Saturating(0);
+
+    // Program timer tick for one second.
+    let mut timer = Timer4::new();
+    timer.set_prescaler(u16::MAX);
+    timer.set_auto_reload((info.cpu_clock / u16::MAX as u32) as _);
+    timer.set_one_pulse_mode(true);
+    timer.generate_update();
+    timer.set_enabled(true);
 
     loop {
         watchdog::pet();
-        (info.idle_fn)();
+        if let Some(res) = (info.idle_fn)(total_seconds.0, idle_seconds.0, timeout_enabled) {
+            defmt::info!(
+                "bootloader exit with result {:?} after {} seconds with {} seconds idle",
+                res,
+                total_seconds.0,
+                idle_seconds.0
+            );
+            return res;
+        }
 
         watchdog::pet();
         let mut transacted = true;
@@ -314,7 +321,7 @@ where
                 return BootloaderResult::Start;
             }
             Some(I2CRegTransaction::Read(mut tx)) if tx.reg() == REG_TIMEOUT_ENABLED => {
-                tx.send_u8(u8::from(timer.is_some() && timeout_enabled));
+                tx.send_u8(timeout_enabled as _);
             }
             Some(I2CRegTransaction::Write(mut rx)) if rx.reg() == REG_TIMEOUT_ENABLED => {
                 timeout_enabled = rx.recv_u8() != 0;
@@ -340,19 +347,16 @@ where
             }
         }
 
-        // Check for timeout.
-        if let Some(timer) = &mut timer {
-            // defmt::info!("counter: {} {:?}", timer.counter(), timer.is_enabled());
-
-            if transacted {
-                timer.generate_update();
-                timer.set_enabled(true);
-            }
-
-            if timeout_enabled && !timer.is_enabled() {
-                defmt::info!("bootloader: timeout");
-                return BootloaderResult::Timeout;
-            }
+        // Update times.
+        if !timer.is_enabled() {
+            idle_seconds += 1;
+            total_seconds += 1;
+            timer.generate_update();
+            timer.set_enabled(true);
+            defmt::debug!("bootloader total time: {} s    idle time: {} s", total_seconds.0, idle_seconds.0);
+        }
+        if transacted {
+            idle_seconds.0 = 0;
         }
     }
 }

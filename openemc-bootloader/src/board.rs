@@ -1,8 +1,8 @@
 //! Board.
 
-use core::num::NonZeroU32;
-
-use crate::{i2c_reg_slave::I2CRegTransaction, util::enter_standby, BoardInitResult};
+use crate::{
+    bootloader::BootloaderResult, i2c_reg_slave::I2CRegTransaction, util::enter_standby, BoardInitResult,
+};
 use openemc_shared::boot::{BootInfo, ResetStatus};
 
 /// Board-specific functionality.
@@ -58,11 +58,14 @@ pub trait Board {
     fn bootloader_request(&mut self, _t: I2CRegTransaction) {}
 
     /// Bootloader idle function.
-    fn idle(&mut self) {}
-
-    /// Ticks before bootloader times out.
-    fn timeout_ticks(&mut self) -> Option<NonZeroU32> {
-        Some(defmt::unwrap!(NonZeroU32::new(4_200_000_000)))
+    ///
+    /// If it returns a value, the bootloader exits with the specified result.
+    fn idle(&mut self, _total_s: u16, idle_s: u16, timeout_enabled: bool) -> Option<BootloaderResult> {
+        if idle_s >= 600 && timeout_enabled {
+            Some(BootloaderResult::Timeout)
+        } else {
+            None
+        }
     }
 
     /// Shutdown the system and go to sleep.
