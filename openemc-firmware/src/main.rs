@@ -85,7 +85,7 @@ use crate::{
     backup::BackupReg,
     board::Board,
     boot::{BootInfoExt, BootReasonExt},
-    bq25713::{Battery, Bq25713},
+    bq25713::{Battery, Bq25713, InputCurrentLimit},
     cfg::{Cfg, ChargerAttached},
     crc::crc32,
     flash_data::FlashBackened,
@@ -95,7 +95,11 @@ use crate::{
     pio::MaskedGpio,
     pwm::PwmTimer,
     rtc::{ClockSrc, Rtc},
-    supply::{max14636::Max14636, stusb4500::StUsb4500, PowerSupply},
+    supply::{
+        max14636::Max14636,
+        stusb4500::{StUsb4500, StUsb4500Nvm},
+        PowerSupply,
+    },
     util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64, blink},
     watchman::Watchman,
 };
@@ -266,8 +270,6 @@ pub type IrqState = irq::IrqState<{ board::PORTS }>;
 
 #[rtic::app(device = stm32f1::stm32f103, peripherals = true, dispatchers = [SPI1, SPI2, SPI3])]
 mod app {
-    use crate::bq25713::InputCurrentLimit;
-
     use super::*;
 
     /// System timer.
@@ -534,6 +536,16 @@ mod app {
         // Initialize power supplies.
         let stusb4500 = match ThisBoard::STUSB4500_I2C_ADDR {
             Some(addr) => {
+                // Verify and possibily reprogram NVM.
+                if let Some(data) = ThisBoard::STUSB4500_NVM {
+                    let i2c2 = defmt::unwrap!(i2c2.as_mut());
+                    match StUsb4500Nvm::new(addr, i2c2).and_then(|mut nvm| nvm.ensure_nvm(&data)) {
+                        Ok(true) => defmt::info!("STUSB4500 NVM has been reprogrammed"),
+                        Ok(false) => defmt::info!("STUSB4500 NVM has been verified"),
+                        Err(err) => defmt::warn!("STUSB4500 NVM programming failed: {:?}", err),
+                    }
+                }
+
                 defmt::unwrap!(stusb4500_periodic::spawn_after(1u64.secs()));
                 Some(StUsb4500::new(addr, &ThisBoard::USB_INITIAL_PDO, ThisBoard::USB_MAXIMUM_VOLTAGE))
             }

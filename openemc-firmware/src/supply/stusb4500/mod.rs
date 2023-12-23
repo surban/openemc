@@ -18,6 +18,8 @@
 
 //! STUSB4500 USB PD controller driver.
 
+mod nvm;
+
 use core::{marker::PhantomData, mem::size_of};
 use defmt::Format;
 use embedded_hal::blocking::i2c;
@@ -27,6 +29,7 @@ use systick_monotonic::*;
 use crate::{app::monotonics, Duration, Instant};
 
 use super::PowerSupply;
+pub use nvm::StUsb4500Nvm;
 
 /// STUSB4500 error.
 #[derive(Clone, Format, PartialEq, Eq)]
@@ -35,6 +38,10 @@ pub enum Error {
     I2c,
     /// Device responded with wrong id.
     WrongId,
+    /// Timeout waiting for device.
+    Timeout,
+    /// Verification of written data failed.
+    VerifyFailed,
 }
 
 /// STUSB4500 result.
