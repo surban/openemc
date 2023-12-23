@@ -5,10 +5,10 @@ use stm32f1xx_hal::{afio, i2c};
 
 use crate::{
     boot,
-    bq25713::Bq25713Cfg,
+    bq25713::{Bq25713Cfg, InputCurrentLimit},
     cfg::Cfg,
     i2c_reg_slave,
-    supply::{max14636::Max14636, FixedSinkPdo},
+    supply::{max14636::Max14636, FixedSinkPdo, PowerSupply},
     Delay, Duration, PowerMode, I2C_BUFFER_SIZE,
 };
 use openemc_shared::boot::BootInfo;
@@ -154,6 +154,20 @@ pub trait Board {
     /// Returns `Some(state)` if the state changed and `None` if the state is unchanged.
     fn check_bq25713_chrg_ok_changed(&mut self) -> Option<bool> {
         None
+    }
+
+    /// Calculate the input current limit for the connected power supply.
+    ///
+    /// `active` specifies for how long the supplied power supply configuration has been unchanged.
+    fn input_current_limit(&mut self, power_supply: &PowerSupply, active: Duration) -> InputCurrentLimit {
+        InputCurrentLimit {
+            max_input_current_ma: if active.to_secs() >= 3 {
+                power_supply.max_current_ma()
+            } else {
+                power_supply.max_current_ma().min(500)
+            },
+            ico: matches!(power_supply, PowerSupply::UsbDcp),
+        }
     }
 
     /// Sets the power LED to the specified state.

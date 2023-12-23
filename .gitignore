@@ -26,3 +26,4 @@ devicetree/*.dtbo
 /compile_commands.json
 
 enqt*
+pi_power_shield1*

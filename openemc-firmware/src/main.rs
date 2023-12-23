@@ -266,6 +266,8 @@ pub type IrqState = irq::IrqState<{ board::PORTS }>;
 
 #[rtic::app(device = stm32f1::stm32f103, peripherals = true, dispatchers = [SPI1, SPI2, SPI3])]
 mod app {
+    use crate::bq25713::InputCurrentLimit;
+
     use super::*;
 
     /// System timer.
@@ -860,12 +862,17 @@ mod app {
     /// Updates the power supply status.
     #[task(
         shared = [i2c2, stusb4500, max14636, bq25713, power_supply, irq, board, &power_mode],
-        local = [first: Option<Instant> = None, charger_set: bool = false],
+        local = [
+            first: Option<Instant> = None,
+            last_change: Option<Instant> = None,
+            limit_opt: Option<InputCurrentLimit> = None,
+        ],
         capacity = 3
     )]
     fn power_supply_update(cx: power_supply_update::Context) {
         let grace_period: Duration = 10u64.secs();
         let first = cx.local.first.get_or_insert_with(monotonics::now);
+        let last_change = cx.local.last_change.get_or_insert_with(monotonics::now);
 
         (
             cx.shared.i2c2,
@@ -890,40 +897,9 @@ mod app {
                     report = report.merge(&max14636_report);
                 }
 
-                if Some(&report) != power_supply.as_ref() || !*cx.local.charger_set {
+                // Update power supply status.
+                if Some(&report) != power_supply.as_ref() {
                     defmt::info!("Power supply: {:?}", report);
-
-                    // Configure battery charger.
-                    match (i2c2, bq25713) {
-                        (Some(i2c2), Some(bq25713)) if !report.is_unknown() => {
-                            let max_current = report.max_current_ma();
-                            let ico = matches!(&report, PowerSupply::UsbDcp);
-
-                            defmt::info!(
-                                "Setting BQ25713 maximum input current to {} mA and ICO to {}",
-                                max_current,
-                                ico
-                            );
-                            let res = bq25713.set_max_input_current(i2c2, max_current, ico).and_then(|_| {
-                                if max_current > 0 && !bq25713.is_charge_enabled() {
-                                    bq25713.set_charge_enable(i2c2, true)?;
-                                } else if max_current == 0 && bq25713.is_charge_enabled() {
-                                    bq25713.set_charge_enable(i2c2, false)?;
-                                }
-                                Ok(())
-                            });
-                            match res {
-                                Ok(()) => *cx.local.charger_set = true,
-                                Err(err) => {
-                                    defmt::error!("Cannot configure BQ25713 charging: {}", err);
-                                    *cx.local.charger_set = false;
-                                }
-                            }
-                        }
-                        _ => {
-                            *cx.local.charger_set = true;
-                        }
-                    }
 
                     // Check for power on and shutdown in charging mode.
                     if *cx.shared.power_mode == PowerMode::Charging {
@@ -940,7 +916,46 @@ mod app {
 
                     // Store report and notify host.
                     irq.pend_soft(IrqState::SUPPLY | IrqState::BATTERY);
-                    *power_supply = Some(report);
+                    *power_supply = Some(report.clone());
+                    *last_change = monotonics::now();
+                }
+
+                // Calculate input current limit.
+                let limit_opt = if report.is_unknown() {
+                    None
+                } else {
+                    Some(board.input_current_limit(&report, monotonics::now() - *last_change))
+                };
+
+                // Configure battery charger.
+                match &limit_opt {
+                    _ if limit_opt == *cx.local.limit_opt => (),
+                    Some(limit) => match (i2c2, bq25713) {
+                        (Some(i2c2), Some(bq25713)) => {
+                            defmt::info!(
+                                "Setting BQ25713 maximum input current to {} mA and ICO to {}",
+                                limit.max_input_current_ma,
+                                limit.ico
+                            );
+
+                            let res = bq25713.set_input_current_limit(i2c2, limit).and_then(|_| {
+                                if limit.max_input_current_ma > 0 && !bq25713.is_charge_enabled() {
+                                    bq25713.set_charge_enable(i2c2, true)?;
+                                } else if limit.max_input_current_ma == 0 && bq25713.is_charge_enabled() {
+                                    bq25713.set_charge_enable(i2c2, false)?;
+                                }
+                                Ok(())
+                            });
+                            match res {
+                                Ok(()) => *cx.local.limit_opt = limit_opt,
+                                Err(err) => defmt::error!("Cannot configure BQ25713 charging: {}", err),
+                            }
+                        }
+                        _ => {
+                            *cx.local.limit_opt = limit_opt;
+                        }
+                    },
+                    None => *cx.local.limit_opt = limit_opt,
                 }
             });
 

@@ -237,6 +237,15 @@ impl From<Charging> for u8 {
     }
 }
 
+/// Input current limit.
+#[derive(Format, Default, Clone, PartialEq, Eq)]
+pub struct InputCurrentLimit {
+    /// Maximum input current in mA.
+    pub max_input_current_ma: u32,
+    /// Specifies whether the input current optimizer (ICO) is enabled.
+    pub ico: bool,
+}
+
 /// BQ25713 battery charger instance.
 pub struct Bq25713<I2C> {
     addr: u8,
@@ -246,8 +255,7 @@ pub struct Bq25713<I2C> {
     measurement: Option<Bq25713Measurement>,
     status: Bq25713Status,
     charge_enabled: bool,
-    max_input_current_ma: Option<u32>,
-    ico: bool,
+    input_current_limit: Option<InputCurrentLimit>,
     chrg_ok: bool,
     _i2c: PhantomData<I2C>,
 }
@@ -299,8 +307,7 @@ where
             measurement: None,
             status: Default::default(),
             charge_enabled: false,
-            max_input_current_ma: None,
-            ico: false,
+            input_current_limit: None,
             chrg_ok: false,
             _i2c: PhantomData,
         }
@@ -389,8 +396,8 @@ where
 
         // Disable input current.
         self.chrg_ok = false;
-        self.max_input_current_ma = Some(0);
-        self.program_max_input_current(i2c)?;
+        self.input_current_limit = Some(InputCurrentLimit::default());
+        self.program_input_current_limit(i2c)?;
         self.program_charge_enabled(i2c)?;
 
         // Enable low power mode.
@@ -463,29 +470,30 @@ where
         self.write(i2c, REG_CHARGER_STATUS_LO, &[0x00])
     }
 
-    /// Sets the input current limit in mA.
-    ///
-    /// `ico` specifies whether the input current optimizer (ICO) is enabled.
-    pub fn set_max_input_current(&mut self, i2c: &mut I2C, ma: u32, ico: bool) -> Result<()> {
+    /// Sets the input current limit settings.
+    pub fn set_input_current_limit(&mut self, i2c: &mut I2C, limit: &InputCurrentLimit) -> Result<()> {
         self.check_initialized()?;
 
-        defmt::debug!("Setting maximum input current to {} mA and ICO to {}", ma, ico);
-        self.max_input_current_ma = Some(ma);
-        self.ico = ico;
-        self.program_max_input_current(i2c)?;
+        defmt::debug!(
+            "Setting maximum input current to {} mA and ICO to {}",
+            limit.max_input_current_ma,
+            limit.ico
+        );
+        self.input_current_limit = Some(limit.clone());
+        self.program_input_current_limit(i2c)?;
 
         Ok(())
     }
 
-    /// Gets the input current limit in mA.
-    pub fn max_input_current(&self) -> u32 {
-        self.max_input_current_ma.unwrap_or_default()
+    /// Gets the input current limit.
+    pub fn input_current_limit(&self) -> Option<&InputCurrentLimit> {
+        self.input_current_limit.as_ref()
     }
 
     /// Programs the maximum input current into the BQ25713.
-    fn program_max_input_current(&mut self, i2c: &mut I2C) -> Result<()> {
-        let Some(max_input_current_ma) = self.max_input_current_ma else {
-            defmt::trace!("No maximum input current has been set");
+    fn program_input_current_limit(&mut self, i2c: &mut I2C) -> Result<()> {
+        let Some(limit) = self.input_current_limit.clone() else {
+            defmt::trace!("No input current limit has been set");
             return Ok(());
         };
 
@@ -493,22 +501,22 @@ where
         self.modify(i2c, REG_CHARGE_OPTION_0_LO, |v| v | (1 << 1))?;
 
         if self.chrg_ok {
-            defmt::trace!("Programming maximum input current {} mA", self.max_input_current_ma);
+            defmt::trace!("Programming maximum input current {} mA", limit.max_input_current_ma);
 
             // Enable or disable ICO.
-            self.set_ico(i2c, self.ico)?;
+            self.set_ico(i2c, limit.ico)?;
 
             // Program input current.
-            let v = (max_input_current_ma / 50) as u8 & 0b01111111;
+            let v = (limit.max_input_current_ma / 50) as u8 & 0b01111111;
             self.write(i2c, REG_IIN_HOST, &[v])?;
 
             // Enable or disable ICO.
-            self.set_ico(i2c, self.ico)?;
+            self.set_ico(i2c, limit.ico)?;
 
             // Verify programmed current.
             let r = self.read(i2c, REG_IIN_HOST, 1)?[0];
             let r_dpm = self.read(i2c, REG_IIN_DPM, 1)?[0];
-            if r != v || (r_dpm != v && !self.ico) {
+            if r != v || (r_dpm != v && !limit.ico) {
                 defmt::error!(
                     "Programmed input current {:x}, but read back is {:x} and I_DPM is {:x}",
                     v,
@@ -683,7 +691,7 @@ where
         self.update_status(i2c)?;
         self.update_adc(i2c)?;
         self.set_charge_current(i2c, self.cfg.max_charge_ma)?;
-        self.program_max_input_current(i2c)?;
+        self.program_input_current_limit(i2c)?;
         self.program_charge_enabled(i2c)?;
 
         Ok(())
@@ -710,7 +718,7 @@ where
     }
 
     fn do_chrg_ok_changed(&mut self, i2c: &mut I2C) -> Result<()> {
-        self.program_max_input_current(i2c)?;
+        self.program_input_current_limit(i2c)?;
         self.program_charge_enabled(i2c)?;
         Ok(())
     }
