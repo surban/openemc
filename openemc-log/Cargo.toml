@@ -3,9 +3,20 @@ name = "openemc-log"
 description = "OpenEMC Logger"
 authors = ["Sebastian Urban <surban@surban.net>"]
 license = "GPL-3.0"
-version = "0.6.0"
+version = "0.7.0"
 publish = false
 edition = "2021"
+
+[features]
+default = []
+
+# Reading of log from device memory via debug probe.
+probe = [
+    "dep:probe-rs",
+    "dep:tempfile",
+    "dep:object",
+    "dep:defmt-ringbuf-offline",
+]
 
 [dependencies]
 anyhow = "1"
@@ -15,6 +26,11 @@ defmt-parser = { version = "0.3", features = ["unstable"] }
 nix = { version = "0.27", features = ["poll"] }
 log = "0.4"
 libc = "0.2"
-env_logger = "0.10"
+env_logger = "0.11"
 ctrlc = { version = "3", features = ["termination"] }
 flate2 = "1"
+
+probe-rs = { version = "0.22", optional = true }
+tempfile = { version = "3.9", optional = true }
+object = { version = "0.32", optional = true }
+defmt-ringbuf-offline = { path = "../defmt-ringbuf-offline", optional = true }

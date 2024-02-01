@@ -71,10 +71,15 @@ struct Opts {
     /// Log to standard output instead of syslog.
     #[arg(short, long)]
     foreground: bool,
-    /// ELF image of OpenEMC firmware.
+    /// Gzipped ELF image of OpenEMC firmware.
     firmware_elf: Option<PathBuf>,
     /// OpenEMC log file or device.
     openemc_log: Option<PathBuf>,
+
+    /// Read log from memory of device connected via debug probe.
+    #[cfg(feature = "probe")]
+    #[arg(short, long)]
+    probe: bool,
 }
 
 /// Write defmt log message to Rust logger.
@@ -103,12 +108,12 @@ fn forward_to_logger(frame: &Frame, loc: Option<&Location>, lines: bool) {
     log::log!(level, "{msg}");
 }
 
-/// Gets the firmware ELF and log path.
-fn get_paths(opts: &Opts, bootloader: bool) -> Result<(PathBuf, PathBuf)> {
+/// Gets the log file or log device path.
+fn log_path(opts: &Opts) -> Result<PathBuf> {
     let openemc_log = match &opts.openemc_log {
         Some(openemc_log) => openemc_log.clone(),
         None => {
-            let filename = if bootloader { "openemc_bootloader_log" } else { "openemc_log" };
+            let filename = if opts.bootloader { "openemc_bootloader_log" } else { "openemc_log" };
             let driver = fs::read_dir("/sys/module/openemc/drivers")
                 .context("OpenEMC module not loaded")?
                 .next()
@@ -122,11 +127,15 @@ fn get_paths(opts: &Opts, bootloader: bool) -> Result<(PathBuf, PathBuf)> {
                 .context("OpenEMC log not available")?
         }
     };
+    Ok(openemc_log.canonicalize()?)
+}
 
-    let firmware_elf = match &opts.firmware_elf {
-        Some(firmware_elf) => firmware_elf.clone(),
+/// Gets the path to the firmware ELF file.
+fn firmware_elf_path(opts: &Opts, openemc_log: Option<&Path>) -> Result<PathBuf> {
+    let firmware_elf = match (&opts.firmware_elf, openemc_log) {
+        (Some(firmware_elf), _) => firmware_elf.clone(),
 
-        None if bootloader => {
+        (None, Some(openemc_log)) if opts.bootloader => {
             let firmware_bin = PathBuf::from(OsString::from_vec(
                 fs::read(openemc_log.with_file_name("openemc_firmware"))
                     .context("OpenEMC firmware location not available")?,
@@ -146,7 +155,7 @@ fn get_paths(opts: &Opts, bootloader: bool) -> Result<(PathBuf, PathBuf)> {
             bootloader_elf
         }
 
-        None => {
+        (None, Some(openemc_log)) => {
             let mut firmware_bin = PathBuf::from(OsString::from_vec(
                 fs::read(openemc_log.with_file_name("openemc_firmware"))
                     .context("OpenEMC firmware location not available")?,
@@ -174,29 +183,94 @@ fn get_paths(opts: &Opts, bootloader: bool) -> Result<(PathBuf, PathBuf)> {
                 firmware = chars.as_str().into();
             }
         }
+
+        (None, None) => bail!("firmware ELF path must be specified"),
     };
 
-    Ok((firmware_elf.canonicalize()?, openemc_log.canonicalize()?))
+    Ok(firmware_elf.canonicalize()?)
+}
+
+/// Read from device memory via debug probe.
+#[cfg(feature = "probe")]
+fn read_device_memory(addr: u64, data: &mut [u8]) -> Result<()> {
+    use probe_rs::{Lister, MemoryInterface, Permissions};
+
+    let lister = Lister::new();
+    let probes = lister.list_all();
+    let probe =
+        probes.first().context("no debug probe found")?.open(&lister).context("cannot open debug probe")?;
+    let mut session =
+        probe.attach_under_reset("STM32F103RB", Permissions::default()).context("cannot connect to target")?;
+    let mut core = session.core(0).context("cannot connect to core")?;
+    core.read(addr, data)?;
+
+    Ok(())
 }
 
 fn perform(opts: &Opts) -> Result<bool> {
-    let (firmware_elf, openemc_log) =
-        get_paths(opts, opts.bootloader).context("cannot determine log or firmware path")?;
+    #[cfg(feature = "probe")]
+    let probe = opts.probe;
+    #[cfg(not(feature = "probe"))]
+    let probe = false;
 
-    log::info!(
-        "======== logging from {} using firmware image {} ========",
-        openemc_log.display(),
-        firmware_elf.display()
-    );
+    let openemc_log;
+    let firmware_elf;
+    if probe {
+        #[cfg(feature = "probe")]
+        {
+            openemc_log = None;
+            firmware_elf = firmware_elf_path(opts, None).context("cannot determine firmware ELF path")?;
+        }
 
-    let mut bytes = Vec::new();
+        #[cfg(not(feature = "probe"))]
+        {
+            unreachable!()
+        }
+    } else {
+        openemc_log = Some(log_path(opts).context("cannot determine log path")?);
+        firmware_elf =
+            firmware_elf_path(opts, openemc_log.as_deref()).context("cannot determine firmware ELF path")?;
+    }
+
+    match &openemc_log {
+        Some(openemc_log) => {
+            log::info!(
+                "======== logging from {} using firmware image {} ========",
+                openemc_log.display(),
+                firmware_elf.display()
+            );
+        }
+        None => {
+            log::info!("======== logging from probe using firmware image {} ========", firmware_elf.display());
+        }
+    }
+
+    let table;
+    let locs;
+    #[cfg(feature = "probe")]
+    let log_sect_addr;
+    #[cfg(feature = "probe")]
+    let log_sect_size;
     {
+        let mut bytes = Vec::new();
         let mut file = GzDecoder::new(File::open(&firmware_elf).context("cannot open firmware")?);
         file.read_to_end(&mut bytes).context("cannot read firmware")?;
+
+        table = Table::parse(&bytes)?.context(".defmt data not found")?;
+        locs = table.get_locations(&bytes)?;
+
+        #[cfg(feature = "probe")]
+        {
+            use object::{Object, ObjectSection};
+            let elf = object::File::parse(&*bytes).context("cannot parse firmware")?;
+            let section_name = if opts.bootloader { ".defmt_boot_log" } else { ".defmt_log" };
+            let section = elf.section_by_name(section_name).context("log section not found")?;
+            log_sect_addr = section.address();
+            log_sect_size = section.size();
+            let which = if opts.bootloader { "bootloader " } else { "" };
+            log::debug!("======== {which}log is at 0x{log_sect_addr:x} and has size {log_sect_size} ========");
+        }
     }
-    let table = Table::parse(&bytes)?.context(".defmt data not found")?;
-    let locs = table.get_locations(&bytes)?;
-    drop(bytes);
 
     let locs = if table.indices().all(|idx| locs.contains_key(&(idx as u64))) {
         Some(locs)
@@ -205,15 +279,49 @@ fn perform(opts: &Opts) -> Result<bool> {
         None
     };
 
-    let mut log = File::open(&openemc_log).context("cannot open OpenEMC log")?;
-    let is_dev = fs::canonicalize(&openemc_log)?.starts_with("/sys");
+    let mut log;
+    let is_dev;
+    match &openemc_log {
+        Some(openemc_log) => {
+            log = File::open(openemc_log).context("cannot open OpenEMC log")?;
+            is_dev = fs::canonicalize(openemc_log)?.starts_with("/sys");
+        }
+        None => {
+            #[cfg(feature = "probe")]
+            {
+                log = tempfile::tempfile()?;
+                is_dev = false;
+
+                let mut buf = vec![0; log_sect_size.try_into()?];
+                read_device_memory(log_sect_addr, &mut buf).context("cannot read log from device memory")?;
+
+                let (data, overwritten) = defmt_ringbuf_offline::read::<defmt_ringbuf_offline::LE>(&buf)
+                    .context("cannot parse log ring buffer")?;
+                std::io::Write::write_all(&mut log, &data)?;
+                log.rewind()?;
+
+                if overwritten {
+                    log::warn!("======== log data was lost ========");
+                }
+            }
+
+            #[cfg(not(feature = "probe"))]
+            {
+                unreachable!()
+            }
+        }
+    }
 
     let mut buf = [0; READ_BUFFER_SIZE];
     let mut stream_decoder = table.new_stream_decoder();
 
     while !STOP.load(Ordering::SeqCst) {
-        // Read from OpenEMC firmware.
-        log.rewind()?;
+        // Read from start of device file.
+        if is_dev {
+            log.rewind()?;
+        }
+
+        // Read data.
         match log.read(&mut buf) {
             Ok(0) if is_dev && !opts.oneshot && !opts.bootloader => {
                 // Wait for data to arrive.
@@ -260,11 +368,23 @@ fn perform(opts: &Opts) -> Result<bool> {
 fn main() -> Result<()> {
     ctrlc::set_handler(|| STOP.store(true, Ordering::SeqCst))?;
 
-    let opts = Opts::parse();
+    #[allow(unused_mut)]
+    let mut opts = Opts::parse();
+
+    #[cfg(feature = "probe")]
+    if opts.probe {
+        opts.foreground = true;
+    }
 
     // Initialize logger.
     if opts.foreground {
-        env_logger::builder().target(Target::Stdout).filter_level(opts.level).init();
+        env_logger::builder()
+            .target(Target::Stdout)
+            .filter_level(opts.level)
+            .filter_module("probe_rs", LevelFilter::Warn)
+            .filter_module("jaylink", LevelFilter::Warn)
+            .filter_module("tracing", LevelFilter::Warn)
+            .init();
     } else {
         let ident =
             opts.ident.as_deref().unwrap_or(if opts.bootloader { "OpenEMC-bootloader" } else { "OpenEMC" });

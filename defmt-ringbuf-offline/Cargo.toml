@@ -1,0 +1,12 @@
+[package]
+name = "defmt-ringbuf-offline"
+description = "defmt persistent ring buffer reader"
+authors = ["Sebastian Urban <surban@surban.net>"]
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "1"
+displaydoc = "0.2"
+byteorder = "1"

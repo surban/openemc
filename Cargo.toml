@@ -2,6 +2,7 @@
 members = ["openemc-build", "openemc-log", "openemc-pack", "xtask"]
 exclude = [
     "defmt-ringbuf",
+    "defmt-ringbuf-offline",
     "openemc-bootloader",
     "openemc-firmware",
     "openemc-shared",

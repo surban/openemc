@@ -60,6 +60,7 @@
     "rust-analyzer.linkedProjects": [
         "defmt-ringbuf/Cargo.toml",
         "defmt-ringbuf/defmt-ringbuf-test/Cargo.toml",
+        "defmt-ringbuf-offline/Cargo.toml",
         "openemc-bootloader/Cargo.toml",
         "openemc-firmware/Cargo.toml",
         "openemc-log/Cargo.toml",
