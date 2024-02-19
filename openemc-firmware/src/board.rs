@@ -36,6 +36,9 @@ pub trait Board {
     /// triggers.
     const SIMULATE_PD_IRQS: Option<Duration> = None;
 
+    /// Whether to use a timer for PWM.
+    const PWM_TIMERS: [bool; 4] = [false; 4];
+
     /// Mode for I2C 2 master bus.
     const I2C2_MODE: Option<i2c::Mode> = None;
 

@@ -331,7 +331,7 @@ mod app {
         /// User GPIO.
         ugpio: MaskedGpio<{ board::PORTS }>,
         /// PWM timers.
-        pwm_timers: [PwmTimer; 4],
+        pwm_timers: [Option<PwmTimer>; 4],
         /// AD converter.
         adc: Adc<ADC1>,
         /// AD converter inputs.
@@ -628,10 +628,10 @@ mod app {
         // Initialize PWM timers.
         delay.release();
         let pwm_timers = [
-            PwmTimer::new(pwm::Timer::Timer1, &clocks),
-            PwmTimer::new(pwm::Timer::Timer2, &clocks),
-            PwmTimer::new(pwm::Timer::Timer3, &clocks),
-            PwmTimer::new(pwm::Timer::Timer4, &clocks),
+            ThisBoard::PWM_TIMERS[0].then(|| PwmTimer::new(pwm::Timer::Timer1, &clocks)),
+            ThisBoard::PWM_TIMERS[1].then(|| PwmTimer::new(pwm::Timer::Timer2, &clocks)),
+            ThisBoard::PWM_TIMERS[2].then(|| PwmTimer::new(pwm::Timer::Timer3, &clocks)),
+            ThisBoard::PWM_TIMERS[3].then(|| PwmTimer::new(pwm::Timer::Timer4, &clocks)),
         ];
 
         // Configure IRQ pin.
@@ -1627,41 +1627,41 @@ mod app {
                 *cx.local.pwm_timer_index = value.as_u8();
             }
             Event::Read { reg: reg::PWM_TIMER_CHANNELS } => {
-                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     respond_u8(pwm_timer.channel_count());
                 }
             }
             Event::Write { reg: reg::PWM_TIMER_REMAP, value } => {
-                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     pwm_timer.set_remap(value.as_u8());
                 }
             }
             Event::Write { reg: reg::PWM_TIMER_FREQUENCY, value } => {
-                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     pwm_timer.set_frequency(value.as_u32().Hz());
                 }
             }
             Event::Read { reg: reg::PWM_CHANNEL } => respond_u8(*cx.local.pwm_channel_index),
             Event::Write { reg: reg::PWM_CHANNEL, value } => {
                 let channel = value.as_u8();
-                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     if channel < pwm_timer.channel_count() {
                         *cx.local.pwm_channel_index = channel;
                     }
                 }
             }
             Event::Write { reg: reg::PWM_CHANNEL_DUTY_CYCLE, value } => {
-                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     pwm_timer.set_duty_cycle(*cx.local.pwm_channel_index, value.as_u16());
                 }
             }
             Event::Write { reg: reg::PWM_CHANNEL_POLARITY, value } => {
-                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     pwm_timer.set_polarity(*cx.local.pwm_channel_index, value.as_u8() != 0);
                 }
             }
             Event::Write { reg: reg::PWM_CHANNEL_OUTPUT, value } => {
-                if let Some(pwm_timer) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
                     pwm_timer.set_output(*cx.local.pwm_channel_index, value.as_u8() != 0);
                 }
             }
