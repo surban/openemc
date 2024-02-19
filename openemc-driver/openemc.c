@@ -5,7 +5,9 @@
  * Copyright (C) 2022 Sebastian Urban <surban@surban.net>
  */
 
+#include <linux/crc32.h>
 #include <linux/delay.h>
+#include <linux/firmware.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -13,11 +15,10 @@
 #include <linux/module.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
+#include <linux/poll.h>
+#include <linux/random.h>
 #include <linux/reboot.h>
 #include <linux/regmap.h>
-#include <linux/firmware.h>
-#include <linux/crc32.h>
-#include <linux/random.h>
 #include <linux/version.h>
 
 #include "openemc.h"
@@ -1196,6 +1197,28 @@ static irqreturn_t openemc_irq_handler(int irq, void *ptr)
 		}
 
 		pending &= ~BIT(OPENEMC_IRQ_LOG);
+		handled = true;
+	}
+
+	if (pending & BIT(OPENEMC_IRQ_BOARD_IO)) {
+		mutex_lock(&emc->io_lock);
+		emc->io_read_avail = true;
+		emc->io_write_avail = true;
+		mutex_unlock(&emc->io_lock);
+		wake_up_all(&emc->io_wait_queue);
+
+		pending &= ~BIT(OPENEMC_IRQ_BOARD_IO);
+		handled = true;
+	}
+
+	if (pending & BIT(OPENEMC_IRQ_BOARD_IOCTL)) {
+		mutex_lock(&emc->io_lock);
+		emc->ioctl_avail = true;
+		mutex_unlock(&emc->io_lock);
+		wake_up_all(&emc->io_wait_queue);
+
+		pending &= ~BIT(OPENEMC_IRQ_BOARD_IOCTL);
+		handled = true;
 	}
 
 	for (n = 0; n < OPENEMC_IRQS; n++) {
@@ -1325,8 +1348,7 @@ static ssize_t openemc_flashable_show(struct device *dev,
 static DEVICE_ATTR_RO(openemc_flashable);
 
 static ssize_t openemc_flash_size_show(struct device *dev,
-				       struct device_attribute *attr,
-				       char *buf)
+				       struct device_attribute *attr, char *buf)
 {
 	struct openemc *emc = dev_get_drvdata(dev);
 	return sprintf(buf, "%d", emc->flash_total_size);
@@ -1556,6 +1578,219 @@ static const struct attribute_group openemc_group = {
 	.bin_attrs = openemc_bin_attrs
 };
 
+static inline struct openemc *file_to_openemc(struct file *file)
+{
+	return container_of(file->private_data, struct openemc, io_dev);
+}
+
+static ssize_t openemc_fops_read(struct file *file, char __user *buf,
+				 size_t count, loff_t *ppos)
+{
+	struct openemc *emc = file_to_openemc(file);
+	u8 data[OPENEMC_MAX_DATA_SIZE];
+	size_t avail;
+	ssize_t ret;
+
+	if (count < OPENEMC_MAX_DATA_SIZE - 1)
+		return -EINVAL;
+
+	while (true) {
+		mutex_lock(&emc->io_lock);
+		emc->io_read_avail = false;
+		mutex_unlock(&emc->io_lock);
+
+		ret = openemc_read_data(emc, OPENEMC_BOARD_IO,
+					OPENEMC_MAX_DATA_SIZE, data);
+		if (ret < 0)
+			return ret;
+
+		avail = min_t(size_t, data[0], OPENEMC_MAX_DATA_SIZE - 1);
+		if (avail > 0)
+			break;
+
+		mutex_lock(&emc->io_lock);
+		while (!emc->io_read_avail) {
+			mutex_unlock(&emc->io_lock);
+			if (file->f_flags & O_NONBLOCK)
+				return -EAGAIN;
+			ret = wait_event_interruptible(emc->io_wait_queue,
+						       emc->io_read_avail);
+			if (ret)
+				return ret;
+			mutex_lock(&emc->io_lock);
+		}
+		mutex_unlock(&emc->io_lock);
+	}
+
+	if (copy_to_user(buf, data + 1, avail))
+		return -EFAULT;
+
+	return avail;
+}
+
+static ssize_t openemc_fops_write(struct file *file, const char __user *buf,
+				  size_t count, loff_t *ppos)
+{
+	struct openemc *emc = file_to_openemc(file);
+	u8 data[OPENEMC_MAX_DATA_SIZE];
+	u8 len = min_t(size_t, OPENEMC_MAX_DATA_SIZE, count);
+	u8 status;
+	ssize_t ret;
+
+	if (copy_from_user(data, buf, len))
+		return -EFAULT;
+
+	while (true) {
+		mutex_lock(&emc->io_lock);
+		emc->io_write_avail = false;
+		ret = openemc_write_data(emc, OPENEMC_BOARD_IO, len, data);
+		if (ret < 0) {
+			mutex_unlock(&emc->io_lock);
+			return ret;
+		}
+		ret = openemc_read_u8(emc, OPENEMC_BOARD_IO_STATUS, &status);
+		if (ret < 0) {
+			mutex_unlock(&emc->io_lock);
+			return ret;
+		}
+		mutex_unlock(&emc->io_lock);
+
+		if (status == 0)
+			break;
+
+		mutex_lock(&emc->io_lock);
+		while (!emc->io_write_avail) {
+			mutex_unlock(&emc->io_lock);
+			if (file->f_flags & O_NONBLOCK)
+				return -EAGAIN;
+			ret = wait_event_interruptible(emc->io_wait_queue,
+						       emc->io_write_avail);
+			if (ret)
+				return ret;
+			mutex_lock(&emc->io_lock);
+		}
+		mutex_unlock(&emc->io_lock);
+	}
+
+	return len;
+}
+
+static int openemc_wait_ioctl_avail(struct openemc *emc, u8 *info)
+{
+	u8 buf[2];
+	int ret;
+
+	while (true) {
+		mutex_lock(&emc->io_lock);
+		emc->ioctl_avail = false;
+		mutex_unlock(&emc->io_lock);
+
+		ret = openemc_read_data(emc, OPENEMC_BOARD_IOCTL_STATUS,
+					sizeof(buf), buf);
+		if (ret < 0)
+			return ret;
+
+		if (buf[0] != OPENEMC_BOARD_IOCTL_PROCESSING)
+			break;
+
+		mutex_lock(&emc->io_lock);
+		while (!emc->ioctl_avail) {
+			mutex_unlock(&emc->io_lock);
+			ret = wait_event_interruptible(emc->io_wait_queue,
+						       emc->ioctl_avail);
+			if (ret)
+				return ret;
+			mutex_lock(&emc->io_lock);
+		}
+		mutex_unlock(&emc->io_lock);
+	}
+
+	*info = buf[1];
+	return buf[0];
+}
+
+static long openemc_fops_ioctl(struct file *file, unsigned int cmd,
+			       unsigned long arg)
+{
+	struct openemc *emc = file_to_openemc(file);
+	__user u8 *buf = (__user u8 *)arg;
+	u8 len = cmd;
+	u8 data[OPENEMC_MAX_DATA_SIZE];
+	u8 info;
+	long ret;
+
+	if (cmd > OPENEMC_MAX_DATA_SIZE)
+		return -EINVAL;
+
+	if (copy_from_user(data, buf, len))
+		return -EFAULT;
+
+	mutex_lock(&emc->ioctl_lock);
+
+	ret = openemc_wait_ioctl_avail(emc, &info);
+	if (ret < 0)
+		goto out;
+
+	ret = openemc_write_data(emc, OPENEMC_BOARD_IOCTL, len, data);
+	if (ret < 0)
+		goto out;
+
+	ret = openemc_wait_ioctl_avail(emc, &info);
+	if (ret < 0)
+		goto out;
+	if (ret == OPENEMC_BOARD_IOCTL_FAILED) {
+		if (info == 0)
+			ret = -EINVAL;
+		else
+			ret = -info;
+		goto out;
+	} else if (ret != OPENEMC_BOARD_IOCTL_DONE) {
+		ret = -EIO;
+		goto out;
+	}
+
+	len = min_t(u8, info, OPENEMC_MAX_DATA_SIZE);
+	ret = openemc_read_data(emc, OPENEMC_BOARD_IOCTL, len, data);
+	if (ret < 0)
+		goto out;
+
+	if (copy_to_user(buf, data, len)) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	ret = len;
+
+out:
+	mutex_unlock(&emc->ioctl_lock);
+	return ret;
+}
+
+static __poll_t openemc_fops_poll(struct file *file, poll_table *wait)
+{
+	struct openemc *emc = file_to_openemc(file);
+	__poll_t mask = 0;
+
+	poll_wait(file, &emc->io_wait_queue, wait);
+
+	mutex_lock(&emc->io_lock);
+	if (emc->io_read_avail)
+		mask |= EPOLLIN;
+	if (emc->io_write_avail)
+		mask |= EPOLLOUT;
+	mutex_unlock(&emc->io_lock);
+
+	return mask;
+}
+
+static const struct file_operations openemc_fops = {
+	.owner = THIS_MODULE,
+	.read = openemc_fops_read,
+	.write = openemc_fops_write,
+	.unlocked_ioctl = openemc_fops_ioctl,
+	.poll = openemc_fops_poll,
+};
+
 static int openemc_get_mfd_cells(struct openemc *emc)
 {
 	char *comma;
@@ -1615,7 +1850,7 @@ static int openemc_get_info(struct openemc *emc)
 		return ret;
 
 	ret = openemc_read_u32(emc, OPENEMC_BOOTLOADER_CRC32,
-	       		       &emc->bootloader_crc32);
+			       &emc->bootloader_crc32);
 	if (ret < 0)
 		return ret;
 
@@ -1634,7 +1869,7 @@ static int openemc_get_info(struct openemc *emc)
 	emc->copyright[ARRAY_SIZE(emc->copyright) - 1] = 0;
 
 	ret = openemc_read_u32(emc, OPENEMC_FLASH_TOTAL_SIZE,
-	       		       &emc->flash_total_size);
+			       &emc->flash_total_size);
 	if (ret < 0)
 		return ret;
 
@@ -1780,6 +2015,18 @@ static int openemc_i2c_probe(struct i2c_client *i2c)
 	if (ret < 0)
 		return ret;
 
+	/* Init board io interface */
+	mutex_init(&emc->io_lock);
+	mutex_init(&emc->ioctl_lock);
+	init_waitqueue_head(&emc->io_wait_queue);
+	emc->io_dev.minor = MISC_DYNAMIC_MINOR;
+	emc->io_dev.name = "openemc";
+	emc->io_dev.fops = &openemc_fops;
+	emc->io_dev.parent = &i2c->dev;
+	ret = misc_register(&emc->io_dev);
+	if (ret < 0)
+		return ret;
+
 	return 0;
 }
 
@@ -1795,6 +2042,8 @@ static int openemc_i2c_remove(struct i2c_client *i2c)
 		devm_free_irq(emc->dev, emc->irq, emc);
 		irq_domain_remove(emc->irq_domain);
 	}
+
+	misc_deregister(&emc->io_dev);
 
 #if !(LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
 	return 0;

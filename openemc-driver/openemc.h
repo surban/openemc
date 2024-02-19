@@ -10,6 +10,7 @@
 
 #include <linux/i2c.h>
 #include <linux/mfd/core.h>
+#include <linux/miscdevice.h>
 
 #define OPENEMC_MAX_PINS 64
 #define OPENEMC_MAX_DATA_SIZE 32
@@ -114,6 +115,12 @@
 #define OPENEMC_SUPPLY_VOLTAGE 0x94
 #define OPENEMC_SUPPLY_CURRENT 0x95
 
+/* Board IO register definitions */
+#define OPENEMC_BOARD_IO 0xe0
+#define OPENEMC_BOARD_IO_STATUS 0xe1
+#define OPENEMC_BOARD_IOCTL 0xe2
+#define OPENEMC_BOARD_IOCTL_STATUS 0xe3
+
 /* Misc register definitions */
 #define OPENEMC_RESET 0xf0
 #define OPENEMC_CHECKSUM_ENABLE 0xf7
@@ -149,6 +156,12 @@
 /* Watchdog codes */
 #define OPENEMC_WDT_UNLOCK_CODE 0x1984090204061986
 
+/* Ioctl status */
+#define OPENEMC_BOARD_IOCTL_NONE 0x00
+#define OPENEMC_BOARD_IOCTL_PROCESSING 0x01
+#define OPENEMC_BOARD_IOCTL_DONE 0x02
+#define OPENEMC_BOARD_IOCTL_FAILED 0x03
+
 /* Checksum codes */
 #define OPENEMC_CHECKSUM_ENABLE_CODE 0x00ccee24771142ff
 #define OPENEMC_CHECKSUM_DISABLE_CODE 0x00dd1199456296ff
@@ -171,6 +184,8 @@
 #define OPENEMC_IRQ_BATTERY 20
 #define OPENEMC_IRQ_SUPPLY 21
 #define OPENEMC_IRQ_LOG 22
+#define OPENEMC_IRQ_BOARD_IO 23
+#define OPENEMC_IRQ_BOARD_IOCTL 24
 
 enum openemc_pin_mode {
 	OPENEMC_PIN_MODE_GPIO,
@@ -260,6 +275,14 @@ struct openemc {
 	u32 irq_alloced;
 	unsigned int irq_types[OPENEMC_IRQS];
 	int exti_bank[OPENEMC_EXT_IRQS];
+
+	struct mutex io_lock;
+	struct mutex ioctl_lock;
+	struct miscdevice io_dev;
+	wait_queue_head_t io_wait_queue;
+	bool io_read_avail;
+	bool io_write_avail;
+	bool ioctl_avail;
 };
 
 int openemc_cmd(struct openemc *emc, u8 command);

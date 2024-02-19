@@ -195,7 +195,7 @@ pub enum Event<const BUFFER: usize> {
 
 /// The value written into an I2C register.
 #[derive(Clone)]
-pub struct Value<const BUFFER: usize>(Vec<u8, BUFFER>);
+pub struct Value<const BUFFER: usize>(pub Vec<u8, BUFFER>);
 
 impl<const BUFFER: usize> Deref for Value<BUFFER> {
     type Target = [u8];

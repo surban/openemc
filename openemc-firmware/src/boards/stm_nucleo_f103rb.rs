@@ -5,7 +5,9 @@
 // OPENEMC-RAM-SIZE: 20480
 //
 
+use core::mem;
 use cortex_m::peripheral::SCB;
+use heapless::Vec;
 use stm32f1::stm32f103::Peripherals;
 use stm32f1xx_hal::{
     afio,
@@ -16,12 +18,13 @@ use stm32f1xx_hal::{
 use systick_monotonic::fugit::Rate;
 
 use crate::{
-    board::{Board, UnknownI2cRegister, PORTS},
-    cfg::Cfg,
+    board::{
+        io_read_available, io_write_available, Board, InitData, InitResources, UnknownI2cRegister, WriteBlock,
+        IO_BUFFER_SIZE, PORTS,
+    },
     i2c_reg_slave::Response,
     Delay, I2C_BUFFER_SIZE,
 };
-use openemc_shared::boot::BootInfo;
 
 /// I2C development mode register.
 const REG_DEVELOPMENT_MODE: u8 = 0xe0;
@@ -34,6 +37,7 @@ pub struct BoardImpl {
     development_mode: bool,
     stusb4500_alert: Pin<'A', 15, Input<PullUp>>,
     _stusb4500_reset: Pin<'B', 7, Output<PushPull>>,
+    io_data_buf: Vec<u8, { IO_BUFFER_SIZE }>,
 }
 
 impl Board for BoardImpl {
@@ -75,6 +79,7 @@ impl Board for BoardImpl {
                 .unwrap_or_default(),
             stusb4500_alert,
             _stusb4500_reset: stusb4500_reset,
+            io_data_buf: Vec::new(),
         }
     }
 
@@ -125,5 +130,27 @@ impl Board for BoardImpl {
         let pending = self.stusb4500_alert.check_interrupt();
         self.stusb4500_alert.clear_interrupt_pending_bit();
         pending
+    }
+
+    fn io_write(&mut self, data: &[u8]) -> Result<(), WriteBlock> {
+        if self.io_data_buf.is_empty() {
+            defmt::info!("Received {} bytes IO board data", data.len());
+            self.io_data_buf.clear();
+            defmt::unwrap!(self.io_data_buf.extend_from_slice(data));
+            if !self.io_data_buf.is_empty() {
+                io_read_available();
+            }
+            Ok(())
+        } else {
+            defmt::debug!("IO board data not empty");
+            Err(WriteBlock)
+        }
+    }
+
+    fn io_read(&mut self) -> Vec<u8, IO_BUFFER_SIZE> {
+        let data = mem::take(&mut self.io_data_buf);
+        defmt::info!("Sent {} bytes IO board data", data.len());
+        io_write_available();
+        data
     }
 }

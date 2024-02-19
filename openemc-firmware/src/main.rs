@@ -84,7 +84,10 @@ use systick_monotonic::*;
 use crate::{
     adc::{AdcBuf, AdcInputs},
     backup::BackupReg,
+    board::{
         Board, InitData, InitResources, Ioctl, IoctlAlreadyActive, IoctlStatus, WriteBlock, IOCTL_STATUS,
+        IO_AVAILABLE,
+    },
     boot::{BootInfoExt, BootReasonExt},
     bq25713::{Battery, Bq25713, InputCurrentLimit},
     cfg::{Cfg, ChargerAttached},
@@ -725,6 +728,15 @@ mod app {
                 boot::start_bootloader();
             }
 
+            // Set IRQ if response from board to ioctl is done.
+            if Ioctl::is_done() {
+                cx.shared.irq.lock(|irq| irq.pend_soft(IrqState::BOARD_IOCTL));
+            }
+
+            // Set IRQ if board has IO data available for reading or writing.
+            if IO_AVAILABLE.swap(false, Ordering::SeqCst) {
+                cx.shared.irq.lock(|irq| irq.pend_soft(IrqState::BOARD_IO));
+            }
 
             // Spawn board task if requested.
             interrupt::free(|cs| {
@@ -1366,6 +1378,7 @@ mod app {
             pwm_timer_index: u8 = 0,
             pwm_channel_index: u8 = 0,
             echo: [u8; I2C_BUFFER_SIZE] = [0; I2C_BUFFER_SIZE],
+            io_write_block: bool = false,
         ],
         shared = [
             i2c_req,
@@ -1787,6 +1800,44 @@ mod app {
                         respond_u32(battery.input_current_ma.unwrap_or_default());
                     }
                 });
+            }
+            Event::Read { reg: reg::BOARD_IO } => {
+                cx.shared.board.lock(|board| {
+                    let data = board.io_read();
+                    let mut rsp = Vec::new();
+                    defmt::unwrap!(rsp.push(data.len() as u8));
+                    defmt::unwrap!(rsp.extend_from_slice(&data));
+                    respond(Response(rsp))
+                });
+            }
+            Event::Write { reg: reg::BOARD_IO, value } => {
+                match cx.shared.board.lock(|board| board.io_write(&value)) {
+                    Ok(()) => *cx.local.io_write_block = false,
+                    Err(WriteBlock) => *cx.local.io_write_block = true,
+                }
+            }
+            Event::Read { reg: reg::BOARD_IO_STATUS } => respond_u8(*cx.local.io_write_block as u8),
+            Event::Write { reg: reg::BOARD_IOCTL, value } => match Ioctl::start(value.0) {
+                Ok(ioctl) => cx.shared.board.lock(|board| board.ioctl(ioctl)),
+                Err(IoctlAlreadyActive) => {
+                    defmt::error!("attempt to make board ioctl request while ioctl is being processed")
+                }
+            },
+            Event::Read { reg: reg::BOARD_IOCTL } => match Ioctl::take_response() {
+                Some(rsp) => respond(Response(rsp)),
+                None => {
+                    defmt::error!("attempt to read board ioctl response while ioctl is not done");
+                    respond_slice(&[])
+                }
+            },
+            Event::Read { reg: reg::BOARD_IOCTL_STATUS } => {
+                let rsp = interrupt::free(|cs| match &*IOCTL_STATUS.borrow(cs).borrow() {
+                    IoctlStatus::None => [0, 0],
+                    IoctlStatus::Processing => [1, 0],
+                    IoctlStatus::Done(rsp) => [2, rsp.len() as u8],
+                    IoctlStatus::Failed(err) => [3, *err],
+                });
+                respond_slice(&rsp);
             }
             Event::Write { reg: reg::RESET, .. } => {
                 defmt::info!("reset");

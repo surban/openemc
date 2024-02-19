@@ -278,6 +278,21 @@ pub const SUPPLY_VOLTAGE: u8 = 0x94;
 /// External power supply current in mA. (read-only, u32)
 pub const SUPPLY_CURRENT: u8 = 0x95;
 
+/// Read or write to board handler. (read/write)
+/// First byte of read response is length.
+pub const BOARD_IO: u8 = 0xe0;
+
+/// Board io status. (read-only, u8)
+/// 0=write okay, 1=write block.
+pub const BOARD_IO_STATUS: u8 = 0xe1;
+
+/// Board handler ioctl. (write then read when status is done)
+pub const BOARD_IOCTL: u8 = 0xe2;
+
+/// Board handler ioctl processing status. (read-only, u8)
+/// 0=idle, 1=processing, 2=done.
+pub const BOARD_IOCTL_STATUS: u8 = 0xe3;
+
 /// Resets the system.
 pub const RESET: u8 = 0xf0;
 

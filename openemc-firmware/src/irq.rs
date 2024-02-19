@@ -14,6 +14,9 @@ use crate::pio::MaskedGpio;
 ///    * Bit 17 is the RTC alarm interrupt
 ///    * Bit 20 is the battery interrupt
 ///    * Bit 21 is the supply interrupt
+///    * Bit 22 is log data
+///    * Bit 23 is board handler IO
+///    * Bit 24 is board handler ioctl
 pub struct IrqState<const PORTS: usize> {
     /// Gpio for signalling any IRQ to I2C master.
     irq_pin_io: MaskedGpio<PORTS>,
@@ -48,6 +51,12 @@ impl<const PORTS: usize> IrqState<PORTS> {
 
     /// Log interrupt flag.
     pub const LOG: u32 = 1 << 22;
+
+    /// Board handler IO.
+    pub const BOARD_IO: u32 = 1 << 23;
+
+    /// Board handler ioctl.
+    pub const BOARD_IOCTL: u32 = 1 << 24;
 
     /// Initializes the IRQ state.
     pub fn new(irq_pin: u8, irq_pin_cfg: u8, controlled: u32) -> Self {
