@@ -1,7 +1,15 @@
 //! Board.
 
+use core::{
+    any::TypeId,
+    cell::RefCell,
+    mem::{take, transmute},
+    sync::atomic::{AtomicBool, Ordering},
+};
+use cortex_m::interrupt::{self, Mutex};
 use defmt::Format;
-use stm32f1xx_hal::{afio, i2c};
+use heapless::{Deque, Vec};
+use stm32f1xx_hal::{afio, i2c, rcc::Clocks};
 
 use crate::{
     boot,
@@ -84,6 +92,12 @@ pub trait Board {
 
     /// Battery current in mA that is used to indicate charging error if fallen below.
     const CHARGING_LED_MIN_CURRENT: i32 = 0;
+
+    /// Task arguments.
+    type TaskArgs: 'static;
+
+    /// Task queue length.
+    const TASK_QUEUE_LENGTH: usize = 16;
 
     /// Create a new instance.
     fn new(data: InitData, res: InitResources) -> Self;
@@ -192,6 +206,28 @@ pub trait Board {
     fn periodic(&mut self) -> Duration {
         Duration::secs(60)
     }
+    /// Custom board task, that can be spawned using [`spawn_task`](Self::spawn_task).
+    fn task(&mut self, _args: Self::TaskArgs) {}
+
+    /// Queues the board task with the specified arguments for execution.
+    fn spawn_task(args: Self::TaskArgs) -> Result<(), Self::TaskArgs> {
+        interrupt::free(|cs| {
+            let mut task_queue = TASK_QUEUE.borrow(cs).borrow_mut();
+
+            // This is a no-op, since Self::TaskArgs and crate::ThisBoard as Board>::TaskArgs are the same type
+            // for the chosen board. However, this is necessary to avoid compile errors for all non-chosen
+            // boards.
+            defmt::assert!(
+                TypeId::of::<Self::TaskArgs>() == TypeId::of::<<crate::ThisBoard as Board>::TaskArgs>()
+            );
+            let task_queue: &mut Deque<Self::TaskArgs, { <crate::ThisBoard as Board>::TASK_QUEUE_LENGTH }> =
+                unsafe { transmute(&mut *task_queue) };
+
+            task_queue.push_back(args)
+        })
+    }
+}
+
 /// Board initialization data.
 #[derive(Clone)]
 #[non_exhaustive]
@@ -215,6 +251,10 @@ pub struct InitResources<'a> {
     pub delay: &'a mut Delay,
 }
 
+/// Board task queue.
+pub(crate) static TASK_QUEUE: Mutex<
+    RefCell<Deque<<crate::ThisBoard as Board>::TaskArgs, { <crate::ThisBoard as Board>::TASK_QUEUE_LENGTH }>>,
+> = Mutex::new(RefCell::new(Deque::new()));
 
 /// Unknown I2C event.
 #[derive(Format)]

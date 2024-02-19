@@ -61,8 +61,9 @@ use core::{
     cell::Cell,
     ffi::c_void,
     mem::{replace, size_of},
+    sync::atomic::Ordering,
 };
-use cortex_m::peripheral::NVIC;
+use cortex_m::{interrupt, peripheral::NVIC};
 use defmt::{unwrap, Format};
 use heapless::Vec;
 use stm32f1::stm32f103::Interrupt;
@@ -715,15 +716,29 @@ mod app {
     }
 
     /// Idle task.
-    #[idle(shared = [start_bootloader])]
+    #[idle(shared = [start_bootloader, irq])]
     fn idle(mut cx: idle::Context) -> ! {
-        while !cx.shared.start_bootloader.lock(|sb| *sb) {
-            // Sleep and wait for interrupt.
-            rtic::export::wfi()
-        }
+        loop {
+            // Check for bootloader start request.
+            if cx.shared.start_bootloader.lock(|sb| *sb) {
+                defmt::info!("starting bootloader");
+                boot::start_bootloader();
+            }
 
-        defmt::info!("starting bootloader");
-        boot::start_bootloader();
+
+            // Spawn board task if requested.
+            interrupt::free(|cs| {
+                let mut task_queue = board::TASK_QUEUE.borrow(cs).borrow_mut();
+                if let Some(args) = task_queue.pop_front() {
+                    if let Err(args) = board_task::spawn(args) {
+                        defmt::unwrap!(task_queue.push_front(args));
+                    }
+                }
+            });
+
+            // Sleep and wait for interrupt.
+            rtic::export::wfi();
+        }
     }
 
     /// Pets the independent hardware watchdog.
@@ -1132,6 +1147,12 @@ mod app {
         defmt::trace!("calling board-specific periodic function");
         let delay = cx.shared.board.lock(|board| board.periodic());
         defmt::unwrap!(board_periodic::spawn_after(delay));
+    }
+
+    /// Board-specific task, invoked by board.
+    #[task(shared = [board])]
+    fn board_task(mut cx: board_task::Context, args: <ThisBoard as Board>::TaskArgs) {
+        cx.shared.board.lock(|board| board.task(args));
     }
 
     /// Simulates interrupts on PD0 and PD1.
