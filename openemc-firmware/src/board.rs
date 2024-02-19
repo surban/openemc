@@ -86,7 +86,7 @@ pub trait Board {
     const CHARGING_LED_MIN_CURRENT: i32 = 0;
 
     /// Create a new instance.
-    fn new(boot_info: &'static BootInfo, afio: &mut afio::Parts, delay: &mut Delay, cfg: &Cfg) -> Self;
+    fn new(data: InitData, res: InitResources) -> Self;
 
     /// Returns whether the board id is supported.
     fn is_supported(&self, model: &[u8]) -> bool {
@@ -192,7 +192,29 @@ pub trait Board {
     fn periodic(&mut self) -> Duration {
         Duration::secs(60)
     }
+/// Board initialization data.
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct InitData {
+    /// Boot information.
+    pub boot_info: &'static BootInfo,
+    /// Clocks.
+    pub clocks: Clocks,
+    /// Configuration.
+    pub cfg: Cfg,
 }
+
+/// Board initialization resources.
+///
+/// To be used only during initialization.
+#[non_exhaustive]
+pub struct InitResources<'a> {
+    /// Alternate function IO registers.
+    pub afio: &'a mut afio::Parts,
+    /// Delay provider.
+    pub delay: &'a mut Delay,
+}
+
 
 /// Unknown I2C event.
 #[derive(Format)]

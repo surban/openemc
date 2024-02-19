@@ -83,7 +83,7 @@ use systick_monotonic::*;
 use crate::{
     adc::{AdcBuf, AdcInputs},
     backup::BackupReg,
-    board::Board,
+        Board, InitData, InitResources, Ioctl, IoctlAlreadyActive, IoctlStatus, WriteBlock, IOCTL_STATUS,
     boot::{BootInfoExt, BootReasonExt},
     bq25713::{Battery, Bq25713, InputCurrentLimit},
     cfg::{Cfg, ChargerAttached},
@@ -402,11 +402,13 @@ mod app {
             defmt::info!("Erasing configuration due to factory reset");
         }
         let mut fw = FlashWriter::new(&mut flash);
-        let cfg = FlashBackened::new(&mut fw, &mut crc, cfg_addr1, cfg_addr2, cfg_size, erase_cfg);
+        let cfg = FlashBackened::<Cfg>::new(&mut fw, &mut crc, cfg_addr1, cfg_addr2, cfg_size, erase_cfg);
 
         // Create board handler.
         defmt::info!("board new");
-        let mut board = ThisBoard::new(bi, &mut afio, &mut delay, &cfg);
+        let init_data = InitData { boot_info: bi, clocks, cfg: *cfg };
+        let init_resources = InitResources { afio: &mut afio, delay: &mut delay };
+        let mut board = ThisBoard::new(init_data, init_resources);
         defmt::info!("board new done");
         blink_charging!(board, delay, watchman, 1);
 
