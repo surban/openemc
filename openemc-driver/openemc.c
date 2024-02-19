@@ -1806,7 +1806,11 @@ static struct i2c_driver openemc_i2c_driver = {
 		.name = "openemc",
 		.of_match_table = of_match_ptr(openemc_of_match),
 	},
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+	.probe = openemc_i2c_probe,
+#else
 	.probe_new = openemc_i2c_probe,
+#endif
 	.remove = openemc_i2c_remove,
 };
 module_i2c_driver(openemc_i2c_driver);
