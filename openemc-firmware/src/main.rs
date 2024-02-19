@@ -1,6 +1,6 @@
 //
 // OpenEMC firmware for embedded controllers
-// Copyright (C) 2022-2023 Sebastian Urban <surban@surban.net>
+// Copyright (C) 2022-2024 Sebastian Urban <surban@surban.net>
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -116,7 +116,7 @@ use openemc_shared::{
 pub static VERSION: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/version.txt"));
 
 /// Firmware copyright.
-static COPYRIGHT: &[u8] = b"(c) 2022-2023 Sebastian Urban <surban@surban.net> license: GNU GPL version 3";
+static COPYRIGHT: &[u8] = b"(c) 2022-2024 Sebastian Urban <surban@surban.net> license: GNU GPL version 3";
 
 /// MFD cell prefix.
 static MFD_CELL_PREFIX: &[u8] = b"openemc,openemc_";

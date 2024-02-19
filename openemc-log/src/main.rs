@@ -1,6 +1,6 @@
 //
 // OpenEMC firmware for embedded controllers
-// Copyright (C) 2022-2023 Sebastian Urban <surban@surban.net>
+// Copyright (C) 2022-2024 Sebastian Urban <surban@surban.net>
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by

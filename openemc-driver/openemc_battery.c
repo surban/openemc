@@ -2,7 +2,7 @@
 /*
  * Battery driver for OpenEMC
  *
- * Copyright (C) 2022-2023 Sebastian Urban <surban@surban.net>
+ * Copyright (C) 2022-2024 Sebastian Urban <surban@surban.net>
  */
 
 #include <linux/module.h>
