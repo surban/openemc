@@ -42,31 +42,37 @@ impl Board for BoardImpl {
     const I2C2_MODE: Option<i2c::Mode> = Some(i2c::Mode::Standard { frequency: Rate::<u32, 1, 1>::Hz(300_000) });
     const STUSB4500_I2C_ADDR: Option<u8> = Some(0x28);
     const USB_MAXIMUM_VOLTAGE: u32 = 10_000;
+    type TaskArgs = ();
 
-    fn new(boot_info: &'static BootInfo, afio: &mut afio::Parts, delay: &mut Delay, _cfg: &Cfg) -> BoardImpl {
+    fn new(data: InitData, res: InitResources) -> BoardImpl {
         let mut dp = unsafe { Peripherals::steal() };
         let mut gpioa = unsafe { dp.GPIOA.split_without_reset() };
         let mut gpiob = unsafe { dp.GPIOB.split_without_reset() };
-        let (pa15, _pb3, _pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
+        let (pa15, _pb3, _pb4) = res.afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
 
         let mut stusb4500_reset = gpiob.pb7.into_push_pull_output_with_state(&mut gpiob.crl, PinState::Low);
         if RESET_STUSB4500 {
             defmt::info!("reset STUSB4500");
             stusb4500_reset.set_high();
-            delay.delay(200.millis());
+            res.delay.delay(200.millis());
             stusb4500_reset.set_low();
-            delay.delay(200.millis());
+            res.delay.delay(200.millis());
         }
 
         let mut stusb4500_alert = pa15.into_pull_up_input(&mut gpioa.crh);
-        stusb4500_alert.make_interrupt_source(afio);
+        stusb4500_alert.make_interrupt_source(res.afio);
         stusb4500_alert.trigger_on_edge(&mut dp.EXTI, Edge::Falling);
         stusb4500_alert.clear_interrupt_pending_bit();
         stusb4500_alert.enable_interrupt(&mut dp.EXTI);
 
         #[allow(clippy::get_first)]
         Self {
-            development_mode: boot_info.board_data().get(0).map(|dev_mode| *dev_mode != 0).unwrap_or_default(),
+            development_mode: data
+                .boot_info
+                .board_data()
+                .get(0)
+                .map(|dev_mode| *dev_mode != 0)
+                .unwrap_or_default(),
             stusb4500_alert,
             _stusb4500_reset: stusb4500_reset,
         }
