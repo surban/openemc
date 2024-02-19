@@ -5,16 +5,15 @@
 // OPENEMC-RAM-SIZE: 20480
 //
 
-use stm32f1xx_hal::afio;
-
-use crate::{board::Board, cfg::Cfg, Delay};
-use openemc_shared::boot::BootInfo;
+use crate::board::{Board, InitData, InitResources};
 
 /// Generic board.
 pub struct BoardImpl;
 
 impl Board for BoardImpl {
-    fn new(_boot_info: &'static BootInfo, _afio: &mut afio::Parts, _delay: &mut Delay, _cfg: &Cfg) -> BoardImpl {
+    type TaskArgs = ();
+
+    fn new(_data: InitData, _res: InitResources) -> BoardImpl {
         Self
     }
 
