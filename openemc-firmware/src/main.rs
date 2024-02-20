@@ -86,7 +86,7 @@ use crate::{
     backup::BackupReg,
     board::{
         Board, InitData, InitResources, Ioctl, IoctlAlreadyActive, IoctlStatus, WriteBlock, IOCTL_STATUS,
-        IO_AVAILABLE,
+        IO_READ_AVAILABLE, IO_WRITE_AVAILABLE,
     },
     boot::{BootInfoExt, BootReasonExt},
     bq25713::{Battery, Bq25713, InputCurrentLimit},
@@ -734,8 +734,11 @@ mod app {
             }
 
             // Set IRQ if board has IO data available for reading or writing.
-            if IO_AVAILABLE.swap(false, Ordering::SeqCst) {
-                cx.shared.irq.lock(|irq| irq.pend_soft(IrqState::BOARD_IO));
+            if IO_READ_AVAILABLE.swap(false, Ordering::SeqCst) {
+                cx.shared.irq.lock(|irq| irq.pend_soft(IrqState::BOARD_IO_READ));
+            }
+            if IO_WRITE_AVAILABLE.swap(false, Ordering::SeqCst) {
+                cx.shared.irq.lock(|irq| irq.pend_soft(IrqState::BOARD_IO_WRITE));
             }
 
             // Spawn board task if requested.

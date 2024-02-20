@@ -52,11 +52,14 @@ impl<const PORTS: usize> IrqState<PORTS> {
     /// Log interrupt flag.
     pub const LOG: u32 = 1 << 22;
 
-    /// Board handler IO.
-    pub const BOARD_IO: u32 = 1 << 23;
+    /// Board handler IO read ready.
+    pub const BOARD_IO_READ: u32 = 1 << 23;
+
+    /// Board handler IO write ready.
+    pub const BOARD_IO_WRITE: u32 = 1 << 24;
 
     /// Board handler ioctl.
-    pub const BOARD_IOCTL: u32 = 1 << 24;
+    pub const BOARD_IOCTL: u32 = 1 << 25;
 
     /// Initializes the IRQ state.
     pub fn new(irq_pin: u8, irq_pin_cfg: u8, controlled: u32) -> Self {

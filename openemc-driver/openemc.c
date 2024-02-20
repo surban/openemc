@@ -1038,6 +1038,10 @@ void openemc_irq_do_sync(struct openemc *emc)
 
 	dev_dbg(emc->dev, "Syncing IRQ state\n");
 
+	emc->irq_mask |= BIT(OPENEMC_IRQ_BOARD_IO_READ) |
+			 BIT(OPENEMC_IRQ_BOARD_IO_WRITE) |
+			 BIT(OPENEMC_IRQ_BOARD_IOCTL);
+
 	for (exti = 0; exti < OPENEMC_EXT_IRQS; exti++) {
 		if (emc->exti_bank[exti] < 0)
 			continue;
@@ -1084,7 +1088,6 @@ EXPORT_SYMBOL_GPL(openemc_irq_do_sync);
 void openemc_irq_do_mask(struct openemc *emc, unsigned long hwirq)
 {
 	dev_dbg(emc->dev, "Masking IRQ %ld\n", hwirq);
-
 	emc->irq_mask &= ~(BIT(hwirq));
 }
 EXPORT_SYMBOL_GPL(openemc_irq_do_mask);
@@ -1092,7 +1095,6 @@ EXPORT_SYMBOL_GPL(openemc_irq_do_mask);
 void openemc_irq_do_unmask(struct openemc *emc, unsigned long hwirq)
 {
 	dev_dbg(emc->dev, "Unmasking IRQ %ld\n", hwirq);
-
 	emc->irq_mask |= BIT(hwirq);
 }
 EXPORT_SYMBOL_GPL(openemc_irq_do_unmask);
@@ -1200,14 +1202,23 @@ static irqreturn_t openemc_irq_handler(int irq, void *ptr)
 		handled = true;
 	}
 
-	if (pending & BIT(OPENEMC_IRQ_BOARD_IO)) {
+	if (pending & BIT(OPENEMC_IRQ_BOARD_IO_READ)) {
 		mutex_lock(&emc->io_lock);
 		emc->io_read_avail = true;
+		mutex_unlock(&emc->io_lock);
+		wake_up_all(&emc->io_wait_queue);
+
+		pending &= ~BIT(OPENEMC_IRQ_BOARD_IO_READ);
+		handled = true;
+	}
+
+	if (pending & BIT(OPENEMC_IRQ_BOARD_IO_WRITE)) {
+		mutex_lock(&emc->io_lock);
 		emc->io_write_avail = true;
 		mutex_unlock(&emc->io_lock);
 		wake_up_all(&emc->io_wait_queue);
 
-		pending &= ~BIT(OPENEMC_IRQ_BOARD_IO);
+		pending &= ~BIT(OPENEMC_IRQ_BOARD_IO_WRITE);
 		handled = true;
 	}
 

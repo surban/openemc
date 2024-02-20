@@ -397,18 +397,21 @@ impl Drop for Ioctl {
     }
 }
 
-/// Whether board io data is available for reading or writing.
-pub(crate) static IO_AVAILABLE: AtomicBool = AtomicBool::new(false);
+/// Whether board io data is available for reading.
+pub(crate) static IO_READ_AVAILABLE: AtomicBool = AtomicBool::new(false);
+
+/// Whether board io data is available for writing.
+pub(crate) static IO_WRITE_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
 /// Board IO buffer size.
 pub const IO_BUFFER_SIZE: usize = I2C_BUFFER_SIZE - 1;
 
 /// Notifies system that board io data is available for reading read.
 pub fn io_read_available() {
-    IO_AVAILABLE.store(true, Ordering::SeqCst);
+    IO_READ_AVAILABLE.store(true, Ordering::SeqCst);
 }
 
 /// Notifies system that board io data can be written.
 pub fn io_write_available() {
-    IO_AVAILABLE.store(true, Ordering::SeqCst);
+    IO_WRITE_AVAILABLE.store(true, Ordering::SeqCst);
 }
