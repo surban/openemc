@@ -18,8 +18,8 @@ use systick_monotonic::fugit::Rate;
 
 use crate::{
     board::{
-        io_read_available, io_write_available, Board, InitData, InitResources, UnknownI2cRegister, WriteBlock,
-        IO_BUFFER_SIZE, PORTS,
+        io_read_available, io_write_available, Board, InitData, InitResources, Ioctl, UnknownI2cRegister,
+        WriteBlock, IO_READ_SIZE, IO_WRITE_SIZE, PORTS,
     },
     i2c_reg_slave::Response,
     Delay, I2C_BUFFER_SIZE,
@@ -36,7 +36,7 @@ pub struct BoardImpl {
     development_mode: bool,
     stusb4500_alert: Pin<'A', 15, Input<PullUp>>,
     _stusb4500_reset: Pin<'B', 7, Output<PushPull>>,
-    io_data_buf: Vec<u8, { IO_BUFFER_SIZE }>,
+    io_data_buf: Vec<u8, { IO_READ_SIZE }>,
 }
 
 impl Board for BoardImpl {
@@ -131,11 +131,12 @@ impl Board for BoardImpl {
         pending
     }
 
-    fn io_write(&mut self, data: &[u8]) -> Result<(), WriteBlock> {
+    fn io_write(&mut self, mut data: Vec<u8, IO_WRITE_SIZE>) -> Result<(), WriteBlock> {
         if self.io_data_buf.is_empty() {
             defmt::info!("Received {} bytes IO board data", data.len());
+            data.truncate(IO_READ_SIZE);
             self.io_data_buf.clear();
-            defmt::unwrap!(self.io_data_buf.extend_from_slice(data));
+            defmt::unwrap!(self.io_data_buf.extend_from_slice(&data));
             if !self.io_data_buf.is_empty() {
                 io_read_available();
             }
@@ -146,7 +147,7 @@ impl Board for BoardImpl {
         }
     }
 
-    fn io_read(&mut self) -> Vec<u8, IO_BUFFER_SIZE> {
+    fn io_read(&mut self) -> Vec<u8, IO_READ_SIZE> {
         let data = self.io_data_buf.clone();
         defmt::info!("Sent {} bytes IO board data", data.len());
 
@@ -158,5 +159,21 @@ impl Board for BoardImpl {
         }
 
         data
+    }
+
+    fn ioctl(&mut self, mut ioctl: Ioctl) {
+        let request = ioctl.take_request();
+        defmt::info!("ioctl request of length {}", request.len());
+
+        if request.len() == 30 {
+            let mut rsp = request;
+            rsp.truncate(25);
+            for x in &mut rsp {
+                *x = x.wrapping_add(1);
+            }
+            ioctl.success(rsp);
+        } else {
+            ioctl.fail(10);
+        }
     }
 }
