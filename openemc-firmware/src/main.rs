@@ -728,8 +728,8 @@ mod app {
                 boot::start_bootloader();
             }
 
-            // Set IRQ if response from board to ioctl is done.
-            if Ioctl::is_done() {
+            // Set IRQ if ioctl processing by board is finished.
+            if Ioctl::irq_required() {
                 cx.shared.irq.lock(|irq| irq.pend_soft(IrqState::BOARD_IOCTL));
             }
 
@@ -1814,7 +1814,7 @@ mod app {
                 });
             }
             Event::Write { reg: reg::BOARD_IO, value } => {
-                match cx.shared.board.lock(|board| board.io_write(&value)) {
+                match cx.shared.board.lock(|board| board.io_write(value.0)) {
                     Ok(()) => *cx.local.io_write_block = false,
                     Err(WriteBlock) => *cx.local.io_write_block = true,
                 }
@@ -1837,8 +1837,8 @@ mod app {
                 let rsp = interrupt::free(|cs| match &*IOCTL_STATUS.borrow(cs).borrow() {
                     IoctlStatus::None => [0, 0],
                     IoctlStatus::Processing => [1, 0],
-                    IoctlStatus::Done(rsp) => [2, rsp.len() as u8],
-                    IoctlStatus::Failed(err) => [3, *err],
+                    IoctlStatus::Done { response, .. } => [2, response.len() as u8],
+                    IoctlStatus::Failed { errno, .. } => [3, *errno],
                 });
                 respond_slice(&rsp);
             }

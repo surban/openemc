@@ -3,6 +3,7 @@
 use core::{
     any::TypeId,
     cell::RefCell,
+    mem,
     mem::{take, transmute},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -208,12 +209,12 @@ pub trait Board {
     }
 
     /// Board IO read.
-    fn io_read(&mut self) -> Vec<u8, IO_BUFFER_SIZE> {
+    fn io_read(&mut self) -> Vec<u8, IO_READ_SIZE> {
         Vec::new()
     }
 
     /// Board IO write.
-    fn io_write(&mut self, _data: &[u8]) -> Result<(), WriteBlock> {
+    fn io_write(&mut self, _data: Vec<u8, IO_WRITE_SIZE>) -> Result<(), WriteBlock> {
         Ok(())
     }
 
@@ -309,9 +310,19 @@ pub(crate) enum IoctlStatus {
     /// Ioctl is being processed by board.
     Processing,
     /// Ioctl response is available.
-    Done(Vec<u8, { Ioctl::BUFFER_SIZE }>),
+    Done {
+        /// The response data.
+        response: Vec<u8, { Ioctl::BUFFER_SIZE }>,
+        /// Whether the host was notified.
+        notified: bool,
+    },
     /// Ioctl failed.
-    Failed(u8),
+    Failed {
+        /// Error number.
+        errno: u8,
+        /// Whether the host was notified.
+        notified: bool,
+    },
 }
 
 /// Board ioctl status.
@@ -325,16 +336,12 @@ impl Ioctl {
     pub(crate) fn start(req: Vec<u8, { Self::BUFFER_SIZE }>) -> Result<Self, IoctlAlreadyActive> {
         interrupt::free(|cs| {
             let mut status = IOCTL_STATUS.borrow(cs).borrow_mut();
-            match *status {
-                IoctlStatus::None => {
-                    *status = IoctlStatus::Processing;
-                    Ok(Self { req, responded: false })
-                }
-                _ => {
-                    defmt::error!("attempt to make board ioctl request while ioctl is being processed");
-                    Err(IoctlAlreadyActive)
-                }
+            if let IoctlStatus::Processing { .. } = *status {
+                defmt::error!("attempt to make board ioctl request while ioctl is being processed");
+                return Err(IoctlAlreadyActive);
             }
+            *status = IoctlStatus::Processing;
+            Ok(Self { req, responded: false })
         })
     }
 
@@ -343,34 +350,45 @@ impl Ioctl {
         interrupt::free(|cs| {
             let mut status = IOCTL_STATUS.borrow(cs).borrow_mut();
             match *status {
-                IoctlStatus::Done(_) => (),
+                IoctlStatus::Done { .. } => (),
                 _ => return None,
             }
             match take(&mut *status) {
-                IoctlStatus::Done(rsp) => Some(rsp),
+                IoctlStatus::Done { response, .. } => Some(response),
                 _ => defmt::unreachable!(),
             }
         })
     }
 
-    /// Check whether current status is done.
-    pub(crate) fn is_done() -> bool {
+    /// Returns whether an IRQ is requested.
+    pub(crate) fn irq_required() -> bool {
         interrupt::free(|cs| {
-            let status = IOCTL_STATUS.borrow(cs).borrow();
-            matches!(*status, IoctlStatus::Done(_))
+            let mut status = IOCTL_STATUS.borrow(cs).borrow_mut();
+            match &mut *status {
+                IoctlStatus::Done { notified, .. } | IoctlStatus::Failed { notified, .. } if !*notified => {
+                    *notified = true;
+                    true
+                }
+                _ => false,
+            }
         })
     }
 
     /// The request data.
-    pub fn request(&self) -> &[u8] {
+    pub fn request(&self) -> &Vec<u8, { Self::BUFFER_SIZE }> {
         &self.req
     }
 
+    /// Take the request data, leaving empty request data behind.
+    pub fn take_request(&mut self) -> Vec<u8, { Self::BUFFER_SIZE }> {
+        mem::take(&mut self.req)
+    }
+
     /// Respond successfully to the request.
-    pub fn success(mut self, rsp: Vec<u8, { Self::BUFFER_SIZE }>) {
+    pub fn success(mut self, response: Vec<u8, { Self::BUFFER_SIZE }>) {
         interrupt::free(|cs| {
             let mut status = IOCTL_STATUS.borrow(cs).borrow_mut();
-            *status = IoctlStatus::Done(rsp);
+            *status = IoctlStatus::Done { response, notified: false };
         });
         self.responded = true;
     }
@@ -379,7 +397,7 @@ impl Ioctl {
     pub fn fail(mut self, errno: u8) {
         interrupt::free(|cs| {
             let mut status = IOCTL_STATUS.borrow(cs).borrow_mut();
-            *status = IoctlStatus::Failed(errno);
+            *status = IoctlStatus::Failed { errno, notified: false };
         });
         self.responded = true;
     }
@@ -391,7 +409,7 @@ impl Drop for Ioctl {
             defmt::warn!("Ioctl was dropped without response");
             interrupt::free(|cs| {
                 let status = IOCTL_STATUS.borrow(cs);
-                *status.borrow_mut() = IoctlStatus::Failed(0);
+                *status.borrow_mut() = IoctlStatus::Failed { errno: 0, notified: false };
             });
         }
     }
@@ -403,8 +421,11 @@ pub(crate) static IO_READ_AVAILABLE: AtomicBool = AtomicBool::new(false);
 /// Whether board io data is available for writing.
 pub(crate) static IO_WRITE_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
-/// Board IO buffer size.
-pub const IO_BUFFER_SIZE: usize = I2C_BUFFER_SIZE - 1;
+/// Board maximum IO read size.
+pub const IO_READ_SIZE: usize = I2C_BUFFER_SIZE - 1;
+
+/// Board maximum IO write size.
+pub const IO_WRITE_SIZE: usize = I2C_BUFFER_SIZE;
 
 /// Notifies system that board io data is available for reading read.
 pub fn io_read_available() {
