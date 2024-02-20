@@ -148,9 +148,16 @@ impl Board for BoardImpl {
     }
 
     fn io_read(&mut self) -> Vec<u8, IO_BUFFER_SIZE> {
-        let data = mem::take(&mut self.io_data_buf);
+        let data = self.io_data_buf.clone();
         defmt::info!("Sent {} bytes IO board data", data.len());
-        io_write_available();
+
+        if self.io_data_buf.is_empty() {
+            io_write_available();
+        } else {
+            self.io_data_buf.truncate(self.io_data_buf.len() - 1);
+            io_read_available();
+        }
+
         data
     }
 }
