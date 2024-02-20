@@ -204,6 +204,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "board-io-test"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rand",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
