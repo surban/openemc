@@ -1,11 +1,10 @@
 //! STM Nucleo-F103RB evaluation board.
 //
 // OPENEMC-BOARD-VERSION: 1
-// OPENEMC-FLASH-SIZE: 65536
+// OPENEMC-FLASH-SIZE: 131072
 // OPENEMC-RAM-SIZE: 20480
 //
 
-use core::mem;
 use cortex_m::peripheral::SCB;
 use heapless::Vec;
 use stm32f1::stm32f103::Peripherals;
