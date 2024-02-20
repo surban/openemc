@@ -1,5 +1,11 @@
 [workspace]
-members = ["openemc-build", "openemc-log", "openemc-pack", "xtask"]
+members = [
+    "board-io-test",
+    "openemc-build",
+    "openemc-log",
+    "openemc-pack",
+    "xtask",
+]
 exclude = [
     "defmt-ringbuf",
     "defmt-ringbuf-offline",
