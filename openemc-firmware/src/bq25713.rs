@@ -186,22 +186,29 @@ pub struct Battery {
 }
 
 impl Battery {
-    /// Whether the battery status changed significantly.
-    pub fn changed_significantly(&self, other: &Battery) -> bool {
-        const DIFF: u32 = 75;
-
+    fn changed_significantly_with_diff(&self, other: &Battery, diff: u32) -> bool {
         self.present != other.present
-            || self.voltage_mv.unwrap_or(u32::MAX).abs_diff(other.voltage_mv.unwrap_or(u32::MAX)) >= DIFF
-            || self.current_ma.unwrap_or(i32::MAX).abs_diff(other.current_ma.unwrap_or(i32::MAX)) >= DIFF
+            || self.voltage_mv.unwrap_or(u32::MAX).abs_diff(other.voltage_mv.unwrap_or(u32::MAX)) >= diff
+            || self.current_ma.unwrap_or(i32::MAX).abs_diff(other.current_ma.unwrap_or(i32::MAX)) >= diff
             || self.system_voltage_mv.unwrap_or(u32::MAX).abs_diff(other.system_voltage_mv.unwrap_or(u32::MAX))
-                >= DIFF
+                >= diff
             || self.input_voltage_mv.unwrap_or(u32::MAX).abs_diff(other.input_voltage_mv.unwrap_or(u32::MAX))
-                >= DIFF
+                >= diff
             || self.input_current_ma.unwrap_or(u32::MAX).abs_diff(other.input_current_ma.unwrap_or(u32::MAX))
-                >= DIFF
+                >= diff
             || self.max_voltage_mv != other.max_voltage_mv
             || self.max_charge_current_ma != other.max_charge_current_ma
             || self.charging != other.charging
+    }
+
+    /// Whether the battery status changed significantly.
+    pub fn changed_significantly(&self, other: &Battery) -> bool {
+        self.changed_significantly_with_diff(other, 75)
+    }
+
+    /// Whether the battery status changed significantly for logging.
+    pub fn changed_significantly_for_logging(&self, other: &Battery) -> bool {
+        self.changed_significantly_with_diff(other, 250)
     }
 }
 

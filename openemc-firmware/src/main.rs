@@ -613,6 +613,9 @@ mod app {
         }
         blink_charging!(board, delay, watchman, 10);
 
+        // Log battery status.
+        defmt::unwrap!(battery_status_report::spawn_after(1u64.secs()));
+
         // Power on board.
         watchman.force_pet();
         defmt::info!("board power on in mode {:?}", board.power_mode());
@@ -1059,7 +1062,7 @@ mod app {
                         _ => true,
                     };
                     if changed {
-                        defmt::info!("Battery report: {:?}", &report);
+                        defmt::debug!("Battery report: {:?}", &report);
                         *battery = report;
                         irq.pend_soft(IrqState::SUPPLY | IrqState::BATTERY);
                     }
@@ -1068,6 +1071,33 @@ mod app {
         );
 
         defmt::unwrap!(bq25713_periodic::spawn_after(1u64.secs()));
+    }
+
+    /// Logs the battery status.
+    #[task(shared = [battery], local = [last: Option<Battery> = None, last_log: Option<Instant> = None])]
+    fn battery_status_report(mut cx: battery_status_report::Context) {
+        const REPORT_PERIOD: Duration = Duration::minutes(10);
+
+        cx.shared.battery.lock(|battery| {
+            let changed = match (&battery, &cx.local.last) {
+                (Some(battery), Some(last)) => battery.changed_significantly_for_logging(last),
+                (None, None) => false,
+                _ => true,
+            };
+
+            let last_log = cx.local.last_log.get_or_insert_with(monotonics::now);
+            let since_last_log = monotonics::now() - *last_log;
+
+            if changed || since_last_log >= REPORT_PERIOD {
+                if let Some(battery) = &battery {
+                    defmt::info!("Battery status: {:?}", battery);
+                    *last_log = monotonics::now();
+                }
+                *cx.local.last = battery.clone();
+            }
+        });
+
+        defmt::unwrap!(battery_status_report::spawn_after(10u64.secs()));
     }
 
     /// Performs power off when battery has reached lower voltage limit.
