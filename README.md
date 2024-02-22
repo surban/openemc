@@ -20,6 +20,7 @@ The following features are implemented:
   - GPIO with interrupts
   - pin control
   - analog digital converter (ADC)
+  - fully customizable board communication (read, write, ioctl) with Linux userspace via device file
   - battery charger (BQ25713)
   - external power supply with USB PD (STUSB4500) and USB charger detector (MAX14636)
   - charging mode with system power off
@@ -117,6 +118,16 @@ and executed directly by invoking
     OPENEMC_BOARD=<BOARD_NAME> DEFMT_LOG=info cargo run --release -- --connect-under-reset
 
 from the respective directory. Set the environment variable `DEFMT_LOG` your desired log level.
+
+## Board IO and ioctl
+
+OpenEMC allows direct communication between Linux userspace and board-specific code.
+For this purpose the device `/dev/openemc` is provided, which supports reading, writing, polling
+and ioctls.
+Corresponding to these operations the board-specific functions `Board::io_read`, `Board::io_write` and
+`Board::ioctl` are called.
+An example is provided in the board file `stm_nucleo_f103rb.rs` together with the host-side code
+in `board-io-test`.
 
 ## License
 

@@ -344,7 +344,7 @@ version = "0.0.0"
 
 [[package]]
 name = "openemc-firmware"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "byteorder",
  "cortex-m",
