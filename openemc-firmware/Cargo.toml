@@ -21,7 +21,7 @@ cortex-m-rtic = "1.1"
 embedded-hal = "0.2"
 stm32f1 = { version = "0.15", features = ["stm32f103", "rt"] }
 #stm32f1xx-hal = { version = "0.10", features = ["stm32f103", "medium", "rt"] }
-stm32f1xx-hal = { git = "https://github.com/stm32-rs/stm32f1xx-hal.git", rev = "4e902d2cd68100d17b5e2116d99bfcc5326983fd", features = [
+stm32f1xx-hal = { git = "https://github.com/stm32-rs/stm32f1xx-hal.git", rev = "ab6de2ed907b0ec3c5e27deb85e03d8b9cd694ac", features = [
     "stm32f103",
     "medium",
     "rt",
@@ -33,6 +33,7 @@ defmt = { version = "0.3", features = ["encoding-rzcobs"] }
 defmt-rtt = { version = "0.4", optional = true }
 nb = "1.0"
 heapless = "0.8"
+byteorder = { version = "1", default-features = false }
 
 [dev-dependencies]
 defmt-test = "0.3"
