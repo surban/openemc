@@ -123,8 +123,7 @@ pub trait Board {
     fn power_on(&mut self, _afio: &mut afio::Parts, _delay: &mut Delay) {}
 
     /// Shutdown the system and go to sleep.
-    fn shutdown(&mut self) -> ! {
-        defmt::info!("entering standby mode");
+    fn shutdown(&mut self, _res: InitResources) -> ! {
         boot::enter_standby();
     }
 

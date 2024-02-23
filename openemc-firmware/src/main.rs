@@ -481,7 +481,8 @@ mod app {
         if bi.boot_reason == BootReason::PowerOff as _ {
             board.set_power_led(false);
             BootReason::PowerOn.set(&mut bkp);
-            board.shutdown();
+            let init_resources = InitResources { afio: &mut afio, delay: &mut delay };
+            board.shutdown(init_resources);
         }
         blink_charging!(board, delay, watchman, 3);
 

@@ -230,6 +230,8 @@ pub fn reset(bkp: &mut BackupDomain) -> ! {
 
 /// Enters standby mode.
 pub fn enter_standby() -> ! {
+    defmt::info!("preparing to enter standby mode");
+
     let mut cp = unsafe { cortex_m::Peripherals::steal() };
     let dp = unsafe { Peripherals::steal() };
 
