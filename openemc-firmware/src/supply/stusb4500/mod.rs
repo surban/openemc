@@ -474,7 +474,8 @@ where
     /// Reads the monitoring status.
     fn update_monitoring_status(&mut self, i2c: &mut I2C) -> Result<()> {
         let buf = self.read(i2c, REG_MONITORING_STATUS_0, 2)?;
-        let monitoring_status = MonitoringStatus::parse(buf[0], buf[1]);
+        let buf2 = self.read(i2c, REG_VBUS_CTRL, 1)?;
+        let monitoring_status = MonitoringStatus::parse(buf[0], buf[1], buf2[0]);
         if self.monitoring_status != monitoring_status {
             defmt::info!("Monitoring status: {:?}", monitoring_status);
             self.monitoring_status = monitoring_status;
@@ -804,6 +805,7 @@ const REG_CC_STATUS: u8 = 0x11;
 const REG_CC_HW_FAULT_STATUS_0: u8 = 0x12;
 const REG_TYPE_C_STATUS: u8 = 0x15;
 const REG_PRT_STATUS: u8 = 0x16;
+const REG_VBUS_CTRL: u8 = 0x27;
 const REG_RX_BYTE_CNT: u8 = 0x30;
 const REG_RX_HEADER: u8 = 0x31;
 const REG_RX_DATA_OBJ: u8 = 0x33;
@@ -962,10 +964,11 @@ struct MonitoringStatus {
     vbus_valid_sink: bool,
     vbus_vsafe_0v: bool,
     vbus_ready: bool,
+    vbus_en_sink: bool,
 }
 
 impl MonitoringStatus {
-    fn parse(monitoring_status_0: u8, monitoring_status_1: u8) -> Self {
+    fn parse(monitoring_status_0: u8, monitoring_status_1: u8, vbus_ctrl: u8) -> Self {
         Self {
             vbus_low: monitoring_status_0 & (1 << 4) != 0,
             vbus_high: monitoring_status_0 & (1 << 5) != 0,
@@ -973,6 +976,7 @@ impl MonitoringStatus {
             vbus_valid_sink: monitoring_status_1 & (1 << 1) != 0,
             vbus_vsafe_0v: monitoring_status_1 & (1 << 2) != 0,
             vbus_ready: monitoring_status_1 & (1 << 3) != 0,
+            vbus_en_sink: vbus_ctrl & (1 << 1) != 0,
         }
     }
 }
