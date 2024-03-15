@@ -460,6 +460,28 @@ where
         Ok(Rdo::parse((buf[0] as u32) | (buf[1] as u32) << 8 | (buf[2] as u32) << 16 | (buf[3] as u32) << 24))
     }
 
+    /// Reads the hardware fault status.
+    fn update_hw_fault_status(&mut self, i2c: &mut I2C) -> Result<()> {
+        let buf = self.read(i2c, REG_CC_HW_FAULT_STATUS_0, 2)?;
+        let hw_fault_status = HwFaultStatus::parse(buf[1]);
+        if self.hw_fault_status != hw_fault_status {
+            defmt::info!("Hardware fault status: {:?}", &hw_fault_status);
+            self.hw_fault_status = hw_fault_status;
+        }
+        Ok(())
+    }
+
+    /// Reads the monitoring status.
+    fn update_monitoring_status(&mut self, i2c: &mut I2C) -> Result<()> {
+        let buf = self.read(i2c, REG_MONITORING_STATUS_0, 2)?;
+        let monitoring_status = MonitoringStatus::parse(buf[0], buf[1]);
+        if self.monitoring_status != monitoring_status {
+            defmt::info!("Monitoring status: {:?}", monitoring_status);
+            self.monitoring_status = monitoring_status;
+        }
+        Ok(())
+    }
+
     /// Generates the power supply report.
     fn generate_report(&mut self) {
         // Check for active USB PD contract.
@@ -570,15 +592,11 @@ where
             }
 
             if alert.monitoring {
-                let buf = self.read(i2c, REG_MONITORING_STATUS_0, 2)?;
-                self.monitoring_status = MonitoringStatus::parse(buf[0], buf[1]);
-                defmt::debug!("Monitoring status: {:?}", &self.monitoring_status);
+                self.update_monitoring_status(i2c)?;
             }
 
             if alert.hw_fault {
-                let buf = self.read(i2c, REG_CC_HW_FAULT_STATUS_0, 2)?;
-                self.hw_fault_status = HwFaultStatus::parse(buf[1]);
-                defmt::debug!("Hardware fault status: {:?}", &self.hw_fault_status);
+                self.update_hw_fault_status(i2c)?;
             }
 
             self.generate_report();
@@ -601,6 +619,11 @@ where
 
         defmt::trace!("STUSB4500 periodic");
 
+        // Read monitoring status.
+        self.update_monitoring_status(i2c)?;
+        self.update_hw_fault_status(i2c)?;
+
+        // Read CC status.
         let buf = self.read(i2c, REG_CC_STATUS, 1)?;
         self.cc_status = CcStatus::parse(buf[0]);
         defmt::debug!("CC status: {:?}", &self.cc_status);
@@ -931,7 +954,7 @@ impl PortStatus {
     }
 }
 
-#[derive(Clone, Format, Default)]
+#[derive(Clone, Format, Default, PartialEq, Eq)]
 struct MonitoringStatus {
     vbus_low: bool,
     vbus_high: bool,
@@ -973,7 +996,7 @@ impl CcStatus {
     }
 }
 
-#[derive(Clone, Format, Default)]
+#[derive(Clone, Format, Default, PartialEq, Eq)]
 struct HwFaultStatus {
     vpu_ovp_fault: bool,
     vpu_presence: bool,
