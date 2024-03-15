@@ -457,8 +457,11 @@ where
     fn update_status(&mut self, i2c: &mut I2C) -> Result<()> {
         let hi = self.read(i2c, REG_CHARGER_STATUS_HI, 1)?;
         let lo = self.read(i2c, REG_CHARGER_STATUS_LO, 1)?;
-        self.status = Bq25713Status::parse(hi[0], lo[0]);
-        defmt::debug!("BQ25713 status: {:?}", &self.status);
+        let status = Bq25713Status::parse(hi[0], lo[0]);
+        if self.status != status {
+            defmt::info!("BQ25713 status: {:?}", &status);
+            self.status = status;
+        }
         Ok(())
     }
 
