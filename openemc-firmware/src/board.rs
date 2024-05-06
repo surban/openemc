@@ -377,6 +377,7 @@ impl Ioctl {
     }
 
     /// The request data.
+    #[allow(dead_code)]
     pub fn request(&self) -> &Vec<u8, { Self::BUFFER_SIZE }> {
         &self.req
     }
