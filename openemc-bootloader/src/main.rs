@@ -140,7 +140,9 @@ fn main() -> ! {
     // Initialize logging.
     #[cfg(feature = "defmt-ringbuf")]
     unsafe {
-        defmt_ringbuf::init(&mut BOOTLOADER_LOG, || ());
+        use core::ptr::addr_of_mut;
+        // Safety: BOOTLOADER_LOG is only accessed here and nowhere else while the bootloader is running.
+        defmt_ringbuf::init(&mut *addr_of_mut!(BOOTLOADER_LOG), || ());
     }
 
     // Enable backup domain and check for valid signature.

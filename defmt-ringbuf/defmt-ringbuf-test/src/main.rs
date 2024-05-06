@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use core::mem;
+use core::{mem, ptr::addr_of_mut};
 use cortex_m::{asm::nop, peripheral::SCB};
 use cortex_m_rt::entry;
 
@@ -20,7 +20,9 @@ fn main() -> ! {
     let _dp = Peripherals::take().unwrap();
 
     defmt::info!("Init");
-    let buffer = unsafe { RingBuffer::init(&mut BUFFER) };
+
+    // Safety: BUFFER is only accessed here and nowhere else.
+    let buffer = unsafe { RingBuffer::init(&mut *addr_of_mut!(BUFFER)) };
 
     let mut data = [0; 128];
     let (n, lost) = buffer.read(&mut data);

@@ -348,8 +348,11 @@ mod app {
         // Initialize logging.
         #[cfg(feature = "defmt-ringbuf")]
         unsafe {
-            defmt_ringbuf::init(&mut LOG, || NVIC::pend(Interrupt::USART3));
-            BOOTLOADER_LOG_REF = Some(defmt_ringbuf::RingBuffer::init(&mut BOOTLOADER_LOG));
+            use core::ptr::addr_of_mut;
+            // Safety: LOG is only accessed here and nowhere else.
+            defmt_ringbuf::init(&mut *addr_of_mut!(LOG), || NVIC::pend(Interrupt::USART3));
+            // Safety: BOOTLOADER_LOG is only accessed here and nowhere else.
+            BOOTLOADER_LOG_REF = Some(defmt_ringbuf::RingBuffer::init(&mut *addr_of_mut!(BOOTLOADER_LOG)));
         }
 
         defmt::warn!("OpenEMC version {:a}", VERSION);

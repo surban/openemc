@@ -5,6 +5,7 @@ use core::{
     ptr,
     ptr::{addr_of, addr_of_mut},
     slice,
+    sync::atomic::{AtomicBool, Ordering},
 };
 use cortex_m::peripheral::{scb::Exception, SCB};
 use stm32f1::stm32f103::Peripherals;
@@ -82,8 +83,13 @@ pub trait BootInfoExt {
     fn bootloader_version(&self) -> Option<&[u8]>;
 }
 
+/// Whether boot information has been initialized.
+static BOOT_INFO_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
 impl BootInfoExt for BootInfo {
     unsafe fn init(bkp: &BackupDomain) {
+        defmt::assert!(!BOOT_INFO_INITIALIZED.load(Ordering::SeqCst));
+
         // Make sure BOOT_INFO is read from memory.
         let ptr = BOOT_INFO.as_mut_ptr();
         let powered_on_ptr = addr_of_mut!((*ptr).powered_on) as *mut u8;
@@ -107,13 +113,19 @@ impl BootInfoExt for BootInfo {
             // Get boot reason.
             STANDALONE_BOOT_INFO.boot_reason = BootReason::get(bkp);
         }
+
+        BOOT_INFO_INITIALIZED.store(true, Ordering::SeqCst);
     }
 
     fn get() -> &'static Self {
+        defmt::assert!(BOOT_INFO_INITIALIZED.load(Ordering::SeqCst));
+
         if Self::is_from_bootloader() {
+            // Safety: BOOT_INFO has been verified during init()
             unsafe { BOOT_INFO.assume_init_ref() }
         } else {
-            unsafe { &STANDALONE_BOOT_INFO }
+            // Safety: STANDALONE_BOOT_INFO is only modified during init()
+            unsafe { &*ptr::addr_of!(STANDALONE_BOOT_INFO) }
         }
     }
 
