@@ -18,7 +18,6 @@
 
 //! MAX14636 USB charger detector driver.
 
-use core::sync::atomic::{AtomicBool, Ordering};
 use stm32f1xx_hal::gpio::{ErasedPin, Floating, Input, Output, PullUp};
 
 use super::PowerSupply;
@@ -29,7 +28,6 @@ pub struct Max14636 {
     sw_open: ErasedPin<Input<PullUp>>,
     chg_al_n: ErasedPin<Input<PullUp>>,
     chg_det: ErasedPin<Input<Floating>>,
-    unknown_state_warned: AtomicBool,
 }
 
 impl Max14636 {
@@ -39,36 +37,14 @@ impl Max14636 {
         chg_det: ErasedPin<Input<Floating>>,
     ) -> Self {
         good_bat.set_high();
-        Self { _good_bat: good_bat, sw_open, chg_al_n, chg_det, unknown_state_warned: false.into() }
+        Self { _good_bat: good_bat, sw_open, chg_al_n, chg_det }
     }
 
     /// Power supply report.
     pub fn report(&self) -> PowerSupply {
-        let sw_open_low = self.sw_open.is_low();
-        let chg_al_n_low = self.chg_al_n.is_low();
-        let chg_det_low = self.chg_det.is_low();
-        defmt::trace!(
-            "MAX14636 state: sw_open={:?} chg_al_n={:?} chg_det={:?}",
-            !sw_open_low,
-            !chg_al_n_low,
-            !chg_det_low
-        );
-
-        match (sw_open_low, chg_al_n_low, chg_det_low) {
+        match (self.sw_open.is_low(), self.chg_al_n.is_low(), self.chg_det.is_low()) {
             (false, true, false) => PowerSupply::UsbDcp,
             (true, true, false) => PowerSupply::UsbCdp,
-            (_, _, false) => {
-                if !self.unknown_state_warned.load(Ordering::Relaxed) {
-                    defmt::warn!(
-                        "MAX14636 provided invalid state: sw_open={:?} chg_al_n={:?} chg_det={:?}",
-                        !sw_open_low,
-                        !chg_al_n_low,
-                        !chg_det_low
-                    );
-                    self.unknown_state_warned.store(true, Ordering::Relaxed);
-                }
-                PowerSupply::UsbCdp
-            }
             (true, true, true) => PowerSupply::UsbSdp,
             (false, true, true) => PowerSupply::Ps2,
             (false, false, true) => PowerSupply::Disconnected,
