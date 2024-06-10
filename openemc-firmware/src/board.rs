@@ -193,7 +193,7 @@ pub trait Board {
             } else {
                 power_supply.max_current_ma().min(500)
             },
-            ico: matches!(power_supply, PowerSupply::UsbDcp),
+            ico: matches!(power_supply, PowerSupply::UsbDcp | PowerSupply::UsbCdp),
         }
     }
 
