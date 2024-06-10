@@ -42,14 +42,29 @@ impl Max14636 {
 
     /// Power supply report.
     pub fn report(&self) -> PowerSupply {
-        match (self.sw_open.is_low(), self.chg_al_n.is_low(), self.chg_det.is_low()) {
+        let sw_open_low = self.sw_open.is_low();
+        let chg_al_n_low = self.chg_al_n.is_low();
+        let chg_det_low = self.chg_det.is_low();
+        defmt::trace!(
+            "MAX14636 state: sw_open={:?} chg_al_n={:?} chg_det={:?}",
+            !sw_open_low,
+            !chg_al_n_low,
+            !chg_det_low
+        );
+
+        match (sw_open_low, chg_al_n_low, chg_det_low) {
             (false, true, false) => PowerSupply::UsbDcp,
             (true, true, false) => PowerSupply::UsbCdp,
             (true, true, true) => PowerSupply::UsbSdp,
             (false, true, true) => PowerSupply::Ps2,
             (false, false, true) => PowerSupply::Disconnected,
-            other => {
-                defmt::warn!("Unknown MAX14646 status: {:?}", other);
+            _ => {
+                defmt::warn!(
+                    "MAX14636 provided invalid state: sw_open={:?} chg_al_n={:?} chg_det={:?}",
+                    !sw_open_low,
+                    !chg_al_n_low,
+                    !chg_det_low
+                );
                 PowerSupply::Unknown
             }
         }
