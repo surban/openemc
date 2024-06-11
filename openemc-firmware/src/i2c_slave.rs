@@ -253,6 +253,19 @@ pub enum Event<'a, I2C, PINS> {
     End,
 }
 
+impl<'a, I2C, PINS> defmt::Format for Event<'a, I2C, PINS> {
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            Self::StartRead => defmt::write!(fmt, "StartRead"),
+            Self::StartWrite => defmt::write!(fmt, "StartWrite"),
+            Self::Read(_) => defmt::write!(fmt, "Read"),
+            Self::Write(_) => defmt::write!(fmt, "Write"),
+            Self::Restart => defmt::write!(fmt, "Restart"),
+            Self::End => defmt::write!(fmt, "End"),
+        }
+    }
+}
+
 /// Transmits a byte to the I2C master.
 pub struct Writer<'a, I2C, PINS>(&'a mut I2cSlave<I2C, PINS>);
 

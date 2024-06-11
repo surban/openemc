@@ -93,7 +93,7 @@ where
                         self.pos = 0;
                         return Ok(Event::Read { reg: self.reg });
                     }
-                    _ => defmt::unreachable!(),
+                    other => defmt::error!("Invalid I2C event in idle state: {:?}", other),
                 },
                 State::ReceiveReg => match self.i2c_event()? {
                     I2cEvent::Read(value) => {
