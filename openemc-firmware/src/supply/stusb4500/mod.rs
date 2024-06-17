@@ -790,6 +790,13 @@ where
     pub fn reset_pin_level(&self) -> bool {
         matches!(self.reset, ResetState::PinResetHigh(_))
     }
+
+    /// Initiates a reset.
+    pub fn reset(&mut self) {
+        defmt::info!("Initiating STUSB4500 reset by request");
+        self.reset = ResetState::None;
+        self.start_pin_reset();
+    }
 }
 
 // Register definitions.

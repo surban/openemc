@@ -578,7 +578,7 @@ mod app {
 
         // Check that battery voltage is sufficient.
         if let (Some(bq25713), Some(i2c2)) = (&mut bq25713, &mut i2c2) {
-            bq25713.periodic(i2c2, board.check_bq25713_chrg_ok());
+            let _ = bq25713.periodic(i2c2, board.check_bq25713_chrg_ok());
 
             watchman.force_pet();
             let v_bat = loop {
@@ -910,6 +910,16 @@ mod app {
         defmt::unwrap!(stusb4500_periodic::spawn_after(500u64.millis()));
     }
 
+    /// STUSB4500 reset task.
+    #[task(shared = [stusb4500])]
+    fn stusb4500_reset(mut cx: stusb4500_reset::Context) {
+        cx.shared.stusb4500.lock(|stusb4500| {
+            if let Some(stusb4500) = stusb4500.as_mut() {
+                stusb4500.reset();
+            }
+        });
+    }
+
     /// Updates the power supply status.
     #[task(
         shared = [i2c2, stusb4500, max14636, bq25713, power_supply, irq, board, &power_mode],
@@ -1023,7 +1033,12 @@ mod app {
             |i2c2, bq25713, battery, irq, board| {
                 if let Some(bq25713) = bq25713.as_mut() {
                     let i2c2 = defmt::unwrap!(i2c2.as_mut());
-                    bq25713.periodic(i2c2, board.check_bq25713_chrg_ok());
+                    let res = bq25713.periodic(i2c2, board.check_bq25713_chrg_ok());
+
+                    if let Err(bq25713::Error::I2c) = &res {
+                        defmt::warn!("Resetting STUSB4500 due to BQ25713 I2C error");
+                        let _ = stusb4500_reset::spawn();
+                    }
 
                     let mut ac = false;
                     if let Some(status) = bq25713.status().cloned() {

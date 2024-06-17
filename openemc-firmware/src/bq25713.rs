@@ -708,11 +708,15 @@ where
     }
 
     /// Call this periodically (approx. every second) to handle communication with the device.
-    pub fn periodic(&mut self, i2c: &mut I2C, chrg_ok: bool) {
-        if let Err(err) = self.do_periodic(i2c, chrg_ok) {
+    pub fn periodic(&mut self, i2c: &mut I2C, chrg_ok: bool) -> Result<()> {
+        let res = self.do_periodic(i2c, chrg_ok);
+
+        if let Err(err) = &res {
             defmt::warn!("BQ25713 failed: {}", err);
             self.initialized = false;
         }
+
+        res
     }
 
     /// Update status and measurements without programming charger.
