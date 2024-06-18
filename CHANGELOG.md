@@ -4,6 +4,18 @@ All notable changes to OpenEMC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+# 0.9.1 - 2024-06-18
+### Added
+- STUSB4500: reset when BQ25713 I2C communication fails
+- STUSB4500: log monitoring and hardware fault status
+- power: switch to charging mode when battery is below minimum power-on voltage
+  or reset was due to power loss with charger attached
+### Changed
+- BQ25713: improve status logging
+- BQ25713: enable ICO for USB-CDP supply
+### Fixed
+- charging mode: power off when charger is disconnected during grace period
+
 # 0.9.0 - 2024-02-22
 ### Added
 - board IO support
@@ -58,7 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.6.5 - 2023-06-26
 ### Fixed
-- set input current limit to zero if BQ25713 CHRG_OK pin is low 
+- set input current limit to zero if BQ25713 CHRG_OK pin is low
   and reprogram the configured value immediately after it goes high
 
 ## 0.6.4 - 2023-06-05
