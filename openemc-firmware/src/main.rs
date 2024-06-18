@@ -962,23 +962,23 @@ mod app {
                 if Some(&report) != power_supply.as_ref() {
                     defmt::info!("Power supply: {:?}", report);
 
-                    // Check for power on and shutdown in charging mode.
-                    if *cx.shared.power_mode == PowerMode::Charging {
-                        if board.check_power_on_requested() {
-                            defmt::info!("Power on requested");
-                            let _ = power_restart::spawn(BootReason::Restart);
-                        }
-
-                        if !report.is_connected() && monotonics::now() - *first > grace_period {
-                            defmt::info!("Shutdown because power supply disconnected");
-                            let _ = power_off::spawn();
-                        }
-                    }
-
                     // Store report and notify host.
                     irq.pend_soft(IrqState::SUPPLY | IrqState::BATTERY);
                     *power_supply = Some(report.clone());
                     *last_change = monotonics::now();
+                }
+
+                // Check for power on and shutdown in charging mode.
+                if *cx.shared.power_mode == PowerMode::Charging {
+                    if board.check_power_on_requested() {
+                        defmt::info!("Power on requested");
+                        let _ = power_restart::spawn(BootReason::Restart);
+                    }
+
+                    if !report.is_connected() && monotonics::now() - *first > grace_period {
+                        defmt::info!("Shutdown because power supply disconnected");
+                        let _ = power_off::spawn();
+                    }
                 }
 
                 // Calculate input current limit.
