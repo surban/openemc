@@ -1112,7 +1112,7 @@ mod app {
                     defmt::info!("Battery status: {:?}", battery);
                     *last_log = monotonics::now();
                 }
-                *cx.local.last = battery.clone();
+                cx.local.last.clone_from(battery);
             }
         });
 
