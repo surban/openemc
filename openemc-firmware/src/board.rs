@@ -87,9 +87,12 @@ pub trait Board {
     /// Battery voltage in mV that triggers immediate low voltage shutdown.
     const CRITICAL_LOW_BATTERY_VOLTAGE: Option<u32> = None;
 
+    /// Minimum battery voltage in mV that is required for system power on.
+    const MIN_POWER_ON_BATTERY_VOLTAGE: Option<u32> = None;
+
     /// Time to charge battery before attempting to power on, if it is below
-    /// [`CRITICAL_LOW_BATTERY_VOLTAGE`](Self::CRITICAL_LOW_BATTERY_VOLTAGE).
-    const CRITICAL_LOW_BATTERY_CHARGING_TIME: Duration = Duration::minutes(5);
+    /// [`MIN_POWER_ON_BATTERY_VOLTAGE`](Self::MIN_POWER_ON_BATTERY_VOLTAGE).
+    const LOW_BATTERY_CHARGING_TIME: Duration = Duration::minutes(5);
 
     /// Battery voltage in mV that is used for switching charging LED from blinking to steady.
     const CHARGING_LED_END_VOLTAGE: u32 = 10000;

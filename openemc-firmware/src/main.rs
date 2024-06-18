@@ -576,7 +576,8 @@ mod app {
         }
         defmt::info!("charger:        {}", charger_attached);
 
-        // Check that battery voltage is sufficient.
+        // Check that system power on is allowed by battery state.
+        let mut prohibit_power_on = false;
         if let (Some(bq25713), Some(i2c2)) = (&mut bq25713, &mut i2c2) {
             let _ = bq25713.periodic(i2c2, board.check_bq25713_chrg_ok());
 
@@ -593,26 +594,37 @@ mod app {
 
             if let Some(v_bat) = v_bat {
                 defmt::info!("battery:       {} mV", v_bat);
-                match ThisBoard::CRITICAL_LOW_BATTERY_VOLTAGE {
-                    Some(min) if v_bat < min && board.power_mode().is_full() => {
-                        defmt::warn!("Battery is under critical low battery voltage of {} V", min);
-
-                        if charger_attached {
-                            defmt::warn!("Switching to charging mode");
-                            board.set_power_mode(PowerMode::Charging);
-                            defmt::unwrap!(power_restart::spawn_after(
-                                ThisBoard::CRITICAL_LOW_BATTERY_CHARGING_TIME,
-                                BootReason::Restart,
-                            ));
-                            defmt::unwrap!(undervoltage_power_off::spawn(false));
-                        } else {
-                            defmt::warn!("Switching off");
-                            board.set_power_mode(PowerMode::Off);
-                            defmt::unwrap!(undervoltage_power_off::spawn(true));
-                        }
+                match ThisBoard::MIN_POWER_ON_BATTERY_VOLTAGE {
+                    Some(min) if v_bat < min => {
+                        defmt::warn!("Battery is under minimum power on voltage of {} V", min);
+                        prohibit_power_on = true;
                     }
                     _ => (),
                 }
+            }
+
+            if bi.reset_status.is_power_on() && charger_attached {
+                defmt::warn!("Power on reset detected with charger attached, likely due to undervoltage");
+                prohibit_power_on = true;
+            }
+        }
+
+        // Prevent system power on if required.
+        if prohibit_power_on && board.power_mode().is_full() {
+            defmt::warn!("System power on is prohibited");
+
+            if charger_attached {
+                defmt::warn!("Switching to charging mode");
+                board.set_power_mode(PowerMode::Charging);
+                defmt::unwrap!(power_restart::spawn_after(
+                    ThisBoard::LOW_BATTERY_CHARGING_TIME,
+                    BootReason::Restart,
+                ));
+                defmt::unwrap!(undervoltage_power_off::spawn(false));
+            } else {
+                defmt::warn!("Switching off");
+                board.set_power_mode(PowerMode::Off);
+                defmt::unwrap!(undervoltage_power_off::spawn(true));
             }
         }
         blink_charging!(board, delay, watchman, 10);
