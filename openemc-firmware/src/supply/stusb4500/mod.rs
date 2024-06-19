@@ -365,7 +365,11 @@ where
             Some(pdo) => {
                 defmt::info!("Matched best USB supply PDO: {:?}", &pdo);
 
-                let new_sink_pdo = SinkPdo::Fixed(FixedSinkPdo { voltage: pdo.voltage, ..Default::default() });
+                let new_sink_pdo = SinkPdo::Fixed(FixedSinkPdo {
+                    voltage: pdo.voltage,
+                    operating_current: pdo.max_operating_current,
+                    ..Default::default()
+                });
                 let reset_req = self.sink_pdos[1] != new_sink_pdo || self.active_sink_pdos != 2;
 
                 defmt::debug!("Setting and activating sink PDO 2: {:?}", &new_sink_pdo);
