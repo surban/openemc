@@ -186,10 +186,11 @@ fn main() -> ! {
     );
     defmt::info!("boot reason:  0x{:04x}", boot_reason);
     defmt::info!(
-        "reset status: 0x{:02x} (external: {:?}, watchdog reset: {:?})",
+        "reset status: 0x{:02x} (external: {:?}, watchdog reset: {:?}, power-on: {:?})",
         reset_status.0,
         reset_status.is_external(),
-        reset_status.is_independent_watchdog()
+        reset_status.is_independent_watchdog(),
+        reset_status.is_power_on(),
     );
     defmt::info!("");
 
@@ -244,17 +245,17 @@ fn main() -> ! {
     watchdog::pet();
     let bl_board = board_init == BoardInitResult::StartBootloader;
     let bl_program = program.is_err();
-    let bl_boot_reason = boot_reason == BootReason::InvalidUserProgram as _
+    let mut bl_boot_reason = boot_reason == BootReason::InvalidUserProgram as _
         || boot_reason == BootReason::SurpriseInUser as _
         || boot_reason == BootReason::SurpriseInBootloader as _
         || boot_reason == BootReason::StartBootloader as _
         || boot_reason == BootReason::FactoryReset as _;
-    let bl_reset_cause = (reset_status.is_external() && ThisBoard::PIN_RESET_PREVENTS_AUTORUN)
+    let mut bl_reset_cause = (reset_status.is_external() && ThisBoard::PIN_RESET_PREVENTS_AUTORUN)
         || reset_status.is_independent_watchdog()
         || reset_status.is_window_watchdog();
-    watchdog::pet();
 
     // Print status.
+    watchdog::pet();
     defmt::info!("");
     defmt::info!("enter bootloader due to");
     defmt::info!("    board:           {:?}", bl_board);
@@ -262,6 +263,17 @@ fn main() -> ! {
     defmt::info!("    boot reason:     {:?}", bl_boot_reason);
     defmt::info!("    reset cause:     {:?}", bl_reset_cause);
     defmt::info!("");
+
+    if reset_status.is_power_on()
+        && (boot_reason == BootReason::SurpriseInUser as _
+            || boot_reason == BootReason::SurpriseInBootloader as _)
+    {
+        defmt::info!(
+            "ignoring bootloader entry reasons \"boot reason\" and \"reset cause\" due to power-on reset"
+        );
+        bl_boot_reason = false;
+        bl_reset_cause = false;
+    }
 
     // Enter bootloader if required.
     let mut bootloader_result = None;
