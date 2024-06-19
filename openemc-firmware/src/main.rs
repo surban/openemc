@@ -546,18 +546,31 @@ mod app {
         // Initialize power supplies.
         let stusb4500 = match ThisBoard::STUSB4500_I2C_ADDR {
             Some(addr) => {
-                // Verify and possibily reprogram NVM.
+                // Verify and possibily reprogram NVM of STUSB4500.
+                let mut reprogrammed = false;
                 if let Some(data) = ThisBoard::STUSB4500_NVM {
                     let i2c2 = defmt::unwrap!(i2c2.as_mut());
                     match StUsb4500Nvm::new(addr, i2c2).and_then(|mut nvm| nvm.ensure_nvm(&data)) {
-                        Ok(true) => defmt::info!("STUSB4500 NVM has been reprogrammed"),
+                        Ok(true) => {
+                            defmt::info!("STUSB4500 NVM has been reprogrammed");
+                            reprogrammed = true;
+                        }
                         Ok(false) => defmt::info!("STUSB4500 NVM has been verified"),
                         Err(err) => defmt::warn!("STUSB4500 NVM programming failed: {:?}", err),
                     }
                 }
 
+                // Initialize STUSB4500.
+                let mut stusb4500 =
+                    StUsb4500::new(addr, &ThisBoard::USB_INITIAL_PDO, ThisBoard::USB_MAXIMUM_VOLTAGE);
+
+                if reprogrammed {
+                    defmt::info!("Forcing STUSB4500 pin reset");
+                    stusb4500.reset();
+                }
+
                 defmt::unwrap!(stusb4500_periodic::spawn_after(1u64.secs()));
-                Some(StUsb4500::new(addr, &ThisBoard::USB_INITIAL_PDO, ThisBoard::USB_MAXIMUM_VOLTAGE))
+                Some(stusb4500)
             }
             None => None,
         };
