@@ -4,6 +4,10 @@ All notable changes to OpenEMC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+# 0.9.3 - 2024-06-20
+### Fixed
+- STUSB4500: avoid attach loop with mobile devices
+
 # 0.9.2 - 2024-06-19
 ### Changed
 - bootloader: avoid bootloader entry after power-on reset, if possible
