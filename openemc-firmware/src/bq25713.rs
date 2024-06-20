@@ -527,13 +527,7 @@ where
             let r = self.read(i2c, REG_IIN_HOST, 1)?[0];
             let r_dpm = self.read(i2c, REG_IIN_DPM, 1)?[0];
             if r != v || (r_dpm != v && !limit.ico) {
-                defmt::error!(
-                    "Programmed input current {:x}, but read back is {:x} and I_DPM is {:x}",
-                    v,
-                    r,
-                    r_dpm
-                );
-                return Err(Error::VerifyFailed);
+                defmt::warn!("Programmed input current {}, but read back is {} and I_DPM is {}", v, r, r_dpm);
             }
 
             // Ignore ILIM_HIZ limit once input current limit is configured.
