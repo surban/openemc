@@ -110,12 +110,12 @@ impl PowerSupply {
     pub fn max_current_ma(&self) -> u32 {
         match self {
             Self::Unknown | Self::Disconnected => 0,
-            Self::Ps2 | Self::UsbSdp => 100,
+            Self::Ps2 | Self::UsbSdp => 500,
             Self::UsbDcp | Self::UsbCdp => 1500,
             Self::PdoContract { max_current_ma, .. } => *max_current_ma,
             Self::CcPins5V1500mA => 1500,
             Self::CcPins5V3000mA => 3000,
-            Self::Negotiating => 100,
+            Self::Negotiating => 500,
         }
     }
 
