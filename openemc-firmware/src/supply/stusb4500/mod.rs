@@ -220,14 +220,18 @@ where
     }
 
     /// Initiates a register reset.
-    fn start_register_reset(&mut self, i2c: &mut I2C) -> Result<()> {
+    fn start_register_reset(&mut self, i2c: &mut I2C, power_on: bool) -> Result<()> {
         if self.reset != ResetState::None {
             return Ok(());
         }
 
-        defmt::info!("STUSB4500 register reset");
+        if power_on {
+            defmt::info!("Skipping STUSB4500 register reset due to power on or pin reset");
+        } else {
+            defmt::info!("STUSB4500 register reset");
+            self.write(i2c, REG_RESET, &[1])?;
+        }
 
-        self.write(i2c, REG_RESET, &[1])?;
         self.read(i2c, REG_ALERT_STATUS_1, 12)?;
 
         self.supply_pdos.clear();
@@ -273,7 +277,7 @@ where
             ResetState::OnWait(since) if monotonics::now() - since >= reset_duration => {
                 self.reset = ResetState::None;
                 self.check_id(i2c)?;
-                self.start_register_reset(i2c)?;
+                self.start_register_reset(i2c, true)?;
                 Ok(true)
             }
             ResetState::PinResetHigh(since) if monotonics::now() - since >= reset_duration => {
@@ -707,7 +711,7 @@ where
                                 "USB CC not attached for too long after FSM attach, issuing register reset"
                             );
                             self.fsm_attached_since = None;
-                            self.start_register_reset(i2c)?;
+                            self.start_register_reset(i2c, false)?;
                         }
                     }
                     self.last_fsm_reset = Some(now);
