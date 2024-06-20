@@ -544,7 +544,7 @@ mod app {
         blink_charging!(board, delay, watchman, 8);
 
         // Initialize power supplies.
-        let stusb4500 = match ThisBoard::STUSB4500_I2C_ADDR {
+        let mut stusb4500 = match ThisBoard::STUSB4500_I2C_ADDR {
             Some(addr) => {
                 // Verify and possibily reprogram NVM of STUSB4500.
                 let mut reprogrammed = false;
@@ -620,6 +620,14 @@ mod app {
                 defmt::warn!("Power on reset detected with charger attached, likely due to undervoltage");
                 prohibit_power_on = true;
             }
+        }
+
+        // Avoid losing charger momentarily while battery is very low.
+        match &mut stusb4500 {
+            Some(stusb4500) if prohibit_power_on => {
+                stusb4500.prohibit_reset_until(monotonics::now() + 60u32.secs());
+            }
+            _ => (),
         }
 
         // Prevent system power on if required.

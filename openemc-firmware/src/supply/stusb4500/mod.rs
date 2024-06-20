@@ -138,6 +138,8 @@ pub struct StUsb4500<I2C> {
     best_pdo_requested: bool,
     report: PowerSupply,
     started: Instant,
+    reset_prohibited_until: Option<Instant>,
+    reset_queued: bool,
     _i2c: PhantomData<I2C>,
 }
 
@@ -200,6 +202,8 @@ where
             best_pdo_requested: false,
             report: Default::default(),
             started: monotonics::now(),
+            reset_prohibited_until: None,
+            reset_queued: false,
             _i2c: PhantomData,
         }
     }
@@ -217,6 +221,8 @@ where
 
         defmt::info!("STUSB4500 pin reset");
         self.reset = ResetState::PinResetHigh(monotonics::now());
+        self.reset_prohibited_until = None;
+        self.reset_queued = false;
     }
 
     /// Initiates a register reset.
@@ -227,9 +233,13 @@ where
 
         if power_on {
             defmt::info!("Skipping STUSB4500 register reset due to power on or pin reset");
+        } else if self.reset_prohibited_until.map(|until| until >= monotonics::now()).unwrap_or_default() {
+            defmt::info!("Queueing STUSB4500 register reset because it is currently prohibited");
+            self.reset_queued = true;
         } else {
             defmt::info!("STUSB4500 register reset");
             self.write(i2c, REG_RESET, &[1])?;
+            self.reset_queued = false;
         }
 
         self.read(i2c, REG_ALERT_STATUS_1, 12)?;
@@ -628,6 +638,15 @@ where
 
         defmt::trace!("STUSB4500 periodic");
 
+        // Perform queued reset, if necessary.
+        if !self.reset_prohibited_until.map(|until| until >= monotonics::now()).unwrap_or_default()
+            && self.reset_queued
+        {
+            defmt::info!("Executing queued STUSB4500 register reset");
+            self.reset_prohibited_until = None;
+            self.start_register_reset(i2c, false)?;
+        }
+
         // Read monitoring status.
         self.update_monitoring_status(i2c)?;
         self.update_hw_fault_status(i2c)?;
@@ -804,6 +823,12 @@ where
         defmt::info!("Initiating STUSB4500 reset by request");
         self.reset = ResetState::None;
         self.start_pin_reset();
+    }
+
+    /// Prohibits register reset until the specified time.
+    pub fn prohibit_reset_until(&mut self, until: Instant) {
+        defmt::info!("STUSB4500 reset prohibited");
+        self.reset_prohibited_until = Some(until);
     }
 }
 
