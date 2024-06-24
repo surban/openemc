@@ -510,7 +510,7 @@ where
         // Enable IDPM.
         self.modify(i2c, REG_CHARGE_OPTION_0_LO, |v| v | (1 << 1))?;
 
-        if self.chrg_ok {
+        if self.chrg_ok && limit.max_input_current_ma > 0 {
             defmt::trace!("Programming maximum input current {} mA", limit.max_input_current_ma);
 
             // Enable or disable ICO.

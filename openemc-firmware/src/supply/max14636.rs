@@ -65,7 +65,7 @@ impl Max14636 {
                     !chg_al_n_low,
                     !chg_det_low
                 );
-                PowerSupply::Unknown
+                PowerSupply::Disconnected
             }
         }
     }
