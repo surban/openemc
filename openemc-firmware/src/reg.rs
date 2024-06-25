@@ -278,6 +278,10 @@ pub const SUPPLY_VOLTAGE: u8 = 0x94;
 /// External power supply current in mA. (read-only, u32)
 pub const SUPPLY_CURRENT: u8 = 0x95;
 
+/// External power supply USB communication connection. (read/write, u8)
+/// 0=disconnected, 1=connected.
+pub const SUPPLY_CONNECT_DATA: u8 = 0x96;
+
 /// Read or write to board handler. (read/write)
 /// First byte of read response is length.
 pub const BOARD_IO: u8 = 0xe0;

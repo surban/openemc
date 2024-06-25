@@ -313,6 +313,8 @@ mod app {
         bq25713: Option<Bq25713<I2c2Master>>,
         /// Latest power supply report.
         power_supply: Option<PowerSupply>,
+        /// Connect USB data lines of supply?
+        power_supply_connect_data: bool,
         /// Latest battery report.
         battery: Option<Battery>,
         /// Undervoltage power off in progress?
@@ -748,6 +750,7 @@ mod app {
                 max14636,
                 bq25713,
                 power_supply: None,
+                power_supply_connect_data: false,
                 battery: None,
                 undervoltage_power_off: false,
                 bootloader_crc32,
@@ -955,7 +958,7 @@ mod app {
 
     /// Updates the power supply status.
     #[task(
-        shared = [i2c2, stusb4500, max14636, bq25713, power_supply, irq, board, &power_mode],
+        shared = [i2c2, stusb4500, max14636, bq25713, power_supply, power_supply_connect_data, irq, board, &power_mode],
         local = [
             first: Option<Instant> = None,
             last_change: Option<Instant> = None,
@@ -974,84 +977,94 @@ mod app {
             cx.shared.max14636,
             cx.shared.bq25713,
             cx.shared.power_supply,
+            cx.shared.power_supply_connect_data,
             cx.shared.irq,
             cx.shared.board,
         )
-            .lock(|i2c2, stusb4500, max14636, bq25713, power_supply, irq, board| {
-                // Merge power supply reports.
-                let mut report = PowerSupply::default();
-                if let Some(stusb4500) = stusb4500 {
-                    let stusb4500_report = stusb4500.report();
-                    defmt::trace!("STUSB4500 power supply report: {:?}", &stusb4500_report);
-                    report = report.merge(stusb4500.report());
-                }
-                if let Some(max14636) = max14636 {
-                    let max14636_report = max14636.report();
-                    defmt::trace!("MAX14636 power supply report: {:?}", &max14636_report);
-                    report = report.merge(&max14636_report);
-                }
-
-                // Update power supply status.
-                if Some(&report) != power_supply.as_ref() {
-                    defmt::info!("Power supply: {:?}", report);
-
-                    // Store report and notify host.
-                    irq.pend_soft(IrqState::SUPPLY | IrqState::BATTERY);
-                    *power_supply = Some(report.clone());
-                    *last_change = monotonics::now();
-                }
-
-                // Check for power on and shutdown in charging mode.
-                if *cx.shared.power_mode == PowerMode::Charging {
-                    if board.check_power_on_requested() {
-                        defmt::info!("Power on requested");
-                        let _ = power_restart::spawn(BootReason::Restart);
+            .lock(
+                |i2c2, stusb4500, max14636, bq25713, power_supply, power_supply_connect_data, irq, board| {
+                    // Set USB data connection.
+                    if let Some(max14636) = max14636 {
+                        if max14636.good_battery() != *power_supply_connect_data {
+                            max14636.set_good_battery(*power_supply_connect_data);
+                        }
                     }
 
-                    if !report.is_connected() && monotonics::now() - *first > grace_period {
-                        defmt::info!("Shutdown because power supply disconnected");
-                        let _ = power_off::spawn();
+                    // Merge power supply reports.
+                    let mut report = PowerSupply::default();
+                    if let Some(stusb4500) = stusb4500 {
+                        let stusb4500_report = stusb4500.report();
+                        defmt::trace!("STUSB4500 power supply report: {:?}", &stusb4500_report);
+                        report = report.merge(stusb4500.report());
                     }
-                }
+                    if let Some(max14636) = max14636 {
+                        let max14636_report = max14636.report();
+                        defmt::trace!("MAX14636 power supply report: {:?}", &max14636_report);
+                        report = report.merge(&max14636_report);
+                    }
 
-                // Calculate input current limit.
-                let limit_opt = if report.is_unknown() {
-                    None
-                } else {
-                    Some(board.input_current_limit(&report, monotonics::now() - *last_change))
-                };
+                    // Update power supply status.
+                    if Some(&report) != power_supply.as_ref() {
+                        defmt::info!("Power supply: {:?}", report);
 
-                // Configure battery charger.
-                match &limit_opt {
-                    _ if limit_opt == *cx.local.limit_opt => (),
-                    Some(limit) => match (i2c2, bq25713) {
-                        (Some(i2c2), Some(bq25713)) => {
-                            defmt::info!(
-                                "Setting BQ25713 maximum input current to {} mA and ICO to {}",
-                                limit.max_input_current_ma,
-                                limit.ico
-                            );
+                        // Store report and notify host.
+                        irq.pend_soft(IrqState::SUPPLY | IrqState::BATTERY);
+                        *power_supply = Some(report.clone());
+                        *last_change = monotonics::now();
+                    }
 
-                            let res = bq25713.set_input_current_limit(i2c2, limit).and_then(|_| {
-                                if limit.max_input_current_ma > 0 && !bq25713.is_charge_enabled() {
-                                    bq25713.set_charge_enable(i2c2, true)?;
-                                } else if limit.max_input_current_ma == 0 && bq25713.is_charge_enabled() {
-                                    bq25713.set_charge_enable(i2c2, false)?;
+                    // Check for power on and shutdown in charging mode.
+                    if *cx.shared.power_mode == PowerMode::Charging {
+                        if board.check_power_on_requested() {
+                            defmt::info!("Power on requested");
+                            let _ = power_restart::spawn(BootReason::Restart);
+                        }
+
+                        if !report.is_connected() && monotonics::now() - *first > grace_period {
+                            defmt::info!("Shutdown because power supply disconnected");
+                            let _ = power_off::spawn();
+                        }
+                    }
+
+                    // Calculate input current limit.
+                    let limit_opt = if report.is_unknown() {
+                        None
+                    } else {
+                        Some(board.input_current_limit(&report, monotonics::now() - *last_change))
+                    };
+
+                    // Configure battery charger.
+                    match &limit_opt {
+                        _ if limit_opt == *cx.local.limit_opt => (),
+                        Some(limit) => match (i2c2, bq25713) {
+                            (Some(i2c2), Some(bq25713)) => {
+                                defmt::info!(
+                                    "Setting BQ25713 maximum input current to {} mA and ICO to {}",
+                                    limit.max_input_current_ma,
+                                    limit.ico
+                                );
+
+                                let res = bq25713.set_input_current_limit(i2c2, limit).and_then(|_| {
+                                    if limit.max_input_current_ma > 0 && !bq25713.is_charge_enabled() {
+                                        bq25713.set_charge_enable(i2c2, true)?;
+                                    } else if limit.max_input_current_ma == 0 && bq25713.is_charge_enabled() {
+                                        bq25713.set_charge_enable(i2c2, false)?;
+                                    }
+                                    Ok(())
+                                });
+                                match res {
+                                    Ok(()) => *cx.local.limit_opt = limit_opt,
+                                    Err(err) => defmt::error!("Cannot configure BQ25713 charging: {}", err),
                                 }
-                                Ok(())
-                            });
-                            match res {
-                                Ok(()) => *cx.local.limit_opt = limit_opt,
-                                Err(err) => defmt::error!("Cannot configure BQ25713 charging: {}", err),
                             }
-                        }
-                        _ => {
-                            *cx.local.limit_opt = limit_opt;
-                        }
-                    },
-                    None => *cx.local.limit_opt = limit_opt,
-                }
-            });
+                            _ => {
+                                *cx.local.limit_opt = limit_opt;
+                            }
+                        },
+                        None => *cx.local.limit_opt = limit_opt,
+                    }
+                },
+            );
 
         defmt::unwrap!(power_supply_update::spawn_after(500u64.millis()));
     }
@@ -1475,6 +1488,7 @@ mod app {
             adc_buf,
             board,
             power_supply,
+            power_supply_connect_data,
             battery,
             flash,
             crc,
@@ -1885,6 +1899,12 @@ mod app {
                         respond_u32(battery.input_current_ma.unwrap_or_default());
                     }
                 });
+            }
+            Event::Read { reg: reg::SUPPLY_CONNECT_DATA } => {
+                cx.shared.power_supply_connect_data.lock(|&mut connect| respond_u8(connect.into()));
+            }
+            Event::Write { reg: reg::SUPPLY_CONNECT_DATA, value } => {
+                cx.shared.power_supply_connect_data.lock(|connect| *connect = value.as_u8() != 0);
             }
             Event::Read { reg: reg::BOARD_IO } => {
                 cx.shared.board.lock(|board| {

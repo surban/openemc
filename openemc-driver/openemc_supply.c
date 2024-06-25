@@ -178,6 +178,54 @@ static const struct power_supply_desc openemc_supply_desc = {
 	.get_property = openemc_supply_get_property,
 };
 
+static ssize_t openemc_supply_connect_data_show(struct device *dev,
+						struct device_attribute *attr,
+						char *buf)
+{
+	struct openemc_supply *sup = dev_get_drvdata(dev);
+	int ret;
+	u8 connect;
+
+	ret = openemc_read_u8(sup->emc, OPENEMC_SUPPLY_CONNECT_DATA, &connect);
+	if (ret < 0)
+		return ret;
+
+	if (connect == 0)
+		return sprintf(buf, "disconnect");
+	else
+		return sprintf(buf, "connect");
+}
+static ssize_t openemc_supply_connect_data_store(struct device *dev,
+						 struct device_attribute *attr,
+						 const char *buf, size_t count)
+{
+	struct openemc_supply *sup = dev_get_drvdata(dev);
+	u8 connect;
+	int ret;
+
+	if (sysfs_streq(buf, "disconnect"))
+		connect = 0;
+	else if (sysfs_streq(buf, "connect"))
+		connect = 1;
+	else
+		return -EINVAL;
+
+	ret = openemc_write_u8(sup->emc, OPENEMC_SUPPLY_CONNECT_DATA, connect);
+	if (ret != 0)
+		return ret;
+
+	return count;
+}
+static DEVICE_ATTR_RW(openemc_supply_connect_data);
+
+static struct attribute *openemc_supply_attrs[] = {
+	&dev_attr_openemc_supply_connect_data.attr, NULL
+};
+
+static const struct attribute_group openemc_supply_group = {
+	.attrs = openemc_supply_attrs,
+};
+
 static int openemc_supply_probe(struct platform_device *pdev)
 {
 	const struct of_device_id *match;
@@ -247,6 +295,10 @@ static int openemc_supply_probe(struct platform_device *pdev)
 			return ret;
 		}
 	}
+
+	ret = devm_device_add_group(&pdev->dev, &openemc_supply_group);
+	if (ret < 0)
+		return ret;
 
 	dev_info(sup->dev, "OpenEMC power supply %s registered\n",
 		 psy_desc->name);

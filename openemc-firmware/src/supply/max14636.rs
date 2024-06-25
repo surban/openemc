@@ -18,13 +18,13 @@
 
 //! MAX14636 USB charger detector driver.
 
-use stm32f1xx_hal::gpio::{ErasedPin, Floating, Input, Output, PullUp};
+use stm32f1xx_hal::gpio::{ErasedPin, Floating, Input, Output, PinState, PullUp};
 
 use super::PowerSupply;
 
 /// MAX14636 USB charger detector driver.
 pub struct Max14636 {
-    _good_bat: ErasedPin<Output>,
+    good_bat: ErasedPin<Output>,
     sw_open: ErasedPin<Input<PullUp>>,
     chg_al_n: ErasedPin<Input<PullUp>>,
     chg_det: ErasedPin<Input<Floating>>,
@@ -33,11 +33,24 @@ pub struct Max14636 {
 impl Max14636 {
     /// Creates a new driver instance.
     pub fn new(
-        mut good_bat: ErasedPin<Output>, sw_open: ErasedPin<Input<PullUp>>, chg_al_n: ErasedPin<Input<PullUp>>,
+        good_bat: ErasedPin<Output>, sw_open: ErasedPin<Input<PullUp>>, chg_al_n: ErasedPin<Input<PullUp>>,
         chg_det: ErasedPin<Input<Floating>>,
     ) -> Self {
-        good_bat.set_high();
-        Self { _good_bat: good_bat, sw_open, chg_al_n, chg_det }
+        Self { good_bat, sw_open, chg_al_n, chg_det }
+    }
+
+    /// Sets the good battery state.
+    ///
+    /// The USB data connection is established when `good_battery` is true.
+    /// Otherwise the USB data lines are disconnected.
+    pub fn set_good_battery(&mut self, good_battery: bool) {
+        defmt::info!("Setting good battery to {:?}", good_battery);
+        self.good_bat.set_state(if good_battery { PinState::High } else { PinState::Low });
+    }
+
+    /// Whether the good battery state is set.
+    pub fn good_battery(&self) -> bool {
+        self.good_bat.is_set_high()
     }
 
     /// Power supply report.
