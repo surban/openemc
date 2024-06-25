@@ -36,9 +36,11 @@ fn main() {
             && entry.path().extension() == Some(OsStr::new("rs"))
             && entry.file_name() != OsStr::new("mod.rs")
         {
+            let board_name = entry.path().file_stem().unwrap().to_str().unwrap().to_owned();
             writeln!(&mut board_mods, "#[path=\"{}\"]", entry.path().canonicalize().unwrap().to_str().unwrap())
                 .unwrap();
-            writeln!(&mut board_mods, "mod {};", entry.path().file_stem().unwrap().to_str().unwrap()).unwrap();
+            writeln!(&mut board_mods, "mod {board_name};").unwrap();
+            println!("cargo::rustc-check-cfg=cfg(board, values(\"{board_name}\"))");
         }
     }
     writeln!(&mut board_mods, "pub use {board}::BoardImpl as Chosen;").unwrap();
