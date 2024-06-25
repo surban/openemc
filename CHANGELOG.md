@@ -4,6 +4,12 @@ All notable changes to OpenEMC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+# 0.9.5 - 2024-06-25
+### Added
+- supply: allow explicit disconnection of USB data lines via sysfs
+### Changed
+- supply: use no input current when disconnected according to any detector
+
 # 0.9.4 - 2024-06-20
 ### Changed
 - STUSB4500: prohibit reset when battery is low
