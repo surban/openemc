@@ -49,7 +49,7 @@ jobs:
         run: cargo xtask
       - name: Build firmware package for STM NUCLEO-F103RB using nightly Rust
         run: |
-          TOOLCHAIN="nightly-2023-11-13"
+          TOOLCHAIN="nightly-2024-06-24"
           rustup toolchain install $TOOLCHAIN
           rustup target add --toolchain $TOOLCHAIN thumbv7m-none-eabi
           rustup component add --toolchain $TOOLCHAIN llvm-tools-preview rust-src
