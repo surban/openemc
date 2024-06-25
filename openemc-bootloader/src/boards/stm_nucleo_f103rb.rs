@@ -18,7 +18,6 @@ pub struct BoardImpl {
 
 impl Board for BoardImpl {
     const I2C_REMAP: bool = true;
-    const IRQ_PIN: u8 = 6;
     const PIN_RESET_PREVENTS_AUTORUN: bool = false;
 
     fn new() -> Self {

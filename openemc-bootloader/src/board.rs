@@ -16,12 +16,6 @@ pub trait Board {
     /// I2C pins remapped?
     const I2C_REMAP: bool = true;
 
-    /// IRQ pin number (PA0, PA1, .., PA15, PB0, PB1, ...)
-    const IRQ_PIN: u8 = 6; // PA6
-
-    /// IRQ pin configuration.
-    const IRQ_PIN_CFG: u8 = 0b0010; // 2 MHz push-pull output
-
     /// If EMC is reset via reset pin, this prevents automatic
     /// starting of the user program.
     const PIN_RESET_PREVENTS_AUTORUN: bool = true;
