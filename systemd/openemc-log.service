@@ -6,7 +6,7 @@ PartOf=systemd-journal-flush.service
 After=dev-openemc.device systemd-journal-flush.service
 
 [Service]
-Type=simple
+Type=exec
 ExecStartPre=-openemc-log --bootloader
 ExecStart=openemc-log
 
