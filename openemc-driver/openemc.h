@@ -116,6 +116,12 @@
 #define OPENEMC_SUPPLY_CURRENT 0x95
 #define OPENEMC_SUPPLY_CONNECT_DATA 0x96
 
+/* Platform store register definitions */
+#define OPENEMC_PSTORE_SIZE 0xa0
+#define OPENEMC_PSTORE_IO_ADDRESS 0xa1
+#define OPENEMC_PSTORE_IO_SIZE 0xa2
+#define OPENEMC_PSTORE_IO 0xa3
+
 /* Board IO register definitions */
 #define OPENEMC_BOARD_IO 0xe0
 #define OPENEMC_BOARD_IO_STATUS 0xe1

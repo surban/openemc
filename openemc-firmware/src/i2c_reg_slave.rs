@@ -271,6 +271,11 @@ impl<const BUFFER: usize> Deref for Response<BUFFER> {
 }
 
 impl<const BUFFER: usize> Response<BUFFER> {
+    /// Buffer size.
+    pub const fn buffer() -> usize {
+        BUFFER
+    }
+
     /// Provides the register value.
     ///
     /// The length of the value must not exceed `BUFFER`.

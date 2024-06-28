@@ -282,6 +282,18 @@ pub const SUPPLY_CURRENT: u8 = 0x95;
 /// 0=disconnected, 1=connected.
 pub const SUPPLY_CONNECT_DATA: u8 = 0x96;
 
+/// Platform store size. (read-only, u16)
+pub const PSTORE_SIZE: u8 = 0xa0;
+
+/// Platform store I/O address. (read-write, u16)
+pub const PSTORE_IO_ADDRESS: u8 = 0xa1;
+
+/// Platform store I/O size. (read-write, u8)
+pub const PSTORE_IO_SIZE: u8 = 0xa2;
+
+/// Platform store I/O. (read-write, size specified by PSTORE_IO_SIZE)
+pub const PSTORE_IO: u8 = 0xa3;
+
 /// Read or write to board handler. (read/write)
 /// First byte of read response is length.
 pub const BOARD_IO: u8 = 0xe0;

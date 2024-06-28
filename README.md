@@ -24,6 +24,7 @@ The following features are implemented:
   - battery charger (BQ25713)
   - external power supply with USB PD (STUSB4500) and USB charger detector (MAX14636)
   - charging mode with system power off
+  - Linux pstore (persistent storage) integration for kernel panic logs
   - configuration storage in flash memory
   - full devicetree integration
 
