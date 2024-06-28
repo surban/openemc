@@ -31,3 +31,6 @@ pub const LOG_SIZE: usize = 8192;
 
 /// Number of flash pages to store configuration.
 pub const CFG_FLASH_PAGES: usize = 1;
+
+/// Platform store size.
+pub const PSTORE_SIZE: usize = 4096;

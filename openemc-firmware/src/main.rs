@@ -50,6 +50,7 @@ mod i2c_reg_slave;
 mod i2c_slave;
 mod irq;
 mod pio;
+mod pstore;
 mod pwm;
 mod reg;
 mod rtc;
@@ -123,7 +124,7 @@ static MFD_CELL_PREFIX: &[u8] = b"openemc,openemc_";
 
 /// MFD cells.
 static MFD_CELLS: &[&[u8]] =
-    &[b"adc", b"battery", b"gpio", b"pinctrl", b"power", b"pwm", b"rtc", b"supply", b"wdt"];
+    &[b"adc", b"battery", b"gpio", b"pinctrl", b"power", b"pstore", b"pwm", b"rtc", b"supply", b"wdt"];
 
 /// Supported EMC models.
 static EMC_MODELS: &[u8] = &[0x01, 0xd1];
@@ -159,6 +160,12 @@ pub static mut LOG: core::mem::MaybeUninit<defmt_ringbuf::RingBuffer<{ openemc_s
 static mut BOOTLOADER_LOG_REF: Option<
     &'static mut defmt_ringbuf::RingBuffer<{ openemc_shared::BOOTLOADER_LOG_SIZE }>,
 > = None;
+
+/// Platform store.
+#[used]
+#[no_mangle]
+#[link_section = ".pstore"]
+pub static mut PSTORE: [u8; openemc_shared::PSTORE_SIZE] = [0; openemc_shared::PSTORE_SIZE];
 
 extern "C" {
     /// Space reserved for bootloader (from linker).
@@ -327,6 +334,8 @@ mod app {
         bootloader_crc32: u32,
         /// Power on due to charger attachment.
         charger_attachment_power_on: bool,
+        /// Persistent platform store.
+        pstore: pstore::Pstore<'static>,
     }
 
     /// Exclusive resources.
@@ -682,6 +691,14 @@ mod app {
             ThisBoard::PWM_TIMERS[3].then(|| PwmTimer::new(pwm::Timer::Timer4, &clocks)),
         ];
 
+        // Initialize platform store.
+        let pstore = unsafe {
+            use core::ptr::addr_of_mut;
+            // SAFETY: PSTORE is only accessed here and nowhere else.
+            pstore::Pstore::new(&mut *addr_of_mut!(PSTORE))
+        };
+        defmt::info!("Platform store of size {} bytes", pstore.data.len());
+
         // Configure IRQ pin.
         let mut usable_exti = 0b0000_0000_0000_1111_1111_1111_1111_1111;
         board.limit_usable_exti(&mut usable_exti);
@@ -755,6 +772,7 @@ mod app {
                 undervoltage_power_off: false,
                 bootloader_crc32,
                 charger_attachment_power_on,
+                pstore,
             },
             Local { i2c_reg_slave, adc, adc_inp, ugpio, pwm_timers },
             init::Monotonics(mono),
@@ -1495,6 +1513,7 @@ mod app {
             cfg,
             &bootloader_crc32,
             &charger_attachment_power_on,
+            pstore,
         ],
         priority = 2,
     )]
@@ -1905,6 +1924,33 @@ mod app {
             }
             Event::Write { reg: reg::SUPPLY_CONNECT_DATA, value } => {
                 cx.shared.power_supply_connect_data.lock(|connect| *connect = value.as_u8() != 0);
+            }
+            Event::Read { reg: reg::PSTORE_SIZE } => {
+                cx.shared.pstore.lock(|pstore| respond_u16(pstore.data.len() as _));
+            }
+            Event::Read { reg: reg::PSTORE_IO_ADDRESS } => {
+                cx.shared.pstore.lock(|pstore| respond_u16(pstore.io_address as _));
+            }
+            Event::Write { reg: reg::PSTORE_IO_ADDRESS, value } => {
+                cx.shared.pstore.lock(|pstore| pstore.io_address = value.as_u16() as _);
+            }
+            Event::Read { reg: reg::PSTORE_IO_SIZE } => {
+                cx.shared.pstore.lock(|pstore| respond_u16(pstore.io_size as _));
+            }
+            Event::Write { reg: reg::PSTORE_IO_SIZE, value } => {
+                cx.shared.pstore.lock(|pstore| pstore.io_size = value.as_u16() as _);
+            }
+            Event::Read { reg: reg::PSTORE_IO } => {
+                cx.shared.pstore.lock(|pstore| {
+                    let mut buf = [0; I2C_BUFFER_SIZE];
+                    pstore.read(&mut buf);
+                    respond_slice(&buf);
+                });
+            }
+            Event::Write { reg: reg::PSTORE_IO, value } => {
+                cx.shared.pstore.lock(|pstore| {
+                    pstore.write(&value);
+                });
             }
             Event::Read { reg: reg::BOARD_IO } => {
                 cx.shared.board.lock(|board| {

@@ -102,6 +102,12 @@ pub static mut BOOTLOADER_LOG: core::mem::MaybeUninit<
 pub static mut LOG: core::mem::MaybeUninit<defmt_ringbuf::RingBuffer<{ openemc_shared::LOG_SIZE }>> =
     core::mem::MaybeUninit::uninit();
 
+/// Platform store.
+#[used]
+#[no_mangle]
+#[link_section = ".pstore"]
+pub static mut PSTORE: [u8; openemc_shared::PSTORE_SIZE] = [0; openemc_shared::PSTORE_SIZE];
+
 /// Signature value for backup register.
 pub const BACKUP_REG_SIGNATURE_VALUE: u16 = 0xb001;
 

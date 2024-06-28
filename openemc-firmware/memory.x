@@ -27,6 +27,13 @@ SECTIONS
     KEEP(*(.defmt_log .defmt_log.*));
     . = ALIGN(8);
   } > RAM
+
+  /* Pstore buffer. */
+  .pstore (NOLOAD) : ALIGN(8)
+  {
+    KEEP(*(.pstore .pstore.*));
+    . = ALIGN(8);
+  } > RAM
 }
 INSERT BEFORE .data;
 
