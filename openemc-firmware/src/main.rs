@@ -742,7 +742,7 @@ mod app {
         };
 
         // Drive charging LED.
-        unwrap!(charge_led::spawn());
+        unwrap!(charge_led::spawn_after(7u64.secs()));
 
         // Call board-specific periodic function for first time.
         unwrap!(board_periodic::spawn());
@@ -1239,10 +1239,13 @@ mod app {
                 let (should_charge, charging_error) = battery
                     .as_ref()
                     .map(|b| {
+                        let voltage_mv = b.voltage_mv.unwrap_or_default();
+                        let current_ma = b.current_ma.unwrap_or_default();
                         (
-                            b.voltage_mv.unwrap_or_default() < ThisBoard::CHARGING_LED_END_VOLTAGE,
-                            !b.charging.is_charging()
-                                || b.current_ma.unwrap_or_default() < ThisBoard::CHARGING_LED_MIN_CURRENT,
+                            voltage_mv < ThisBoard::CHARGING_LED_END_VOLTAGE
+                                && !(voltage_mv >= ThisBoard::CHARGING_LED_NOT_CHARGING_ACCEPTABLE_VOLTAGE
+                                    && current_ma < ThisBoard::CHARGING_LED_MIN_CURRENT),
+                            !b.charging.is_charging() || current_ma < ThisBoard::CHARGING_LED_MIN_CURRENT,
                         )
                     })
                     .unwrap_or_default();

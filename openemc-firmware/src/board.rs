@@ -97,6 +97,10 @@ pub trait Board {
     /// Battery voltage in mV that is used for switching charging LED from blinking to steady.
     const CHARGING_LED_END_VOLTAGE: u32 = 10000;
 
+    /// Battery voltage in mV that is used for switching charging LED from blinking to steady,
+    /// when charging current is below [`CHARGING_LED_MIN_CURRENT`](Self::CHARGING_LED_MIN_CURRENT).
+    const CHARGING_LED_NOT_CHARGING_ACCEPTABLE_VOLTAGE: u32 = Self::CHARGING_LED_END_VOLTAGE;
+
     /// Battery current in mA that is used to indicate charging error if fallen below.
     const CHARGING_LED_MIN_CURRENT: i32 = 0;
 
