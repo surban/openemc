@@ -98,13 +98,16 @@ enum ResetState {
     PinResetLow(Instant),
     RegisterReset(Instant),
     Off,
-    OnWait(Instant),
+    OnWait { since: Instant, pin_reset: bool },
     Failed,
 }
 
 impl ResetState {
     pub fn is_resetting(&self) -> bool {
-        matches!(self, Self::PinResetHigh(_) | Self::PinResetLow(_) | Self::RegisterReset(_) | Self::OnWait(_))
+        matches!(
+            self,
+            Self::PinResetHigh(_) | Self::PinResetLow(_) | Self::RegisterReset(_) | Self::OnWait { .. }
+        )
     }
 }
 
@@ -232,7 +235,7 @@ where
         }
 
         if power_on {
-            defmt::info!("Skipping STUSB4500 register reset due to power on or pin reset");
+            defmt::info!("Skipping STUSB4500 register reset due to power on");
         } else if self.reset_prohibited_until.map(|until| until >= monotonics::now()).unwrap_or_default() {
             defmt::info!("Queueing STUSB4500 register reset because it is currently prohibited");
             self.reset_queued = true;
@@ -281,13 +284,13 @@ where
                 Ok(true)
             }
             ResetState::Off => {
-                self.reset = ResetState::OnWait(monotonics::now());
+                self.reset = ResetState::OnWait { since: monotonics::now(), pin_reset: false };
                 Ok(true)
             }
-            ResetState::OnWait(since) if monotonics::now() - since >= reset_duration => {
+            ResetState::OnWait { since, pin_reset } if monotonics::now() - since >= reset_duration => {
                 self.reset = ResetState::None;
                 self.check_id(i2c)?;
-                self.start_register_reset(i2c, true)?;
+                self.start_register_reset(i2c, !pin_reset)?;
                 Ok(true)
             }
             ResetState::PinResetHigh(since) if monotonics::now() - since >= reset_duration => {
@@ -297,9 +300,8 @@ where
             }
             ResetState::PinResetLow(since) if monotonics::now() - since >= reset_duration => {
                 defmt::debug!("STUSB4500 pin reset done");
-                self.reset = ResetState::None;
                 self.last_pin_reset = Some(monotonics::now());
-                self.reset = ResetState::OnWait(monotonics::now());
+                self.reset = ResetState::OnWait { since: monotonics::now(), pin_reset: true };
                 Ok(true)
             }
             ResetState::RegisterReset(since) if monotonics::now() - since >= reset_duration => {
