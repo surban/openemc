@@ -194,13 +194,19 @@ pub trait Board {
     ///
     /// `active` specifies for how long the supplied power supply configuration has been unchanged.
     fn input_current_limit(&mut self, power_supply: &PowerSupply, active: Duration) -> InputCurrentLimit {
+        let stable = active.to_secs() >= 3;
+
+        let mut max_input_current_ma = power_supply.max_current_ma();
+        if max_input_current_ma > 200 {
+            max_input_current_ma -= 100;
+        }
+        if !stable {
+            max_input_current_ma = max_input_current_ma.min(500);
+        }
+
         InputCurrentLimit {
-            max_input_current_ma: if active.to_secs() >= 3 {
-                power_supply.max_current_ma()
-            } else {
-                power_supply.max_current_ma().min(500)
-            },
-            ico: matches!(power_supply, PowerSupply::UsbDcp | PowerSupply::UsbCdp) && active.to_secs() >= 3,
+            max_input_current_ma,
+            ico: matches!(power_supply, PowerSupply::UsbDcp | PowerSupply::UsbCdp) && stable,
         }
     }
 
