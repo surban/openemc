@@ -242,7 +242,11 @@ where
             self.reset_queued = false;
         }
 
-        self.read(i2c, REG_ALERT_STATUS_1, 12)?;
+        // Clear the following 11 status registers by reading them:
+        // ALERT_STATUS_1 (0x0b), ALERT_STATUS_1_MASK, PORT_STATUS_0, PORT_STATUS_1, TYPEC_MONITORING_STATUS_0,
+        // TYPEC_MONITORING_STATUS_1, CC_STATUS, CC_HW_FAULT_STATUS_0, CC_HW_FAULT_STATUS_1,
+        // PD_TYPEC_STATUS, TYPEC_STATUS (0x15)
+        self.read(i2c, REG_ALERT_STATUS_1, 11)?;
 
         self.supply_pdos.clear();
         self.snk_ready_since = None;
