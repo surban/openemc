@@ -344,7 +344,7 @@ version = "0.0.0"
 
 [[package]]
 name = "openemc-firmware"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "byteorder",
  "cortex-m",
@@ -540,7 +540,7 @@ dependencies = [
 [[package]]
 name = "stm32f1xx-hal"
 version = "0.10.0"
-source = "git+https://github.com/stm32-rs/stm32f1xx-hal.git?rev=ab6de2ed907b0ec3c5e27deb85e03d8b9cd694ac#ab6de2ed907b0ec3c5e27deb85e03d8b9cd694ac"
+source = "git+https://github.com/surban/stm32f1xx-hal.git?branch=i2c-reset#817780753729eab1b1a08c31c19c283d35f53a89"
 dependencies = [
  "bitflags",
  "bxcan",

@@ -3,13 +3,14 @@ name = "openemc-firmware"
 description = "OpenEMC Firmware"
 authors = ["Sebastian Urban <surban@surban.net>"]
 license = "GPL-3.0"
-version = "0.9.7"
+version = "0.9.8"
 publish = false
 edition = "2021"
 
 [features]
 default = ["defmt-rtt"]
 debug-blink = []
+debug-i2c2-glitch = []
 
 [dependencies]
 openemc-shared = { path = "../openemc-shared" }
@@ -20,8 +21,8 @@ cortex-m-rt = { version = "0.7", features = ["device"] }
 cortex-m-rtic = "1.1"
 embedded-hal = "0.2"
 stm32f1 = { version = "0.15", features = ["stm32f103", "rt"] }
-#stm32f1xx-hal = { version = "0.10", features = ["stm32f103", "medium", "rt"] }
-stm32f1xx-hal = { git = "https://github.com/stm32-rs/stm32f1xx-hal.git", rev = "ab6de2ed907b0ec3c5e27deb85e03d8b9cd694ac", features = [
+# stm32f1xx-hal = { version = "0.10", features = ["stm32f103", "medium", "rt"] }
+stm32f1xx-hal = { git = "https://github.com/surban/stm32f1xx-hal.git", branch = "i2c-reset", features = [
     "stm32f103",
     "medium",
     "rt",

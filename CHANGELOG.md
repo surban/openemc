@@ -4,6 +4,19 @@ All notable changes to OpenEMC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+# 0.9.8 - 2024-10-12
+### Added
+- I2C: bus recovery
+- STUSB4500: verify received PDOs by obtaining them twice
+
+# 0.9.7 - 2024-07-05
+### Added
+- Linux pstore support
+### Changed
+- STUSB4500: always perform register reset after pin reset
+- improve LED behavior
+- supply: derate reported currents by 100 mA
+
 # 0.9.6 - 2024-06-25
 ### Fixed
 - supply: connect data lines in charge mode
