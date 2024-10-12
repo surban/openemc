@@ -72,11 +72,7 @@ pub enum PowerSupply {
 impl PowerSupply {
     /// Merge two power supply reports, returning the best available power.
     pub fn merge(&self, other: &Self) -> Self {
-        if *self == Self::Disconnected || *other == Self::Disconnected {
-            Self::Disconnected
-        } else {
-            self.max(other).clone()
-        }
+        self.max(other).clone()
     }
 
     /// Whether the power supply state is unknown.
