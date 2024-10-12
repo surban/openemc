@@ -21,12 +21,16 @@
 use embedded_hal::blocking::i2c;
 use heapless::Vec;
 
+use crate::i2c_master::I2cError;
+
 use super::{Error, Result, IDS, REG_ID};
 
 /// STUSB4500 NVM programming interface.
 pub struct StUsb4500Nvm<'a, I2C>
 where
     I2C: i2c::Write<i2c::SevenBitAddress> + i2c::WriteRead<i2c::SevenBitAddress>,
+    <I2C as i2c::Write<i2c::SevenBitAddress>>::Error: Into<I2cError>,
+    <I2C as i2c::WriteRead<i2c::SevenBitAddress>>::Error: Into<I2cError>,
 {
     addr: u8,
     i2c: &'a mut I2C,
@@ -36,6 +40,8 @@ where
 impl<'a, I2C> StUsb4500Nvm<'a, I2C>
 where
     I2C: i2c::Write<i2c::SevenBitAddress> + i2c::WriteRead<i2c::SevenBitAddress>,
+    <I2C as i2c::Write<i2c::SevenBitAddress>>::Error: Into<I2cError>,
+    <I2C as i2c::WriteRead<i2c::SevenBitAddress>>::Error: Into<I2cError>,
 {
     /// Mask of programmable bits within NVM.
     #[rustfmt::skip]
@@ -51,7 +57,7 @@ where
     fn read(&mut self, reg: u8, len: usize) -> Result<Vec<u8, 32>> {
         let mut buf: Vec<u8, 32> = Vec::new();
         defmt::unwrap!(buf.resize_default(len));
-        self.i2c.write_read(self.addr, &[reg], &mut buf).map_err(|_| Error::I2c)?;
+        self.i2c.write_read(self.addr, &[reg], &mut buf).map_err(|err| Error::I2c(err.into()))?;
         Ok(buf)
     }
 
@@ -60,7 +66,7 @@ where
         let mut buf: Vec<u8, 32> = Vec::new();
         defmt::unwrap!(buf.push(reg));
         buf.extend(data.iter().cloned());
-        self.i2c.write(self.addr, &buf).map_err(|_| Error::I2c)
+        self.i2c.write(self.addr, &buf).map_err(|err| Error::I2c(err.into()))
     }
 
     /// Checks the id of the STUSB4500.
@@ -266,6 +272,8 @@ where
 impl<'a, I2C> Drop for StUsb4500Nvm<'a, I2C>
 where
     I2C: i2c::Write<i2c::SevenBitAddress> + i2c::WriteRead<i2c::SevenBitAddress>,
+    <I2C as i2c::Write<i2c::SevenBitAddress>>::Error: Into<I2cError>,
+    <I2C as i2c::WriteRead<i2c::SevenBitAddress>>::Error: Into<I2cError>,
 {
     fn drop(&mut self) {
         if self.nvm_enabled {

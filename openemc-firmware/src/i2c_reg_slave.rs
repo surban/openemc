@@ -2,6 +2,8 @@
 
 use core::ops::Deref;
 use heapless::Vec;
+use stm32f1::stm32f103::I2C1;
+use stm32f1xx_hal::gpio::{Alternate, OpenDrain, Pin};
 
 use crate::i2c_slave::{self, Event as I2cEvent, I2cSlave, Instance};
 
@@ -352,5 +354,32 @@ impl<const BUFFER: usize> Response<BUFFER> {
             ((value >> 112) & 0xff) as u8,
             ((value >> 120) & 0xff) as u8,
         ])
+    }
+}
+
+/// I2C register slave that may have remapped pins.
+#[allow(clippy::type_complexity)]
+pub enum RemappableI2CRegSlave<const BUFFER: usize> {
+    /// I2C remapped.
+    Remapped(I2CRegSlave<I2C1, (Pin<'B', 8, Alternate<OpenDrain>>, Pin<'B', 9, Alternate<OpenDrain>>), BUFFER>),
+    /// I2C normal.
+    Normal(I2CRegSlave<I2C1, (Pin<'B', 6, Alternate<OpenDrain>>, Pin<'B', 7, Alternate<OpenDrain>>), BUFFER>),
+}
+
+impl<const BUFFER: usize> RemappableI2CRegSlave<BUFFER> {
+    /// Gets the next I2C register slave event event.
+    pub fn event(&mut self) -> nb::Result<Event<BUFFER>, Error> {
+        match self {
+            Self::Remapped(i2c) => i2c.event(),
+            Self::Normal(i2c) => i2c.event(),
+        }
+    }
+
+    /// Responds to a read register event.
+    pub fn respond(&mut self, response: Response<BUFFER>) {
+        match self {
+            Self::Remapped(i2c) => i2c.respond(response),
+            Self::Normal(i2c) => i2c.respond(response),
+        }
     }
 }

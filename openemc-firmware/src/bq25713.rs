@@ -23,11 +23,13 @@ use defmt::Format;
 use embedded_hal::blocking::i2c;
 use heapless::Vec;
 
+use crate::i2c_master::I2cError;
+
 /// BQ25713 error.
 #[derive(Clone, Format, PartialEq, Eq)]
 pub enum Error {
     /// I2C communication error.
-    I2c,
+    I2c(I2cError),
     /// Device responded with wrong id.
     WrongId,
     /// Device is not initialized.
@@ -270,12 +272,14 @@ pub struct Bq25713<I2C> {
 impl<I2C> Bq25713<I2C>
 where
     I2C: i2c::Write<i2c::SevenBitAddress> + i2c::WriteRead<i2c::SevenBitAddress>,
+    <I2C as i2c::Write<i2c::SevenBitAddress>>::Error: Into<I2cError>,
+    <I2C as i2c::WriteRead<i2c::SevenBitAddress>>::Error: Into<I2cError>,
 {
     /// Read I2C register(s).
     fn read(&self, i2c: &mut I2C, reg: u8, len: usize) -> Result<Vec<u8, 32>> {
         let mut buf: Vec<u8, 32> = Vec::new();
         defmt::unwrap!(buf.resize_default(len));
-        i2c.write_read(self.addr, &[reg], &mut buf).map_err(|_| Error::I2c)?;
+        i2c.write_read(self.addr, &[reg], &mut buf).map_err(|err| Error::I2c(err.into()))?;
         Ok(buf)
     }
 
@@ -284,7 +288,7 @@ where
         let mut buf: Vec<u8, 32> = Vec::new();
         defmt::unwrap!(buf.push(reg));
         buf.extend(data.iter().cloned());
-        i2c.write(self.addr, &buf).map_err(|_| Error::I2c)
+        i2c.write(self.addr, &buf).map_err(|err| Error::I2c(err.into()))
     }
 
     /// Write 2-byte I2C register.

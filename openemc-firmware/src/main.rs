@@ -46,6 +46,7 @@ mod cfg;
 mod crc;
 mod flash_data;
 mod flash_util;
+mod i2c_master;
 mod i2c_reg_slave;
 mod i2c_slave;
 mod irq;
@@ -69,16 +70,8 @@ use defmt::{unwrap, Format};
 use heapless::Vec;
 use stm32f1::stm32f103::Interrupt;
 use stm32f1xx_hal::{
-    adc::Adc,
-    backup_domain::BackupDomain,
-    crc::Crc,
-    flash::FlashWriter,
-    gpio::{Alternate, OpenDrain, Pin},
-    i2c,
-    i2c::I2c,
-    pac::{ADC1, I2C1},
-    prelude::*,
-    watchdog::IndependentWatchdog,
+    adc::Adc, backup_domain::BackupDomain, crc::Crc, flash::FlashWriter, i2c::I2c, pac::ADC1, prelude::*,
+    rcc::Clocks, watchdog::IndependentWatchdog,
 };
 use systick_monotonic::*;
 
@@ -95,17 +88,19 @@ use crate::{
     crc::crc32,
     flash_data::FlashBackened,
     flash_util::{unique_device_id, FlashUtil},
-    i2c_reg_slave::{Event, I2CRegSlave, Response},
+    i2c_master::I2c2Master,
+    i2c_reg_slave::{Event, I2CRegSlave, RemappableI2CRegSlave, Response},
     i2c_slave::I2cSlave,
     pio::MaskedGpio,
     pwm::PwmTimer,
     rtc::{ClockSrc, Rtc},
     supply::{
         max14636::Max14636,
+        stusb4500,
         stusb4500::{StUsb4500, StUsb4500Nvm},
         PowerSupply,
     },
-    util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64, blink},
+    util::{array_from_u16, array_from_u64, array_to_u16, array_to_u64, blink, DwtDelay},
     watchman::Watchman,
 };
 use openemc_shared::{
@@ -206,43 +201,6 @@ impl PowerMode {
     }
 }
 
-/// I2C register slave that may have remapped pins.
-#[allow(clippy::type_complexity)]
-pub enum RemappableI2CRegSlave {
-    Remapped(
-        I2CRegSlave<
-            I2C1,
-            (Pin<'B', 8, Alternate<OpenDrain>>, Pin<'B', 9, Alternate<OpenDrain>>),
-            I2C_BUFFER_SIZE,
-        >,
-    ),
-    Normal(
-        I2CRegSlave<
-            I2C1,
-            (Pin<'B', 6, Alternate<OpenDrain>>, Pin<'B', 7, Alternate<OpenDrain>>),
-            I2C_BUFFER_SIZE,
-        >,
-    ),
-}
-
-impl RemappableI2CRegSlave {
-    /// Gets the next I2C register slave event event.
-    pub fn event(&mut self) -> nb::Result<Event<I2C_BUFFER_SIZE>, i2c_reg_slave::Error> {
-        match self {
-            Self::Remapped(i2c) => i2c.event(),
-            Self::Normal(i2c) => i2c.event(),
-        }
-    }
-
-    /// Responds to a read register event.
-    pub fn respond(&mut self, response: i2c_reg_slave::Response<I2C_BUFFER_SIZE>) {
-        match self {
-            Self::Remapped(i2c) => i2c.respond(response),
-            Self::Normal(i2c) => i2c.respond(response),
-        }
-    }
-}
-
 /// I2C request handling status.
 pub enum I2cReqHandling {
     /// No request is being handled.
@@ -254,15 +212,6 @@ pub enum I2cReqHandling {
     /// A write request is being handled.
     Write(u8),
 }
-
-/// I2C 2 master.
-type I2c2Master = i2c::BlockingI2c<
-    stm32f1xx_hal::pac::I2C2,
-    (
-        stm32f1xx_hal::gpio::Pin<'B', 10, Alternate<OpenDrain>>,
-        stm32f1xx_hal::gpio::Pin<'B', 11, Alternate<OpenDrain>>,
-    ),
->;
 
 /// Instant in time.
 pub type Instant = systick_monotonic::fugit::Instant<u64, 1, 100>;
@@ -290,6 +239,8 @@ mod app {
     /// Shared resources.
     #[shared]
     struct Shared {
+        /// Clocks.
+        clocks: Clocks,
         /// Flash.
         flash: stm32f1xx_hal::flash::Parts,
         /// CRC32 engine.
@@ -342,7 +293,7 @@ mod app {
     #[local]
     struct Local {
         /// I2C slave.
-        i2c_reg_slave: Option<RemappableI2CRegSlave>,
+        i2c_reg_slave: Option<RemappableI2CRegSlave<I2C_BUFFER_SIZE>>,
         /// User GPIO.
         ugpio: MaskedGpio<{ board::PORTS }>,
         /// PWM timers.
@@ -536,6 +487,9 @@ mod app {
             // Required for I2C timeouts to work.
             cx.core.DCB.enable_trace();
             cx.core.DWT.enable_cycle_counter();
+
+            #[cfg(feature = "debug-i2c2-glitch")]
+            defmt::unwrap!(i2c2_glitch::spawn_after(10u64.secs()));
 
             let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
             let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
@@ -750,6 +704,7 @@ mod app {
         defmt::debug!("init done");
         (
             Shared {
+                clocks,
                 flash,
                 crc,
                 cfg,
@@ -939,14 +894,52 @@ mod app {
         });
     }
 
+    /// Recovers the I2C 2 bus.
+    #[task(shared = [i2c2, &clocks])]
+    fn i2c2_recover(mut cx: i2c2_recover::Context) {
+        cx.shared.i2c2.lock(|i2c2| {
+            let Some(i2c2) = i2c2.as_mut() else { return };
+
+            defmt::info!("Recovering I2C bus");
+            match i2c_master::recover(i2c2, cx.shared.clocks) {
+                Ok(()) => defmt::info!("I2C bus recovered"),
+                Err(err) => {
+                    defmt::error!("I2C bus failed to recover: {:?}", err);
+                    let _ = i2c2_recover::spawn_after(10u64.secs());
+                }
+            }
+        });
+    }
+
+    /// Glitches the I2C 2 bus (for recovery testing).
+    #[task(local = [cnt: usize = 0], shared = [i2c2, &clocks])]
+    fn i2c2_glitch(mut cx: i2c2_glitch::Context) {
+        cx.shared.i2c2.lock(|_| {
+            i2c_master::glitch(DwtDelay::new(cx.shared.clocks));
+        });
+
+        *cx.local.cnt += 1;
+        if *cx.local.cnt < 10 {
+            let _ = i2c2_glitch::spawn_after(100u64.millis());
+        } else {
+            *cx.local.cnt = 0;
+            let _ = i2c2_glitch::spawn_after(30u64.secs());
+        }
+    }
+
     /// Handles STUSB4500 alert.
     #[task(shared = [i2c2, stusb4500, board])]
     fn stusb4500_alert(cx: stusb4500_alert::Context) {
         (cx.shared.i2c2, cx.shared.stusb4500, cx.shared.board).lock(|i2c2, stusb4500, board| {
             if let Some(stusb4500) = stusb4500.as_mut() {
-                stusb4500.alert(defmt::unwrap!(i2c2.as_mut()), board.check_stusb4500_attached());
+                let res = stusb4500.alert(defmt::unwrap!(i2c2.as_mut()), board.check_stusb4500_attached());
                 board.set_stusb4500_reset_pin(stusb4500.reset_pin_level());
                 let _ = power_supply_update::spawn();
+
+                if let Err(stusb4500::Error::I2c(err)) = res {
+                    defmt::warn!("Recovering I2C bus due to STUSB4500 I2C error {:?}", err);
+                    let _ = i2c2_recover::spawn();
+                }
             }
         });
     }
@@ -956,8 +949,13 @@ mod app {
     fn stusb4500_periodic(cx: stusb4500_periodic::Context) {
         (cx.shared.i2c2, cx.shared.stusb4500, cx.shared.board).lock(|i2c2, stusb4500, board| {
             if let Some(stusb4500) = stusb4500.as_mut() {
-                stusb4500.periodic(defmt::unwrap!(i2c2.as_mut()), board.check_stusb4500_attached());
+                let res = stusb4500.periodic(defmt::unwrap!(i2c2.as_mut()), board.check_stusb4500_attached());
                 board.set_stusb4500_reset_pin(stusb4500.reset_pin_level());
+
+                if let Err(stusb4500::Error::I2c(err)) = res {
+                    defmt::warn!("Recovering I2C bus due to STUSB4500 I2C error {:?}", err);
+                    let _ = i2c2_recover::spawn();
+                }
             }
         });
 
@@ -1099,9 +1097,9 @@ mod app {
                     let i2c2 = defmt::unwrap!(i2c2.as_mut());
                     let res = bq25713.periodic(i2c2, board.check_bq25713_chrg_ok());
 
-                    if let Err(bq25713::Error::I2c) = &res {
-                        defmt::warn!("Resetting STUSB4500 due to BQ25713 I2C error");
-                        let _ = stusb4500_reset::spawn();
+                    if let Err(bq25713::Error::I2c(err)) = res {
+                        defmt::warn!("Recovering I2C bus due to BQ25713 I2C error {:?}", err);
+                        let _ = i2c2_recover::spawn();
                     }
 
                     let mut ac = false;

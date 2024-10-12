@@ -2,6 +2,7 @@
 
 use core::mem::size_of;
 use defmt::unwrap;
+use stm32f1xx_hal::rcc::Clocks;
 
 use crate::{watchman::Watchman, Delay};
 
@@ -92,4 +93,33 @@ macro_rules! blink_charging {
     ($board:expr, $delay:expr, $watchman:expr, $times:expr) => {
         blink(|v| $board.set_charging_led(v), &mut $delay, &mut $watchman, $times);
     };
+}
+
+/// Wait using the DWT cycle counter.
+#[derive(Clone, Copy)]
+pub struct DwtDelay {
+    sysclk_mhz: u32,
+}
+
+impl DwtDelay {
+    /// Creates a new instance.
+    pub fn new(clocks: &Clocks) -> Self {
+        Self { sysclk_mhz: clocks.sysclk().to_MHz() }
+    }
+
+    /// Create from sysclk frequency.
+    #[allow(dead_code)]
+    pub fn from_sysclk_mhz(sysclk_mhz: u32) -> Self {
+        Self { sysclk_mhz }
+    }
+
+    /// Sleep for the specified number of microseconds.
+    pub fn delay(&self, us: u32) {
+        let wait_cycles = us.saturating_mul(self.sysclk_mhz);
+
+        let core = unsafe { cortex_m::Peripherals::steal() };
+
+        let start = core.DWT.cyccnt.read();
+        while core.DWT.cyccnt.read().wrapping_sub(start) < wait_cycles {}
+    }
 }

@@ -149,12 +149,14 @@ pub struct StUsb4500<I2C> {
 impl<I2C> StUsb4500<I2C>
 where
     I2C: i2c::Write<i2c::SevenBitAddress> + i2c::WriteRead<i2c::SevenBitAddress>,
+    <I2C as i2c::Write<i2c::SevenBitAddress>>::Error: Into<I2cError>,
+    <I2C as i2c::WriteRead<i2c::SevenBitAddress>>::Error: Into<I2cError>,
 {
     /// Read I2C register(s).
     fn read(&self, i2c: &mut I2C, reg: u8, len: usize) -> Result<Vec<u8, 32>> {
         let mut buf: Vec<u8, 32> = Vec::new();
         defmt::unwrap!(buf.resize_default(len));
-        i2c.write_read(self.addr, &[reg], &mut buf).map_err(|_| Error::I2c)?;
+        i2c.write_read(self.addr, &[reg], &mut buf).map_err(|err| Error::I2c(err.into()))?;
         Ok(buf)
     }
 
@@ -163,7 +165,7 @@ where
         let mut buf: Vec<u8, 32> = Vec::new();
         defmt::unwrap!(buf.push(reg));
         buf.extend(data.iter().cloned());
-        i2c.write(self.addr, &buf).map_err(|_| Error::I2c)
+        i2c.write(self.addr, &buf).map_err(|err| Error::I2c(err.into()))
     }
 
     /// Creates a new STUSB4500 controller instance.
@@ -245,7 +247,8 @@ where
             self.reset_queued = false;
         }
 
-        self.read(i2c, REG_ALERT_STATUS_1, 12)?;
+        let regs = self.read(i2c, REG_ALERT_STATUS_1, 12)?;
+        defmt::debug!("STUSB4500 alert registers: {:x}", regs.as_slice());
 
         self.supply_pdos.clear();
         self.snk_ready_since = None;
@@ -631,7 +634,7 @@ where
     ///
     /// This must be called immediately from the IRQ handler when the ALERT pin goes low and
     /// is timing critical.
-    pub fn alert(&mut self, i2c: &mut I2C, attach_pin_level: bool) {
+    pub fn alert(&mut self, i2c: &mut I2C, attach_pin_level: bool) -> Result<()> {
         self.do_call(i2c, attach_pin_level, Self::do_alert)
     }
 
@@ -767,44 +770,51 @@ where
     }
 
     /// Call this periodically (approx. every second) to handle communication with the device.
-    pub fn periodic(&mut self, i2c: &mut I2C, attach_pin_level: bool) {
+    pub fn periodic(&mut self, i2c: &mut I2C, attach_pin_level: bool) -> Result<()> {
         self.do_call(i2c, attach_pin_level, Self::do_periodic)
     }
 
     fn do_call(
         &mut self, i2c: &mut I2C, attach_pin_level: bool, f: impl FnOnce(&mut Self, &mut I2C) -> Result<()>,
-    ) {
+    ) -> Result<()> {
         match (self.reset, attach_pin_level) {
             (ResetState::Failed | ResetState::Off, false) => {
                 self.reset = ResetState::Off;
                 self.report = PowerSupply::Disconnected;
+                Ok(())
             }
             (ResetState::None, false) => {
                 defmt::info!("STUSB4500 disconnected");
                 self.reset = ResetState::Off;
                 self.report = PowerSupply::Disconnected;
+                Ok(())
             }
             (ResetState::Failed | ResetState::Off, true) => {
                 defmt::info!("STUSB4500 initializing");
-                if let Err(err) = self.resetting(i2c) {
+                let res = self.resetting(i2c);
+                if let Err(err) = &res {
                     defmt::warn!("STUSB4500 reset failed: {}", err);
                     self.reset = ResetState::Failed;
                 }
                 self.report = PowerSupply::Unknown;
+                res.map(|_| ())
             }
             _ => match self.resetting(i2c) {
                 Ok(false) => {
-                    if let Err(err) = f(self, i2c) {
+                    let res = f(self, i2c);
+                    if let Err(err) = &res {
                         defmt::warn!("STUSB4500 failed: {}", err);
                         self.reset = ResetState::Failed;
                         self.report = PowerSupply::Unknown;
                     }
+                    res
                 }
-                Ok(true) => (),
+                Ok(true) => Ok(()),
                 Err(err) => {
                     defmt::warn!("STUSB4500 reset failed: {}", err);
                     self.reset = ResetState::Failed;
                     self.report = PowerSupply::Unknown;
+                    Err(err)
                 }
             },
         }
