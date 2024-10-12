@@ -20,13 +20,13 @@
 
 mod nvm;
 
-use core::{marker::PhantomData, mem::size_of};
+use core::{marker::PhantomData, mem, mem::size_of};
 use defmt::Format;
 use embedded_hal::blocking::i2c;
 use heapless::Vec;
 use systick_monotonic::*;
 
-use crate::{app::monotonics, Duration, Instant};
+use crate::{app::monotonics, i2c_master::I2cError, Duration, Instant};
 
 use super::PowerSupply;
 pub use nvm::StUsb4500Nvm;
@@ -35,7 +35,7 @@ pub use nvm::StUsb4500Nvm;
 #[derive(Clone, Format, PartialEq, Eq)]
 pub enum Error {
     /// I2C communication error.
-    I2c,
+    I2c(I2cError),
     /// Device responded with wrong id.
     WrongId,
     /// Timeout waiting for device.
@@ -131,6 +131,7 @@ pub struct StUsb4500<I2C> {
     sink_pdos: [SinkPdo; 3],
     active_sink_pdos: u8,
     supply_pdos: Vec<SupplyPdo, 7>,
+    last_supply_pdos: Vec<SupplyPdo, 7>,
     snk_ready_since: Option<Instant>,
     fsm_attached_since: Option<Instant>,
     last_fsm_reset: Option<Instant>,
@@ -197,6 +198,7 @@ where
             sink_pdos: [SinkPdo::default(), SinkPdo::default(), SinkPdo::default()],
             active_sink_pdos: 0,
             supply_pdos: Vec::new(),
+            last_supply_pdos: Vec::new(),
             snk_ready_since: None,
             fsm_attached_since: None,
             last_fsm_reset: None,
@@ -698,6 +700,11 @@ where
                         Some(_) => (),
                         None => self.snk_ready_since = Some(monotonics::now()),
                     }
+                } else if self.last_supply_pdos != self.supply_pdos {
+                    defmt::info!("Issuing soft reset to verify PDOs");
+                    self.last_supply_pdos = mem::take(&mut self.supply_pdos);
+                    self.snk_ready_since = None;
+                    self.soft_reset(i2c)?;
                 } else {
                     self.snk_ready_since = None;
 
@@ -1402,7 +1409,7 @@ impl BatterySinkPdo {
     }
 }
 
-#[derive(Clone, Format)]
+#[derive(Clone, Format, PartialEq, Eq)]
 enum SupplyPdo {
     Fixed(FixedSupplyPdo),
     Variable(VariableSupplyPdo),
@@ -1422,7 +1429,7 @@ impl SupplyPdo {
     }
 }
 
-#[derive(Clone, Format)]
+#[derive(Clone, Format, PartialEq, Eq)]
 struct FixedSupplyPdo {
     max_operating_current: Current,
     voltage: Voltage,
@@ -1450,7 +1457,7 @@ impl FixedSupplyPdo {
     }
 }
 
-#[derive(Clone, Format)]
+#[derive(Clone, Format, PartialEq, Eq)]
 struct VariableSupplyPdo {
     operating_current: Current,
     min_voltage: Voltage,
@@ -1468,7 +1475,7 @@ impl VariableSupplyPdo {
     }
 }
 
-#[derive(Clone, Format)]
+#[derive(Clone, Format, PartialEq, Eq)]
 struct BatterySupplyPdo {
     operating_power: Power,
     min_voltage: Voltage,
