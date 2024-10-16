@@ -29,7 +29,9 @@ pub enum I2cError {
     Overrun,
     /// Timeout
     Timeout,
-    /// SDA line stuck high during recovery.
+    /// SCL line stuck low during recovery.
+    SclStuckLow,
+    /// SDA line stuck low during recovery.
     SdaStuckLow,
     /// Other error.
     Other,
@@ -80,6 +82,17 @@ impl I2c2Gpio {
         self.gpiob.crh.modify(|_, w| w.cnf10().open_drain().mode10().output());
     }
 
+    /// Reads the SCL level.
+    pub fn read_scl(&self) -> bool {
+        self.gpiob.crh.modify(|_, w| w.cnf10().open_drain().mode10().input());
+
+        for _ in 0..32 {
+            self.gpiob.idr.read();
+        }
+
+        self.gpiob.idr.read().idr10().is_high()
+    }
+
     /// Sets the SDA level.
     pub fn sda(&self, level: bool) {
         self.gpiob.odr.modify(|_, w| w.odr11().variant(if level { High } else { Low }));
@@ -88,7 +101,7 @@ impl I2c2Gpio {
 
     /// Reads the SDA level.
     pub fn read_sda(&self) -> bool {
-        self.gpiob.crh.modify(|_, w| w.mode11().input());
+        self.gpiob.crh.modify(|_, w| w.cnf11().open_drain().mode11().input());
 
         for _ in 0..32 {
             self.gpiob.idr.read();
@@ -127,6 +140,12 @@ pub fn recover(i2c: &mut I2c2Master, clocks: &Clocks) -> Result<(), I2cError> {
     dwt.delay(CLOCK_HALF_PERIOD_US);
     i2c_gpio.sda(true);
     dwt.delay(CLOCK_HALF_PERIOD_US);
+
+    // Verify SCL is high.
+    if !i2c_gpio.read_scl() {
+        defmt::error!("I2C SCL is stuck low");
+        return Err(I2cError::SclStuckLow);
+    }
 
     // Output clock so that all in-progress transfers end.
     defmt::debug!("Cycling SCL to end all I2C transfers");
@@ -167,11 +186,15 @@ pub fn recover(i2c: &mut I2c2Master, clocks: &Clocks) -> Result<(), I2cError> {
     i2c_gpio.sda(true);
     dwt.delay(CLOCK_HALF_PERIOD_US);
 
+    // Reset I2C master peripheral.
+    defmt::debug!("Performing I2C master reset before GPIO release");
+    i2c.reset();
+
     // Release I2C GPIO control.
     drop(i2c_gpio);
 
     // Reset I2C master peripheral.
-    defmt::debug!("Performing I2C master reset");
+    defmt::debug!("Performing I2C master reset after GPIO release");
     i2c.reset();
 
     Ok(())
