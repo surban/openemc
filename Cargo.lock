@@ -1201,7 +1201,7 @@ version = "0.0.0"
 
 [[package]]
 name = "openemc-log"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "clap",

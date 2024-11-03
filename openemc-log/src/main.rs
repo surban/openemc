@@ -44,6 +44,7 @@ use std::{
 mod syslog;
 
 const READ_BUFFER_SIZE: usize = 128;
+const UNPROCESSED_SIZE: usize = 16_777_216;
 const POLL_TIMEOUT: c_int = 60_000;
 const FIRMWARE_DIR: &str = "/lib/firmware";
 
@@ -71,6 +72,9 @@ struct Opts {
     /// Log to standard output instead of syslog.
     #[arg(short, long)]
     foreground: bool,
+    /// Show malformed log messages.
+    #[arg(long)]
+    malformed: bool,
     /// Gzipped ELF image of OpenEMC firmware.
     firmware_elf: Option<PathBuf>,
     /// OpenEMC log file or device.
@@ -82,30 +86,46 @@ struct Opts {
     probe: bool,
 }
 
-/// Write defmt log message to Rust logger.
-fn forward_to_logger(frame: &Frame, loc: Option<&Location>, lines: bool) {
-    let mut msg = String::with_capacity(256);
+/// Log message for Rust logger.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LogMsg {
+    /// Log level.
+    pub level: Level,
+    /// Message.
+    pub msg: String,
+}
 
-    if let Some(loc) = loc {
-        write!(msg, "[{}", &loc.module).unwrap();
-        if lines {
-            write!(msg, " @ {}:{}", loc.file.display(), loc.line).unwrap();
+impl LogMsg {
+    /// Format defmt log message for Rust logger.
+    pub fn from_defmt(frame: &Frame, loc: Option<&Location>, lines: bool) -> Self {
+        let mut msg = String::with_capacity(256);
+
+        if let Some(loc) = loc {
+            write!(msg, "[{}", &loc.module).unwrap();
+            if lines {
+                write!(msg, " @ {}:{}", loc.file.display(), loc.line).unwrap();
+            }
+            write!(msg, "] ").unwrap();
         }
-        write!(msg, "] ").unwrap();
+
+        write!(msg, "{}", frame.display_message()).unwrap();
+
+        let level = match frame.level() {
+            Some(DefmtLevel::Error) => Level::Error,
+            Some(DefmtLevel::Warn) => Level::Warn,
+            Some(DefmtLevel::Info) => Level::Info,
+            Some(DefmtLevel::Debug) => Level::Debug,
+            Some(DefmtLevel::Trace) => Level::Trace,
+            None => Level::Info,
+        };
+
+        Self { level, msg }
     }
 
-    write!(msg, "{}", frame.display_message()).unwrap();
-
-    let level = match frame.level() {
-        Some(DefmtLevel::Error) => Level::Error,
-        Some(DefmtLevel::Warn) => Level::Warn,
-        Some(DefmtLevel::Info) => Level::Info,
-        Some(DefmtLevel::Debug) => Level::Debug,
-        Some(DefmtLevel::Trace) => Level::Trace,
-        None => Level::Info,
-    };
-
-    log::log!(level, "{msg}");
+    /// Log the message to the Rust logger.
+    pub fn log(&self) {
+        log::log!(self.level, "{}", &self.msg);
+    }
 }
 
 /// Gets the log file or log device path.
@@ -314,6 +334,7 @@ fn perform(opts: &Opts) -> Result<bool> {
 
     let mut buf = [0; READ_BUFFER_SIZE];
     let mut stream_decoder = table.new_stream_decoder();
+    let mut unprocessed = 0;
 
     while !STOP.load(Ordering::SeqCst) {
         // Read from start of device file.
@@ -323,6 +344,7 @@ fn perform(opts: &Opts) -> Result<bool> {
 
         // Read data.
         match log.read(&mut buf) {
+            Ok(0) if unprocessed > 0 => (),
             Ok(0) if is_dev && !opts.oneshot && !opts.bootloader => {
                 // Wait for data to arrive.
                 let log_fd = log.as_fd();
@@ -334,7 +356,13 @@ fn perform(opts: &Opts) -> Result<bool> {
                 }
             }
             Ok(0) => return Ok(true),
-            Ok(n) => stream_decoder.received(&buf[..n]),
+            Ok(n) => {
+                stream_decoder.received(&buf[..n]);
+                unprocessed += n;
+                if unprocessed < UNPROCESSED_SIZE {
+                    continue;
+                }
+            }
             Err(err) if is_dev && err.kind() == ErrorKind::BrokenPipe => {
                 log::warn!("======== log data was lost ========");
                 stream_decoder = table.new_stream_decoder();
@@ -344,11 +372,13 @@ fn perform(opts: &Opts) -> Result<bool> {
         }
 
         // Decode the received data.
+        let mut log_msgs = Vec::new();
         loop {
             match stream_decoder.decode() {
                 Ok(frame) => {
                     let loc = locs.as_ref().and_then(|locs| locs.get(&frame.index()));
-                    forward_to_logger(&frame, loc, opts.lines);
+                    let log_msg = LogMsg::from_defmt(&frame, loc, opts.lines);
+                    log_msgs.push(log_msg);
                 }
                 Err(DecodeError::UnexpectedEof) => break,
                 Err(DecodeError::Malformed) => {
@@ -356,9 +386,17 @@ fn perform(opts: &Opts) -> Result<bool> {
                     if !table.encoding().can_recover() {
                         return Err(DecodeError::Malformed.into());
                     }
-                    break;
+                    if !opts.malformed {
+                        log_msgs.clear();
+                    }
                 }
             }
+        }
+        unprocessed = 0;
+
+        // Log to system log.
+        for log_msg in log_msgs {
+            log_msg.log();
         }
     }
 
