@@ -32,6 +32,12 @@ Due to its open-source nature, modular design and usage of the Rust programming
 language, OpenEMC is easy to extend and adapt to a wide variety of boards
 and applications.
 
+## Commercial Licensing and Support
+
+While OpenEMC is open-source, we offer commercial licenses, professional support, and custom development services for businesses that require a robust, production-ready solution without the obligations of the GPLv3 license. A commercial license allows you to keep your hardware-specific modifications private.
+
+**[Learn more about our commercial offerings and contact us for a quote.](mailto:openemc@surban.net)**
+
 ## Evaluation and development
 
 The easiest method to evaluate and hack on OpenEMC is to get an STM32F103
@@ -130,6 +136,7 @@ Corresponding to these operations the board-specific functions `Board::io_read`,
 An example is provided in the board file `stm_nucleo_f103rb.rs` together with the host-side code
 in `board-io-test`.
 
+
 ## License
 
 The OpenEMC firmware is released under the [GNU GPL version 3],
@@ -139,9 +146,6 @@ if you adapt OpenEMC to your application and/or board.
 The OpenEMC drivers are released under the [GNU GPL version 2] or later,
 following the standard license of the Linux kernel.
 This also requires you to publish all changes you make to the OpenEMC drivers.
-
-Commercial licensing options without these restrictions are available.
-[Please contact us for licensing details.](mailto:surban@surban.net).
 
 [GNU GPL version 2]: https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
 [GNU GPL version 3]: https://www.gnu.org/licenses/gpl-3.0.txt
