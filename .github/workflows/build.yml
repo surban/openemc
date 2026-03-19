@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - name: Install dependencies
         run: |
           rustup target add thumbv7m-none-eabi
@@ -54,7 +54,7 @@ jobs:
           rustup target add --toolchain $TOOLCHAIN thumbv7m-none-eabi
           rustup component add --toolchain $TOOLCHAIN llvm-tools-preview rust-src
           cargo +$TOOLCHAIN xtask stm_nucleo_f103rb
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v7
         with:
           name: firmware-images
           path: |
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - name: Install dependencies
         run: sudo apt install --yes libelf-dev device-tree-compiler
       - name: Prepare Linux kernel source
