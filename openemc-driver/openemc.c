@@ -1761,13 +1761,15 @@ static long openemc_fops_ioctl(struct file *file, unsigned int cmd,
 	}
 
 	len = min_t(u8, info, OPENEMC_MAX_DATA_SIZE);
-	ret = openemc_read_data(emc, OPENEMC_BOARD_IOCTL, len, data);
-	if (ret < 0)
-		goto out;
+	if (len > 0) {
+		ret = openemc_read_data(emc, OPENEMC_BOARD_IOCTL, len, data);
+		if (ret < 0)
+			goto out;
 
-	if (copy_to_user(buf, data, len)) {
-		ret = -EFAULT;
-		goto out;
+		if (copy_to_user(buf, data, len)) {
+			ret = -EFAULT;
+			goto out;
+		}
 	}
 
 	ret = len;
