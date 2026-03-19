@@ -71,5 +71,5 @@
     "rust-analyzer.cargo.extraEnv": {
         "DEFMT_LOG": "trace"
     },
-    "rust-analyzer.showUnlinkedFileNotification": false
+    "rust-analyzer.showUnlinkedFileNotification": false,
 }
