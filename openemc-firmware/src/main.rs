@@ -2014,6 +2014,7 @@ mod app {
                 {
                     use defmt_ringbuf::RingBuf;
                     let mut buf = [0; I2C_BUFFER_SIZE];
+                    #[allow(static_mut_refs)]
                     let (len, _lost) = unsafe { unwrap!(BOOTLOADER_LOG_REF.as_mut()).read(&mut buf[1..]) };
                     buf[0] = len as u8;
                     respond_slice(&buf);
