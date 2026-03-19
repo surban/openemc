@@ -72,7 +72,9 @@ impl Watchman {
 
     /// Sets whether the watchdog must be petted, without requiring unlocking.
     pub fn force_set_active(&mut self, active: bool) {
-        defmt::info!("{} watchdog", if active { intern!("starting") } else { intern!("stopping") });
+        #[allow(clippy::if_same_then_else)]
+        let action = if active { intern!("starting") } else { intern!("stopping") };
+        defmt::info!("{} watchdog", action);
         self.last_pet = monotonics::now();
         self.active = active;
     }

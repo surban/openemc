@@ -42,5 +42,5 @@ pub fn page_base(addr: usize) -> usize {
 
 /// Returns true, if the address point to the beginning of a flash page.
 pub fn is_page_aligned(addr: usize) -> bool {
-    addr % page_size() == 0
+    addr.is_multiple_of(page_size())
 }

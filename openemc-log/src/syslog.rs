@@ -34,7 +34,7 @@ impl log::Log for Syslog {
         let msg = record.args().to_string();
 
         let cmsg = CString::new(msg).unwrap_or_else(|_| CString::new("<null>").unwrap());
-        unsafe { libc::syslog(priority | libc::LOG_DAEMON, b"%s\0".as_ptr() as *const _, cmsg.as_ptr()) }
+        unsafe { libc::syslog(priority | libc::LOG_DAEMON, c"%s".as_ptr() as *const _, cmsg.as_ptr()) }
     }
 
     fn flush(&self) {}

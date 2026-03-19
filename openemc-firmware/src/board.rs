@@ -351,7 +351,7 @@ impl Ioctl {
     pub(crate) fn start(req: Vec<u8, { Self::BUFFER_SIZE }>) -> Result<Self, IoctlAlreadyActive> {
         interrupt::free(|cs| {
             let mut status = IOCTL_STATUS.borrow(cs).borrow_mut();
-            if let IoctlStatus::Processing { .. } = *status {
+            if let IoctlStatus::Processing = *status {
                 defmt::error!("attempt to make board ioctl request while ioctl is being processed");
                 return Err(IoctlAlreadyActive);
             }

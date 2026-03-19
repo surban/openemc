@@ -46,8 +46,11 @@ where
         flash: &mut FlashWriter, crc: &mut Crc, flash_addr1: usize, flash_addr2: usize, reserved: usize,
         erase: bool,
     ) -> Self {
-        assert!(size_of::<T>() % 2 == 0, "data must have even size");
-        assert!(reserved % flash::page_size() == 0, "reserved size must be a multiple of flash page size");
+        assert!(size_of::<T>().is_multiple_of(2), "data must have even size");
+        assert!(
+            reserved.is_multiple_of(flash::page_size()),
+            "reserved size must be a multiple of flash page size"
+        );
         assert!(
             reserved >= size_of::<T>() + Self::HEADER_SIZE,
             "reserved size must be at least size of data plus header size"

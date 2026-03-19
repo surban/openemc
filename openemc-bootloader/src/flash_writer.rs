@@ -81,7 +81,7 @@ impl FlashWriter {
     /// The location must have been erased.
     /// `addr` must be aligned to 2 bytes.
     pub fn write(&mut self, addr: usize, data: u16) -> Result<(), WriteError> {
-        defmt::assert!(addr % 2 == 0, "addr unaligned");
+        defmt::assert!(addr.is_multiple_of(2), "addr unaligned");
 
         self.wait_idle();
         self.clear_state();
