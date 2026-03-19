@@ -37,6 +37,7 @@
 //! cortex-m = { version = "0.7.6", features = ["critical-section-single-core"]}
 //! ```
 
+#![cfg_attr(not(feature = "logger"), allow(dead_code))]
 #![no_std]
 
 use core::{
@@ -75,7 +76,10 @@ unsafe impl defmt::Logger for Logger {
         TAKEN.store(true, Ordering::Relaxed);
         unsafe { CS_RESTORE = restore };
 
-        unsafe { ENCODER.start_frame(do_write) }
+        unsafe {
+            #[allow(static_mut_refs)]
+            ENCODER.start_frame(do_write)
+        }
     }
 
     unsafe fn flush() {
@@ -83,6 +87,7 @@ unsafe impl defmt::Logger for Logger {
     }
 
     unsafe fn release() {
+        #[allow(static_mut_refs)]
         ENCODER.end_frame(do_write);
 
         TAKEN.store(false, Ordering::Relaxed);
@@ -91,12 +96,14 @@ unsafe impl defmt::Logger for Logger {
     }
 
     unsafe fn write(bytes: &[u8]) {
+        #[allow(static_mut_refs)]
         ENCODER.write(bytes, do_write);
     }
 }
 
 fn do_write(data: &[u8]) {
     unsafe {
+        #![allow(static_mut_refs)]
         if let Some(buffer) = RING_BUFFER.as_mut() {
             buffer.write(data);
             LOG_AVAILABLE();
@@ -116,7 +123,10 @@ fn do_write(data: &[u8]) {
 pub unsafe fn init<const SIZE: usize>(
     ring_buffer: &'static mut MaybeUninit<RingBuffer<SIZE>>, log_available: fn(),
 ) {
-    defmt::assert!(RING_BUFFER.is_none());
+    defmt::assert!({
+        #[allow(static_mut_refs)]
+        RING_BUFFER.is_none()
+    });
 
     let ring_buffer = RingBuffer::init(ring_buffer);
     RING_BUFFER = Some(ring_buffer as &mut dyn RingBuf);
@@ -129,6 +139,7 @@ pub unsafe fn init<const SIZE: usize>(
 pub fn read(data: &mut [u8]) -> (usize, bool) {
     unsafe {
         critical_section::with(|_cs| {
+            #[allow(static_mut_refs)]
             if let Some(buffer) = RING_BUFFER.as_mut() {
                 buffer.read(data)
             } else {

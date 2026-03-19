@@ -131,7 +131,7 @@ where
     }
 
     /// Gets the next event.
-    pub fn event(&mut self) -> nb::Result<Event<I2C, PINS>, Error> {
+    pub fn event(&mut self) -> nb::Result<Event<'_, I2C, PINS>, Error> {
         let sr1 = self.i2c.sr1.read();
 
         if sr1.berr().is_error() {

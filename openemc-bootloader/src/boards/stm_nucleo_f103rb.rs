@@ -3,6 +3,8 @@
 // OPENEMC-BOARD-VERSION: 1
 //
 
+#![cfg_attr(not(board = "stm_nucleo_f103rb"), allow(dead_code))]
+
 use stm32f1::stm32f103::Peripherals;
 
 use crate::{board::Board, i2c_reg_slave::I2CRegTransaction, util::delay_ms, watchdog, BoardInitResult};

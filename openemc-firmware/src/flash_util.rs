@@ -22,7 +22,7 @@ pub fn unique_device_id() -> u128 {
 pub trait FlashUtil {
     /// Create flash writer.
     #[allow(clippy::new_ret_no_self)]
-    fn new(parts: &mut stm32f1xx_hal::flash::Parts) -> FlashWriter;
+    fn new(parts: &mut stm32f1xx_hal::flash::Parts) -> FlashWriter<'_>;
 
     /// Read and panic if failed.
     fn read_unwrap(&self, addr: usize, length: usize) -> &[u8];
@@ -38,7 +38,7 @@ pub trait FlashUtil {
 }
 
 impl<'a> FlashUtil for FlashWriter<'a> {
-    fn new(parts: &mut stm32f1xx_hal::flash::Parts) -> FlashWriter {
+    fn new(parts: &mut stm32f1xx_hal::flash::Parts) -> FlashWriter<'_> {
         let sector_size = match flash::page_size() {
             1024 => SectorSize::Sz1K,
             2048 => SectorSize::Sz2K,

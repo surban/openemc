@@ -3,6 +3,8 @@
 // OPENEMC-BOARD-VERSION: 1
 //
 
+#![cfg_attr(not(board = "generic"), allow(dead_code))]
+
 use crate::board::Board;
 
 /// Generic board.

@@ -6,6 +6,13 @@ version = "0.0.0"
 publish = false
 edition = "2021"
 
+[[bin]]
+name = "defmt-ringbuf-test"
+path = "src/main.rs"
+test = false
+doctest = false
+bench = false
+
 [dependencies]
 defmt-ringbuf = { path = "..", default-features = false }
 

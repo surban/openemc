@@ -91,6 +91,7 @@ impl BootInfoExt for BootInfo {
         defmt::assert!(!BOOT_INFO_INITIALIZED.load(Ordering::SeqCst));
 
         // Make sure BOOT_INFO is read from memory.
+        #[allow(static_mut_refs)]
         let ptr = BOOT_INFO.as_mut_ptr();
         let powered_on_ptr = addr_of_mut!((*ptr).powered_on) as *mut u8;
         let powered_on = powered_on_ptr.read_volatile();
@@ -122,7 +123,10 @@ impl BootInfoExt for BootInfo {
 
         if Self::is_from_bootloader() {
             // Safety: BOOT_INFO has been verified during init()
-            unsafe { BOOT_INFO.assume_init_ref() }
+            unsafe {
+                #[allow(static_mut_refs)]
+                BOOT_INFO.assume_init_ref()
+            }
         } else {
             // Safety: STANDALONE_BOOT_INFO is only modified during init()
             unsafe { &*ptr::addr_of!(STANDALONE_BOOT_INFO) }
@@ -131,6 +135,7 @@ impl BootInfoExt for BootInfo {
 
     fn is_from_bootloader() -> bool {
         unsafe {
+            #[allow(static_mut_refs)]
             let ptr = BOOT_INFO.as_ptr();
             addr_of!((*ptr).signature).read_volatile() == Self::SIGNATURE
         }

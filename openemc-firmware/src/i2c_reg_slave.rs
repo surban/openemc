@@ -73,7 +73,7 @@ where
         &mut self.slave
     }
 
-    fn i2c_event(&mut self) -> nb::Result<i2c_slave::Event<I2C, PINS>, Error> {
+    fn i2c_event(&mut self) -> nb::Result<i2c_slave::Event<'_, I2C, PINS>, Error> {
         match self.slave.event() {
             Ok(evt) => Ok(evt),
             Err(nb::Error::WouldBlock) => Err(nb::Error::WouldBlock),

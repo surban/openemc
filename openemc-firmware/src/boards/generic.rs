@@ -5,6 +5,8 @@
 // OPENEMC-RAM-SIZE: 20480
 //
 
+#![cfg_attr(not(board = "generic"), allow(dead_code))]
+
 use crate::board::{Board, InitData, InitResources};
 
 /// Generic board.

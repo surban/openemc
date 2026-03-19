@@ -1,5 +1,4 @@
 {
-    "rust-analyzer.checkOnSave.allTargets": false,
     "files.exclude": {
         "**/.*.*.cmd": true,
         "**/.*.d": true,

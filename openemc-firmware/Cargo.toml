@@ -7,6 +7,13 @@ version = "0.9.9"
 publish = false
 edition = "2021"
 
+[[bin]]
+name = "openemc-firmware"
+path = "src/main.rs"
+test = false
+doctest = false
+bench = false
+
 [features]
 default = ["defmt-rtt"]
 debug-blink = []

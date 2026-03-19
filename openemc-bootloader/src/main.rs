@@ -383,6 +383,7 @@ fn main() -> ! {
                 board_data,
             };
             unsafe {
+                #[allow(static_mut_refs)]
                 BOOT_INFO.write(boot_info);
             }
 
