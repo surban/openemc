@@ -172,7 +172,7 @@ dependencies = [
 
 [[package]]
 name = "defmt-ringbuf"
-version = "0.3.0"
+version = "1.0.0"
 dependencies = [
  "cortex-m",
  "critical-section",
@@ -385,7 +385,7 @@ version = "0.0.0"
 
 [[package]]
 name = "openemc-firmware"
-version = "0.9.9"
+version = "1.0.0"
 dependencies = [
  "byteorder",
  "cortex-m",

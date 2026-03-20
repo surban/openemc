@@ -62,7 +62,7 @@ For building the firmware your machine must have the following things installed:
   - on Rust nightly: Rust source (`rustup component add rust-src`)
   - Cargo binutils (`cargo install cargo-binutils`),
   - STLINK tools (from https://github.com/stlink-org/stlink or your Linux distribution),
-  - for development: probe-run (`cargo install probe-run`).
+  - for development: probe-run (`cargo install probe-rs-tools`).
 
 For building the Linux kernel drivers the kernel headers and `gcc` are required.
 The kernel must have support for devicetree enabled.

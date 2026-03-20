@@ -10,5 +10,7 @@ cd ..
 
 cargo +nightly update --manifest-path openemc-bootloader/Cargo.toml
 cargo +nightly update --manifest-path openemc-firmware/Cargo.toml
+cargo +nightly update --manifest-path openemc-log/Cargo.toml
+cargo +nightly update --manifest-path openemc-pack/Cargo.toml
 cargo +nightly update --manifest-path openemc-shared/Cargo.toml
 cargo +nightly update --manifest-path xtask/Cargo.toml

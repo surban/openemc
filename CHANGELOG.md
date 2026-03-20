@@ -4,16 +4,25 @@ All notable changes to OpenEMC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-# 0.9.9 - 2024-10-16
+## 1.0.0 - 2026-03-20
+### Changed
+- log: hide malformed message by default
+- update embedded-hal to 1.0 and associated crates
+- update defmt to 1.0
+- switch to probe-rs
+### Fixed
+- ioctl: fix crash when response is empty
+
+## 0.9.9 - 2024-10-16
 ### Added
 - I2C: check for stuck SCL during recovery
 
-# 0.9.8 - 2024-10-12
+## 0.9.8 - 2024-10-12
 ### Added
 - I2C: bus recovery
 - STUSB4500: verify received PDOs by obtaining them twice
 
-# 0.9.7 - 2024-07-05
+## 0.9.7 - 2024-07-05
 ### Added
 - Linux pstore support
 ### Changed
@@ -21,17 +30,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - improve LED behavior
 - supply: derate reported currents by 100 mA
 
-# 0.9.6 - 2024-06-25
+## 0.9.6 - 2024-06-25
 ### Fixed
 - supply: connect data lines in charge mode
 
-# 0.9.5 - 2024-06-25
+## 0.9.5 - 2024-06-25
 ### Added
 - supply: allow explicit disconnection of USB data lines via sysfs
 ### Changed
 - supply: use no input current when disconnected according to any detector
 
-# 0.9.4 - 2024-06-20
+## 0.9.4 - 2024-06-20
 ### Changed
 - STUSB4500: prohibit reset when battery is low
 - BQ25713: only warn when readback fails
@@ -41,14 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - STUSB4500: avoid attach loop with mobile devices
 
-# 0.9.2 - 2024-06-19
+## 0.9.2 - 2024-06-19
 ### Changed
 - bootloader: avoid bootloader entry after power-on reset, if possible
 - bootloader version 0.3.2
 ### Fixed
 - STUSB4500: NVM programming
 
-# 0.9.1 - 2024-06-18
+## 0.9.1 - 2024-06-18
 ### Added
 - STUSB4500: reset when BQ25713 I2C communication fails
 - STUSB4500: log monitoring and hardware fault status
@@ -60,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - charging mode: power off when charger is disconnected during grace period
 
-# 0.9.0 - 2024-02-22
+## 0.9.0 - 2024-02-22
 ### Added
 - board IO support
 - board ioctl support

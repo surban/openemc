@@ -2,7 +2,6 @@
 name = "xtask"
 description = "OpenEMC build script"
 license = "GPL-3.0"
-version = "0.0.0"
 edition = "2021"
 
 [dependencies]

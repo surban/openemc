@@ -411,4 +411,4 @@ module_platform_driver(openemc_power_driver);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Sebastian Urban <surban@surban.net>");
 MODULE_DESCRIPTION("OpenEMC Power Control");
-MODULE_VERSION("0.1");
+MODULE_VERSION("1.0");

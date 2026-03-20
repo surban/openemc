@@ -179,4 +179,4 @@ module_platform_driver(openemc_pstore_driver);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Sebastian Urban <surban@surban.net>");
 MODULE_DESCRIPTION("OpenEMC Platform Store");
-MODULE_VERSION("0.1");
+MODULE_VERSION("1.0");

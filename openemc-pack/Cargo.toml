@@ -3,7 +3,6 @@ name = "openemc-pack"
 description = "Packs firmware in format bootable by OpenEMC bootloader."
 authors = ["Sebastian Urban <surban@surban.net>"]
 license = "GPL-3.0"
-version = "0.0.0"
 publish = false
 edition = "2021"
 

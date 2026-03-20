@@ -1,7 +1,7 @@
 [package]
 name = "board-io-test"
 description = "OpenEMC board IO test"
-version = "0.0.0"
+license = "GPL-3.0"
 edition = "2021"
 
 [dependencies]

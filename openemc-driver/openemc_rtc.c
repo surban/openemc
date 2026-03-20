@@ -365,4 +365,4 @@ module_platform_driver(openemc_rtc_driver);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Sebastian Urban <surban@surban.net>");
 MODULE_DESCRIPTION("OpenEMC RTC");
-MODULE_VERSION("0.1");
+MODULE_VERSION("1.0");

@@ -203,4 +203,4 @@ module_platform_driver(openemc_pwm_driver);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Sebastian Urban <surban@surban.net>");
 MODULE_DESCRIPTION("OpenEMC PWM");
-MODULE_VERSION("0.1");
+MODULE_VERSION("1.0");

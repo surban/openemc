@@ -2080,4 +2080,4 @@ module_i2c_driver(openemc_i2c_driver);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Sebastian Urban <surban@surban.net>");
 MODULE_DESCRIPTION("OpenEMC");
-MODULE_VERSION("0.1");
+MODULE_VERSION("1.0");

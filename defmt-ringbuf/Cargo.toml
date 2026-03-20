@@ -7,7 +7,7 @@ keywords = ["defmt", "defmt-transport"]
 readme = "README.md"
 repository = "https://github.com/surban/openemc"
 license = "MIT OR Apache-2.0"
-version = "0.3.0"
+version = "1.0.0"
 edition = "2021"
 
 [features]

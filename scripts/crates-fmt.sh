@@ -13,6 +13,7 @@ cargo +nightly fmt --manifest-path openemc-bootloader/Cargo.toml
 cargo +nightly fmt --manifest-path openemc-firmware/Cargo.toml
 cargo +nightly fmt --manifest-path openemc-shared/Cargo.toml
 cargo +nightly fmt --manifest-path openemc-log/Cargo.toml
+cargo +nightly fmt --manifest-path openemc-pack/Cargo.toml
 cargo +nightly fmt --manifest-path xtask/Cargo.toml
 cargo +nightly fmt --manifest-path defmt-ringbuf/Cargo.toml
 cargo +nightly fmt --manifest-path defmt-ringbuf/defmt-ringbuf-test/Cargo.toml
