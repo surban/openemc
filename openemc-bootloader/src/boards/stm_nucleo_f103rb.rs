@@ -34,13 +34,13 @@ impl Board for BoardImpl {
         let dp = unsafe { Peripherals::steal() };
 
         // Configure power pin.
-        dp.RCC.apb2enr.modify(|_, w| w.iopaen().enabled());
-        dp.GPIOA.crl.modify(|_, w| w.cnf5().push_pull().mode5().output());
+        dp.RCC.apb2enr().modify(|_, w| w.iopaen().enabled());
+        dp.GPIOA.crl().modify(|_, w| w.cnf5().push_pull().mode5().output());
 
         // Configure user button pin.
-        dp.RCC.apb2enr.modify(|_, w| w.iopcen().enabled());
-        dp.GPIOC.crh.modify(|_, w| w.cnf13().alt_push_pull().mode15().input());
-        dp.GPIOC.odr.modify(|_, w| w.odr13().high());
+        dp.RCC.apb2enr().modify(|_, w| w.iopcen().enabled());
+        dp.GPIOC.crh().modify(|_, w| w.cnf13().alt_push_pull().mode15().input());
+        dp.GPIOC.odr().modify(|_, w| w.odr13().high());
         delay_ms(10);
 
         // Check for factory reset.
@@ -48,7 +48,7 @@ impl Board for BoardImpl {
             defmt::info!("reset by button");
 
             let mut i = 0;
-            while dp.GPIOC.idr.read().idr13().is_low() {
+            while dp.GPIOC.idr().read().idr13().is_low() {
                 watchdog::pet();
 
                 i += 1;
@@ -58,9 +58,9 @@ impl Board for BoardImpl {
                     defmt::info!("factory reset requested by button");
 
                     let mut led = true;
-                    while dp.GPIOC.idr.read().idr13().is_low() {
+                    while dp.GPIOC.idr().read().idr13().is_low() {
                         watchdog::pet();
-                        dp.GPIOA.odr.modify(|_, w| w.odr5().bit(led));
+                        dp.GPIOA.odr().modify(|_, w| w.odr5().bit(led));
                         delay_ms(100);
                         led = !led;
                     }
@@ -73,7 +73,7 @@ impl Board for BoardImpl {
 
         // Check for development mode.
         let mut i = 0;
-        while dp.GPIOC.idr.read().idr13().is_low() || option_env!("DEV_MODE").is_some() {
+        while dp.GPIOC.idr().read().idr13().is_low() || option_env!("DEV_MODE").is_some() {
             watchdog::pet();
 
             i += 1;
@@ -84,9 +84,9 @@ impl Board for BoardImpl {
                 self.development_mode = true;
 
                 let mut led = true;
-                while dp.GPIOC.idr.read().idr13().is_low() {
+                while dp.GPIOC.idr().read().idr13().is_low() {
                     watchdog::pet();
-                    dp.GPIOA.odr.modify(|_, w| w.odr5().bit(led));
+                    dp.GPIOA.odr().modify(|_, w| w.odr5().bit(led));
                     delay_ms(500);
                     led = !led;
                 }
@@ -101,16 +101,16 @@ impl Board for BoardImpl {
 
     fn pre_start(&mut self) {
         let dp = unsafe { Peripherals::steal() };
-        dp.RCC.apb2enr.modify(|_, w| w.iopcen().disabled());
+        dp.RCC.apb2enr().modify(|_, w| w.iopcen().disabled());
     }
 
     fn set_system_power(&mut self, state: bool) {
         let dp = unsafe { Peripherals::steal() };
 
         if state {
-            dp.GPIOA.odr.modify(|_, w| w.odr5().high());
+            dp.GPIOA.odr().modify(|_, w| w.odr5().high());
         } else {
-            dp.GPIOA.odr.modify(|_, w| w.odr5().low());
+            dp.GPIOA.odr().modify(|_, w| w.odr5().low());
         }
     }
 

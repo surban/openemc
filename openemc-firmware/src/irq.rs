@@ -108,8 +108,8 @@ impl<const PORTS: usize> IrqState<PORTS> {
         let dp = unsafe { Peripherals::steal() };
 
         // Get and clear EXTI GPIO pending interrupts.
-        let mut pending = dp.EXTI.pr.read().bits() & self.controlled;
-        dp.EXTI.pr.write(|w| unsafe { w.bits(pending) });
+        let mut pending = dp.EXTI.pr().read().bits() & self.controlled;
+        dp.EXTI.pr().write(|w| unsafe { w.bits(pending) });
 
         // Add pending software interrupts.
         pending |= self.soft_pending & self.mask;
@@ -130,7 +130,7 @@ impl<const PORTS: usize> IrqState<PORTS> {
         self.mask = mask;
 
         let dp = unsafe { Peripherals::steal() };
-        free(|_| dp.EXTI.imr.modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
+        free(|_| dp.EXTI.imr().modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
 
         // Trigger software interrupts that may have become unmasked.
         self.pend_soft(0);
@@ -145,26 +145,26 @@ impl<const PORTS: usize> IrqState<PORTS> {
     pub fn set_exti_trigger_raising_edge(&mut self, mask: u32) {
         let dp = unsafe { Peripherals::steal() };
         defmt::debug!("IRQ trigger raising edge: {:b}", mask);
-        free(|_| dp.EXTI.rtsr.modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
+        free(|_| dp.EXTI.rtsr().modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
     }
 
     /// Gets the EXTI rising edge trigger mask (0=disabled, 1=enabled).
     pub fn get_exti_trigger_raising_edge(&self) -> u32 {
         let dp = unsafe { Peripherals::steal() };
-        dp.EXTI.rtsr.read().bits()
+        dp.EXTI.rtsr().read().bits()
     }
 
     /// Sets the EXTI falling edge trigger mask (0=disabled, 1=enabled).
     pub fn set_exti_trigger_falling_edge(&mut self, mask: u32) {
         let dp = unsafe { Peripherals::steal() };
         defmt::debug!("IRQ trigger falling edge: {:b}", mask);
-        free(|_| dp.EXTI.ftsr.modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
+        free(|_| dp.EXTI.ftsr().modify(|r, w| unsafe { w.bits(self.apply_controlled(r.bits(), mask)) }));
     }
 
     /// Gets the EXTI falling edge trigger mask (0=disabled, 1=enabled).
     pub fn get_exti_trigger_falling_edge(&self) -> u32 {
         let dp = unsafe { Peripherals::steal() };
-        dp.EXTI.ftsr.read().bits()
+        dp.EXTI.ftsr().read().bits()
     }
 
     /// Sets the EXTI GPIO high level trigger mask (0=disabled, 1=enabled).
@@ -209,10 +209,10 @@ impl<const PORTS: usize> IrqState<PORTS> {
 
             defmt::debug!("EXTI GPIO source: {:b}", new);
 
-            dp.AFIO.exticr1.write(|w| unsafe { w.bits(new as u32 & Self::EXTI_GPIO_MASK) });
-            dp.AFIO.exticr2.write(|w| unsafe { w.bits((new >> 16) as u32 & Self::EXTI_GPIO_MASK) });
-            dp.AFIO.exticr3.write(|w| unsafe { w.bits((new >> 32) as u32 & Self::EXTI_GPIO_MASK) });
-            dp.AFIO.exticr4.write(|w| unsafe { w.bits((new >> 48) as u32 & Self::EXTI_GPIO_MASK) });
+            dp.AFIO.exticr1().write(|w| unsafe { w.bits(new as u32 & Self::EXTI_GPIO_MASK) });
+            dp.AFIO.exticr2().write(|w| unsafe { w.bits((new >> 16) as u32 & Self::EXTI_GPIO_MASK) });
+            dp.AFIO.exticr3().write(|w| unsafe { w.bits((new >> 32) as u32 & Self::EXTI_GPIO_MASK) });
+            dp.AFIO.exticr4().write(|w| unsafe { w.bits((new >> 48) as u32 & Self::EXTI_GPIO_MASK) });
         });
     }
 
@@ -225,10 +225,10 @@ impl<const PORTS: usize> IrqState<PORTS> {
     pub fn get_exti_gpio_source(&self) -> u64 {
         let dp = unsafe { Peripherals::steal() };
 
-        let a = dp.AFIO.exticr1.read().bits() & Self::EXTI_GPIO_MASK;
-        let b = dp.AFIO.exticr2.read().bits() & Self::EXTI_GPIO_MASK;
-        let c = dp.AFIO.exticr3.read().bits() & Self::EXTI_GPIO_MASK;
-        let d = dp.AFIO.exticr4.read().bits() & Self::EXTI_GPIO_MASK;
+        let a = dp.AFIO.exticr1().read().bits() & Self::EXTI_GPIO_MASK;
+        let b = dp.AFIO.exticr2().read().bits() & Self::EXTI_GPIO_MASK;
+        let c = dp.AFIO.exticr3().read().bits() & Self::EXTI_GPIO_MASK;
+        let d = dp.AFIO.exticr4().read().bits() & Self::EXTI_GPIO_MASK;
 
         a as u64 | (b as u64) << 16 | (c as u64) << 32 | (d as u64) << 48
     }
@@ -257,9 +257,9 @@ impl<const PORTS: usize> IrqState<PORTS> {
 
         defmt::debug!("level trigger: {:b}", pend);
 
-        dp.EXTI.swier.reset();
-        dp.EXTI.swier.write(|w| unsafe { w.bits(pend) });
-        dp.EXTI.swier.reset();
+        dp.EXTI.swier().reset();
+        dp.EXTI.swier().write(|w| unsafe { w.bits(pend) });
+        dp.EXTI.swier().reset();
     }
 
     /// Pends an interrupt request from an EXTI line.
@@ -271,7 +271,7 @@ impl<const PORTS: usize> IrqState<PORTS> {
     /// Simulates interrupts on PD0 and PD1.
     pub fn simulate_gpio_pd_exti(&mut self) {
         let dp = unsafe { Peripherals::steal() };
-        let pd = dp.GPIOD.idr.read().bits() as u16;
+        let pd = dp.GPIOD.idr().read().bits() as u16;
 
         let mask = self.get_mask();
         let srcs = self.get_exti_gpio_source();
@@ -297,9 +297,9 @@ impl<const PORTS: usize> IrqState<PORTS> {
             defmt::debug!("simulated trigger: {:b}", pend);
         }
 
-        dp.EXTI.swier.reset();
-        dp.EXTI.swier.write(|w| unsafe { w.bits(pend) });
-        dp.EXTI.swier.reset();
+        dp.EXTI.swier().reset();
+        dp.EXTI.swier().write(|w| unsafe { w.bits(pend) });
+        dp.EXTI.swier().reset();
     }
 
     /// Pends software interrupts.

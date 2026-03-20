@@ -7,11 +7,11 @@ static mut ENABLED: bool = false;
 /// Configures watchdog for timeout of 6.5 seconds.
 pub fn start() {
     let dp = unsafe { Peripherals::steal() };
-    dp.IWDG.kr.write(|w| w.key().enable());
-    dp.IWDG.pr.write(|w| w.pr().divide_by64());
-    dp.IWDG.rlr.write(|w| w.rl().bits(0xfff));
-    dp.IWDG.kr.write(|w| w.key().start());
-    dp.IWDG.kr.write(|w| w.key().reset());
+    dp.IWDG.kr().write(|w| w.key().unlock());
+    dp.IWDG.pr().write(|w| w.pr().divide_by64());
+    dp.IWDG.rlr().write(|w| w.rl().set(0xfff));
+    dp.IWDG.kr().write(|w| w.key().start());
+    dp.IWDG.kr().write(|w| w.key().feed());
 
     unsafe { ENABLED = true };
 }
@@ -23,5 +23,5 @@ pub fn pet() {
     }
 
     let dp = unsafe { Peripherals::steal() };
-    dp.IWDG.kr.write(|w| w.key().reset());
+    dp.IWDG.kr().write(|w| w.key().feed());
 }

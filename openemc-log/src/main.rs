@@ -27,10 +27,10 @@ use flate2::read::GzDecoder;
 use log::{Level, LevelFilter};
 use nix::{
     errno::Errno,
-    poll::{poll, PollFd, PollFlags},
+    poll::{poll, PollFd, PollFlags, PollTimeout},
 };
 use std::{
-    ffi::{c_int, OsString},
+    ffi::OsString,
     fmt::Write,
     fs::{self, File},
     io::{ErrorKind, Read, Seek},
@@ -45,7 +45,7 @@ mod syslog;
 
 const READ_BUFFER_SIZE: usize = 128;
 const UNPROCESSED_SIZE: usize = 16_777_216;
-const POLL_TIMEOUT: c_int = 60_000;
+const POLL_TIMEOUT: Duration = Duration::from_secs(60);
 const FIRMWARE_DIR: &str = "/lib/firmware";
 
 static STOP: AtomicBool = AtomicBool::new(false);
@@ -348,8 +348,9 @@ fn perform(opts: &Opts) -> Result<bool> {
             Ok(0) if is_dev && !opts.oneshot && !opts.bootloader => {
                 // Wait for data to arrive.
                 let log_fd = log.as_fd();
-                let poll_fd = PollFd::new(&log_fd, PollFlags::POLLPRI | PollFlags::POLLERR);
-                match poll(&mut [poll_fd], POLL_TIMEOUT) {
+                let poll_fd = PollFd::new(log_fd, PollFlags::POLLPRI | PollFlags::POLLERR);
+                let poll_timeout = PollTimeout::try_from(POLL_TIMEOUT).unwrap();
+                match poll(&mut [poll_fd], poll_timeout) {
                     Ok(_) => (),
                     Err(Errno::EINTR) => sleep(Duration::from_millis(100)),
                     Err(err) => return Err(err.into()),

@@ -8,4 +8,4 @@ publish = false
 edition = "2021"
 
 [dependencies]
-defmt = "0.3"
+defmt = "1"

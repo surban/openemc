@@ -7,23 +7,23 @@ static mut ACTIVE: bool = false;
 /// Enables access to the backup power domain.
 pub fn enable() {
     let dp = unsafe { Peripherals::steal() };
-    dp.RCC.apb1enr.modify(|_, w| w.pwren().enabled().bkpen().enabled());
-    dp.RCC.bdcr.modify(|_, w| w.bdrst().disabled());
+    dp.RCC.apb1enr().modify(|_, w| w.pwren().enabled().bkpen().enabled());
+    dp.RCC.bdcr().modify(|_, w| w.bdrst().disabled());
     unsafe { ACTIVE = true };
 }
 
 /// Disables access to the backup power domain.
 pub fn disable() {
     let dp = unsafe { Peripherals::steal() };
-    dp.RCC.apb1enr.modify(|_, w| w.bkpen().disabled());
+    dp.RCC.apb1enr().modify(|_, w| w.bkpen().disabled());
     unsafe { ACTIVE = false };
 }
 
 /// Resets the backup power domain.
 pub fn reset() {
     let dp = unsafe { Peripherals::steal() };
-    dp.RCC.bdcr.modify(|_, w| w.bdrst().enabled());
-    dp.RCC.bdcr.modify(|_, w| w.bdrst().disabled());
+    dp.RCC.bdcr().modify(|_, w| w.bdrst().enabled());
+    dp.RCC.bdcr().modify(|_, w| w.bdrst().disabled());
 }
 
 fn check_active() {
@@ -37,7 +37,7 @@ fn check_active() {
 pub fn read(reg: u8) -> u16 {
     check_active();
     let dp = unsafe { Peripherals::steal() };
-    dp.BKP.dr[reg as usize].read().d().bits()
+    dp.BKP.dr(reg as usize).read().d().bits()
 }
 
 /// Write backup register.
@@ -48,9 +48,9 @@ pub fn write(reg: u8, data: u16) {
     check_active();
     let dp = unsafe { Peripherals::steal() };
 
-    dp.PWR.cr.modify(|_, w| w.dbp().set_bit());
-    dp.BKP.dr[reg as usize].write(|w| w.d().bits(data));
-    dp.PWR.cr.modify(|_, w| w.dbp().clear_bit());
+    dp.PWR.cr().modify(|_, w| w.dbp().set_bit());
+    dp.BKP.dr(reg as usize).write(|w| w.d().set(data));
+    dp.PWR.cr().modify(|_, w| w.dbp().clear_bit());
 
     if read(reg) != data {
         defmt::panic!("writing backup register failed");
@@ -63,13 +63,13 @@ pub fn enable_tamper(tamper_level: bool) {
     check_active();
     let dp = unsafe { Peripherals::steal() };
 
-    dp.GPIOC.crh.modify(|_, w| w.cnf13().alt_open_drain());
-    dp.BKP.csr.write(|w| w.cti().clear().cte().reset());
-    dp.BKP.cr.write(|w| {
+    dp.GPIOC.crh().modify(|_, w| w.cnf13().alt_open_drain());
+    dp.BKP.csr().write(|w| w.cti().clear().cte().reset());
+    dp.BKP.cr().write(|w| {
         let w = if tamper_level { w.tpal().low() } else { w.tpal().high() };
         w.tpe().alternate()
     });
-    dp.BKP.csr.write(|w| w.tpie().enabled().cti().clear().cte().reset());
+    dp.BKP.csr().write(|w| w.tpie().enabled().cti().clear().cte().reset());
 }
 
 /// Disables tamper protection.
@@ -78,5 +78,5 @@ pub fn disable_tamper() {
     check_active();
     let dp = unsafe { Peripherals::steal() };
 
-    dp.BKP.cr.write(|w| w.tpe().general());
+    dp.BKP.cr().write(|w| w.tpe().general());
 }

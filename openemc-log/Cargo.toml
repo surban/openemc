@@ -21,16 +21,16 @@ probe = [
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
-defmt-decoder = { version = "0.3", features = ["unstable"] }
-defmt-parser = { version = "0.3", features = ["unstable"] }
-nix = { version = "0.27", features = ["poll"] }
+defmt-decoder = { version = "1.1", features = ["unstable"] }
+defmt-parser = { version = "1", features = ["unstable"] }
+nix = { version = "0.31", features = ["poll"] }
 log = "0.4"
 libc = "0.2"
 env_logger = "0.11"
 ctrlc = { version = "3", features = ["termination"] }
 flate2 = "1"
 
-probe-rs = { version = "0.22", optional = true }
+probe-rs = { version = "0.31", optional = true }
 tempfile = { version = "3.9", optional = true }
-object = { version = "0.32", optional = true }
+object = { version = "0.38", optional = true }
 defmt-ringbuf-offline = { path = "../defmt-ringbuf-offline", optional = true }

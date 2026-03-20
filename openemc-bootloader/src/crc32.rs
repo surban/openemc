@@ -19,7 +19,7 @@ impl Crc32 {
         unsafe { ACTIVE = true };
 
         let dp = unsafe { Peripherals::steal() };
-        dp.RCC.ahbenr.modify(|_, w| w.crcen().enabled());
+        dp.RCC.ahbenr().modify(|_, w| w.crcen().enabled());
         cortex_m::asm::nop();
         cortex_m::asm::nop();
 
@@ -31,26 +31,26 @@ impl Crc32 {
 
     /// Resets the CRC32 calculator.
     pub fn reset(&mut self) {
-        self.dp.CRC.cr.write(|w| w.reset().reset());
+        self.dp.CRC.cr().write(|w| w.reset().reset());
         cortex_m::asm::nop();
     }
 
     /// Adds the data to the CRC32 calculation.
     pub fn write(&mut self, data: u32) {
-        self.dp.CRC.dr.write(|w| w.dr().bits(data.reverse_bits()));
+        self.dp.CRC.dr().write(|w| w.dr().set(data.reverse_bits()));
     }
 
     /// The CRC32 value of all previously written data after the
     /// last reset.
     pub fn crc32(&self) -> u32 {
         cortex_m::asm::nop();
-        !self.dp.CRC.dr.read().dr().bits().reverse_bits()
+        !self.dp.CRC.dr().read().dr().bits().reverse_bits()
     }
 }
 
 impl Drop for Crc32 {
     fn drop(&mut self) {
-        self.dp.RCC.ahbenr.modify(|_, w| w.crcen().disabled());
+        self.dp.RCC.ahbenr().modify(|_, w| w.crcen().disabled());
 
         unsafe { ACTIVE = false };
     }

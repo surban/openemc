@@ -23,12 +23,12 @@ impl FlashWriter {
         let cp = unsafe { cortex_m::Peripherals::steal() };
 
         // Unlock flash for writing.
-        if dp.FLASH.cr.read().lock().bit_is_set() {
-            dp.FLASH.keyr.write(|w| unsafe { w.key().bits(0x45670123) });
-            dp.FLASH.keyr.write(|w| unsafe { w.key().bits(0xCDEF89AB) });
+        if dp.FLASH.cr().read().lock().bit_is_set() {
+            dp.FLASH.keyr().write(|w| unsafe { w.key().bits(0x45670123) });
+            dp.FLASH.keyr().write(|w| unsafe { w.key().bits(0xCDEF89AB) });
             cortex_m::asm::nop();
 
-            if dp.FLASH.cr.read().lock().bit_is_set() {
+            if dp.FLASH.cr().read().lock().bit_is_set() {
                 return Err(UnlockError);
             }
         }
@@ -40,12 +40,12 @@ impl FlashWriter {
         cortex_m::asm::nop();
         cortex_m::asm::nop();
         cortex_m::asm::nop();
-        while self.dp.FLASH.sr.read().bsy().bit_is_set() {}
+        while self.dp.FLASH.sr().read().bsy().bit_is_set() {}
         cortex_m::asm::nop();
     }
 
     fn clear_state(&self) {
-        self.dp.FLASH.sr.modify(|_, w| w.eop().set_bit().wrprterr().set_bit().pgerr().set_bit());
+        self.dp.FLASH.sr().modify(|_, w| w.eop().set_bit().wrprterr().set_bit().pgerr().set_bit());
         cortex_m::asm::nop();
     }
 
@@ -58,11 +58,11 @@ impl FlashWriter {
         self.wait_idle();
         self.clear_state();
 
-        self.dp.FLASH.cr.modify(|_, w| w.per().set_bit());
-        self.dp.FLASH.ar.write(|w| w.far().variant(page as u32));
-        self.dp.FLASH.cr.modify(|_, w| w.strt().set_bit());
+        self.dp.FLASH.cr().modify(|_, w| w.per().set_bit());
+        self.dp.FLASH.ar().write(|w| unsafe { w.far().bits(page as u32) });
+        self.dp.FLASH.cr().modify(|_, w| w.strt().set_bit());
         self.wait_idle();
-        self.dp.FLASH.cr.modify(|_, w| w.per().clear_bit());
+        self.dp.FLASH.cr().modify(|_, w| w.per().clear_bit());
 
         self.cp.SCB.clean_invalidate_dcache(&mut self.cp.CPUID);
 
@@ -86,16 +86,16 @@ impl FlashWriter {
         self.wait_idle();
         self.clear_state();
 
-        self.dp.FLASH.cr.modify(|_, w| w.pg().set_bit());
+        self.dp.FLASH.cr().modify(|_, w| w.pg().set_bit());
         self.wait_idle();
 
         unsafe { ptr::write_volatile(addr as *mut u16, data) };
         self.cp.SCB.clean_invalidate_dcache_by_address(addr, size_of::<u16>());
         self.wait_idle();
 
-        while self.dp.FLASH.sr.read().eop().bit_is_clear() {}
+        while self.dp.FLASH.sr().read().eop().bit_is_clear() {}
 
-        self.dp.FLASH.cr.modify(|_, w| w.pg().clear_bit());
+        self.dp.FLASH.cr().modify(|_, w| w.pg().clear_bit());
         cortex_m::asm::nop();
 
         let readback = unsafe { ptr::read_volatile(addr as *const u16) };
@@ -120,7 +120,7 @@ pub struct WriteError;
 
 impl Drop for FlashWriter {
     fn drop(&mut self) {
-        self.dp.FLASH.cr.write(|w| w.lock().set_bit());
+        self.dp.FLASH.cr().write(|w| w.lock().set_bit());
         cortex_m::asm::nop();
 
         unsafe { ACTIVE = false };

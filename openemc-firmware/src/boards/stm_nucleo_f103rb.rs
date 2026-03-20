@@ -51,8 +51,8 @@ impl Board for BoardImpl {
 
     fn new(data: InitData, res: InitResources) -> BoardImpl {
         let mut dp = unsafe { Peripherals::steal() };
-        let mut gpioa = unsafe { dp.GPIOA.split_without_reset() };
-        let mut gpiob = unsafe { dp.GPIOB.split_without_reset() };
+        let mut gpioa = unsafe { dp.GPIOA.split_without_reset(&mut dp.RCC) };
+        let mut gpiob = unsafe { dp.GPIOB.split_without_reset(&mut dp.RCC) };
         let (pa15, _pb3, _pb4) = res.afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
 
         let mut stusb4500_reset = gpiob.pb7.into_push_pull_output_with_state(&mut gpiob.crl, PinState::Low);
@@ -89,19 +89,19 @@ impl Board for BoardImpl {
     }
 
     fn power_on(&mut self, _afio: &mut afio::Parts, _delay: &mut Delay) {
-        let dp = unsafe { Peripherals::steal() };
+        let mut dp = unsafe { Peripherals::steal() };
 
         // Turn on LED.
         defmt::info!("system power on");
-        let mut gpioa = unsafe { dp.GPIOA.split_without_reset() };
+        let mut gpioa = unsafe { dp.GPIOA.split_without_reset(&mut dp.RCC) };
         gpioa.pa5.into_push_pull_output_with_state(&mut gpioa.crl, PinState::High);
 
         // Check for key.
-        let mut gpioc = unsafe { dp.GPIOC.split_without_reset() };
+        let mut gpioc = unsafe { dp.GPIOC.split_without_reset(&mut dp.RCC) };
         gpioc.pc13.as_pull_up_input(&mut gpioc.crh, |pc13| {
             if pc13.is_low() {
                 defmt::info!("resetting backup domain");
-                dp.RCC.bdcr.modify(|_, w| w.bdrst().enabled());
+                dp.RCC.bdcr().modify(|_, w| w.bdrst().enabled());
                 while pc13.is_low() {}
                 SCB::sys_reset();
             }

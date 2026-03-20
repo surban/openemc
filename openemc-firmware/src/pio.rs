@@ -2,7 +2,7 @@
 
 use stm32f1::{
     stm32f103::{
-        gpioa::{crh::CRH_SPEC, crl::CRL_SPEC, idr::IDR_SPEC, odr::ODR_SPEC},
+        gpioa::{crh::CRHrs, crl::CRLrs, idr::IDRrs, odr::ODRrs},
         Peripherals,
     },
     Reg,
@@ -34,54 +34,54 @@ impl<const PORTS: usize> MaskedGpio<PORTS> {
         PORTS * 16
     }
 
-    fn idr(&self, port: usize) -> &Reg<IDR_SPEC> {
+    fn idr(&self, port: usize) -> &Reg<IDRrs> {
         match port {
-            0 => &self.dp.GPIOA.idr,
-            1 => &self.dp.GPIOB.idr,
-            2 => &self.dp.GPIOC.idr,
-            3 => &self.dp.GPIOD.idr,
-            4 => &self.dp.GPIOE.idr,
-            5 => &self.dp.GPIOF.idr,
-            6 => &self.dp.GPIOG.idr,
+            0 => self.dp.GPIOA.idr(),
+            1 => self.dp.GPIOB.idr(),
+            2 => self.dp.GPIOC.idr(),
+            3 => self.dp.GPIOD.idr(),
+            4 => self.dp.GPIOE.idr(),
+            5 => self.dp.GPIOF.idr(),
+            6 => self.dp.GPIOG.idr(),
             _ => defmt::unreachable!(),
         }
     }
 
-    fn odr(&self, port: usize) -> &Reg<ODR_SPEC> {
+    fn odr(&self, port: usize) -> &Reg<ODRrs> {
         match port {
-            0 => &self.dp.GPIOA.odr,
-            1 => &self.dp.GPIOB.odr,
-            2 => &self.dp.GPIOC.odr,
-            3 => &self.dp.GPIOD.odr,
-            4 => &self.dp.GPIOE.odr,
-            5 => &self.dp.GPIOF.odr,
-            6 => &self.dp.GPIOG.odr,
+            0 => self.dp.GPIOA.odr(),
+            1 => self.dp.GPIOB.odr(),
+            2 => self.dp.GPIOC.odr(),
+            3 => self.dp.GPIOD.odr(),
+            4 => self.dp.GPIOE.odr(),
+            5 => self.dp.GPIOF.odr(),
+            6 => self.dp.GPIOG.odr(),
             _ => defmt::unreachable!(),
         }
     }
 
-    fn crh(&self, port: usize) -> &Reg<CRH_SPEC> {
+    fn crh(&self, port: usize) -> &Reg<CRHrs> {
         match port {
-            0 => &self.dp.GPIOA.crh,
-            1 => &self.dp.GPIOB.crh,
-            2 => &self.dp.GPIOC.crh,
-            3 => &self.dp.GPIOD.crh,
-            4 => &self.dp.GPIOE.crh,
-            5 => &self.dp.GPIOF.crh,
-            6 => &self.dp.GPIOG.crh,
+            0 => self.dp.GPIOA.crh(),
+            1 => self.dp.GPIOB.crh(),
+            2 => self.dp.GPIOC.crh(),
+            3 => self.dp.GPIOD.crh(),
+            4 => self.dp.GPIOE.crh(),
+            5 => self.dp.GPIOF.crh(),
+            6 => self.dp.GPIOG.crh(),
             _ => defmt::unreachable!(),
         }
     }
 
-    fn crl(&self, port: usize) -> &Reg<CRL_SPEC> {
+    fn crl(&self, port: usize) -> &Reg<CRLrs> {
         match port {
-            0 => &self.dp.GPIOA.crl,
-            1 => &self.dp.GPIOB.crl,
-            2 => &self.dp.GPIOC.crl,
-            3 => &self.dp.GPIOD.crl,
-            4 => &self.dp.GPIOE.crl,
-            5 => &self.dp.GPIOF.crl,
-            6 => &self.dp.GPIOG.crl,
+            0 => self.dp.GPIOA.crl(),
+            1 => self.dp.GPIOB.crl(),
+            2 => self.dp.GPIOC.crl(),
+            3 => self.dp.GPIOD.crl(),
+            4 => self.dp.GPIOE.crl(),
+            5 => self.dp.GPIOF.crl(),
+            6 => self.dp.GPIOG.crl(),
             _ => defmt::unreachable!(),
         }
     }

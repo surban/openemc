@@ -70,8 +70,15 @@ use defmt::{unwrap, Format};
 use heapless::Vec;
 use stm32f1::stm32f103::Interrupt;
 use stm32f1xx_hal::{
-    adc::Adc, backup_domain::BackupDomain, crc::Crc, flash::FlashWriter, i2c::I2c, pac::ADC1, prelude::*,
-    rcc::Clocks, watchdog::IndependentWatchdog,
+    adc::Adc,
+    backup_domain::BackupDomain,
+    crc::Crc,
+    flash::FlashWriter,
+    i2c::I2c,
+    pac::ADC1,
+    prelude::*,
+    rcc::{Clocks, Config},
+    watchdog::IndependentWatchdog,
 };
 use systick_monotonic::*;
 
@@ -326,20 +333,20 @@ mod app {
         boot::init();
 
         // Create HAL objects.
-        let rcc = cx.device.RCC.constrain();
-        let mut crc = cx.device.CRC.new();
-        let mut bkp = rcc.bkp.constrain(cx.device.BKP, &mut cx.device.PWR);
+        let mut rcc = cx.device.RCC.constrain();
+        let mut crc = cx.device.CRC.new(&mut rcc);
+        let mut bkp = cx.device.BKP.constrain(&mut cx.device.PWR, &mut rcc);
         let mut flash = cx.device.FLASH.constrain();
-        let mut afio = cx.device.AFIO.constrain();
-        let clocks = rcc.cfgr.freeze(&mut flash.acr);
-        let mono = Systick::new(cx.core.SYST, clocks.sysclk().to_Hz());
-        let adc = Adc::adc1(cx.device.ADC1, clocks);
+        let mut afio = cx.device.AFIO.constrain(&mut rcc);
+        let mut rcc = rcc.freeze(Config::default(), &mut flash.acr);
+        let mono = Systick::new(cx.core.SYST, rcc.clocks.sysclk().to_Hz());
+        let adc = Adc::new(cx.device.ADC1, &mut rcc);
         let adc_inp = AdcInputs::new();
-        let mut delay = cx.device.TIM4.delay_ms(&clocks);
-        let gpioa = unsafe { cx.device.GPIOA.split_without_reset() };
-        let mut gpiob = unsafe { cx.device.GPIOB.split_without_reset() };
-        let _gpioc = unsafe { cx.device.GPIOC.split_without_reset() };
-        let mut _gpiod = unsafe { cx.device.GPIOD.split_without_reset() };
+        let mut delay = cx.device.TIM4.delay_ms(&mut rcc);
+        let gpioa = unsafe { cx.device.GPIOA.split_without_reset(&mut rcc) };
+        let mut gpiob = unsafe { cx.device.GPIOB.split_without_reset(&mut rcc) };
+        let _gpioc = unsafe { cx.device.GPIOC.split_without_reset(&mut rcc) };
+        let mut _gpiod = unsafe { cx.device.GPIOD.split_without_reset(&mut rcc) };
 
         // Configure GPIO remapping.
         let (_pa15, _pb3, _pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
@@ -375,7 +382,7 @@ mod app {
 
         // Create board handler.
         defmt::info!("board new");
-        let init_data = InitData { boot_info: bi, clocks, cfg: *cfg };
+        let init_data = InitData { boot_info: bi, clocks: rcc.clocks, cfg: *cfg };
         let init_resources = InitResources { afio: &mut afio, delay: &mut delay };
         let mut board = ThisBoard::new(init_data, init_resources);
         defmt::info!("board new done");
@@ -493,8 +500,8 @@ mod app {
 
             let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
             let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
-            let i2c2 = I2c::i2c2(cx.device.I2C2, (scl, sda), mode, clocks);
-            i2c2.blocking_default(clocks)
+            let i2c2 = I2c::new(cx.device.I2C2, (scl, sda), mode, &mut rcc);
+            i2c2.blocking_default(rcc.clocks)
         });
         blink_charging!(board, delay, watchman, 7);
 
@@ -639,10 +646,10 @@ mod app {
         // Initialize PWM timers.
         delay.release();
         let pwm_timers = [
-            ThisBoard::PWM_TIMERS[0].then(|| PwmTimer::new(pwm::Timer::Timer1, &clocks)),
-            ThisBoard::PWM_TIMERS[1].then(|| PwmTimer::new(pwm::Timer::Timer2, &clocks)),
-            ThisBoard::PWM_TIMERS[2].then(|| PwmTimer::new(pwm::Timer::Timer3, &clocks)),
-            ThisBoard::PWM_TIMERS[3].then(|| PwmTimer::new(pwm::Timer::Timer4, &clocks)),
+            ThisBoard::PWM_TIMERS[0].then(|| PwmTimer::new(pwm::Timer::Timer1, &rcc.clocks)),
+            ThisBoard::PWM_TIMERS[1].then(|| PwmTimer::new(pwm::Timer::Timer2, &rcc.clocks)),
+            ThisBoard::PWM_TIMERS[2].then(|| PwmTimer::new(pwm::Timer::Timer3, &rcc.clocks)),
+            ThisBoard::PWM_TIMERS[3].then(|| PwmTimer::new(pwm::Timer::Timer4, &rcc.clocks)),
         ];
 
         // Initialize platform store.
@@ -670,8 +677,13 @@ mod app {
                 true => {
                     let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
                     let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
-                    let mut i2c =
-                        I2cSlave::i2c1(cx.device.I2C1, (scl, sda), &mut afio.mapr, ThisBoard::I2C_ADDR, clocks);
+                    let mut i2c = I2cSlave::i2c1(
+                        cx.device.I2C1,
+                        (scl, sda),
+                        &mut afio.mapr,
+                        ThisBoard::I2C_ADDR,
+                        rcc.clocks,
+                    );
                     i2c.listen_buffer();
                     i2c.listen_error();
                     i2c.listen_event();
@@ -680,8 +692,13 @@ mod app {
                 false => {
                     let scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);
                     let sda = gpiob.pb7.into_alternate_open_drain(&mut gpiob.crl);
-                    let mut i2c =
-                        I2cSlave::i2c1(cx.device.I2C1, (scl, sda), &mut afio.mapr, ThisBoard::I2C_ADDR, clocks);
+                    let mut i2c = I2cSlave::i2c1(
+                        cx.device.I2C1,
+                        (scl, sda),
+                        &mut afio.mapr,
+                        ThisBoard::I2C_ADDR,
+                        rcc.clocks,
+                    );
                     i2c.listen_buffer();
                     i2c.listen_error();
                     i2c.listen_event();
@@ -704,7 +721,7 @@ mod app {
         defmt::debug!("init done");
         (
             Shared {
-                clocks,
+                clocks: rcc.clocks,
                 flash,
                 crc,
                 cfg,

@@ -3,7 +3,7 @@
 //! For use with STM Nucleo-F103RB example board (`stm_nucleo_f103rb.rs`).
 //!
 
-use rand::Rng;
+use rand::prelude::*;
 use std::{
     fs::File,
     io::{Error, Read, Write},
@@ -12,7 +12,7 @@ use std::{
 
 fn io_test(openemc: &mut File) {
     let mut test_data = vec![0u8; 32];
-    rand::thread_rng().fill(test_data.as_mut_slice());
+    rand::rng().fill(test_data.as_mut_slice());
 
     println!("Writing data");
     assert_eq!(openemc.write(&test_data).unwrap(), test_data.len());
@@ -35,7 +35,7 @@ fn ioctl_test(openemc: &mut File) {
     println!("ioctl test");
 
     let mut test_data = vec![0u8; 32];
-    rand::thread_rng().fill(test_data.as_mut_slice());
+    rand::rng().fill(test_data.as_mut_slice());
 
     let mut data = test_data.clone();
     let ret = unsafe { libc::ioctl(openemc.as_raw_fd(), 30, data.as_mut_ptr()) };

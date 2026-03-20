@@ -4,15 +4,11 @@ use defmt::Format;
 use stm32f1::{
     stm32f103,
     stm32f103::{
-        gpioa::odr::ODR0_A::{High, Low},
+        gpioa::odr::OUTPUT_DATA::{High, Low},
         GPIOB,
     },
 };
-use stm32f1xx_hal::{
-    gpio::{Alternate, OpenDrain},
-    i2c,
-    rcc::Clocks,
-};
+use stm32f1xx_hal::{i2c, rcc::Clocks};
 
 use crate::util::DwtDelay;
 
@@ -41,8 +37,8 @@ impl From<i2c::Error> for I2cError {
     fn from(error: i2c::Error) -> Self {
         match error {
             i2c::Error::Bus => I2cError::Bus,
-            i2c::Error::Arbitration => I2cError::Arbitration,
-            i2c::Error::Acknowledge => I2cError::Acknowledge,
+            i2c::Error::ArbitrationLoss => I2cError::Arbitration,
+            i2c::Error::NoAcknowledge(_) => I2cError::Acknowledge,
             i2c::Error::Overrun => I2cError::Overrun,
             i2c::Error::Timeout => I2cError::Timeout,
             _ => I2cError::Other,
@@ -51,13 +47,7 @@ impl From<i2c::Error> for I2cError {
 }
 
 /// I2C 2 master.
-pub type I2c2Master = i2c::BlockingI2c<
-    stm32f1xx_hal::pac::I2C2,
-    (
-        stm32f1xx_hal::gpio::Pin<'B', 10, Alternate<OpenDrain>>,
-        stm32f1xx_hal::gpio::Pin<'B', 11, Alternate<OpenDrain>>,
-    ),
->;
+pub type I2c2Master = i2c::BlockingI2c<stm32f1xx_hal::pac::I2C2>;
 
 /// Allows temporary GPIO control over the I2C 2 SCL and SDA lines.
 ///
@@ -72,49 +62,49 @@ impl I2c2Gpio {
     pub fn new() -> Self {
         let device = unsafe { stm32f103::Peripherals::steal() };
         let gpiob = device.GPIOB;
-        let saved_crh = gpiob.crh.read();
+        let saved_crh = gpiob.crh().read();
         Self { gpiob, saved_crh }
     }
 
     /// Sets the SCL level.
     pub fn scl(&self, level: bool) {
-        self.gpiob.odr.modify(|_, w| w.odr10().variant(if level { High } else { Low }));
-        self.gpiob.crh.modify(|_, w| w.cnf10().open_drain().mode10().output());
+        self.gpiob.odr().modify(|_, w| w.odr10().variant(if level { High } else { Low }));
+        self.gpiob.crh().modify(|_, w| w.cnf10().open_drain().mode10().output());
     }
 
     /// Reads the SCL level.
     pub fn read_scl(&self) -> bool {
-        self.gpiob.crh.modify(|_, w| w.cnf10().open_drain().mode10().input());
+        self.gpiob.crh().modify(|_, w| w.cnf10().open_drain().mode10().input());
 
         for _ in 0..32 {
-            self.gpiob.idr.read();
+            self.gpiob.idr().read();
         }
 
-        self.gpiob.idr.read().idr10().is_high()
+        self.gpiob.idr().read().idr10().is_high()
     }
 
     /// Sets the SDA level.
     pub fn sda(&self, level: bool) {
-        self.gpiob.odr.modify(|_, w| w.odr11().variant(if level { High } else { Low }));
-        self.gpiob.crh.modify(|_, w| w.cnf11().open_drain().mode11().output());
+        self.gpiob.odr().modify(|_, w| w.odr11().variant(if level { High } else { Low }));
+        self.gpiob.crh().modify(|_, w| w.cnf11().open_drain().mode11().output());
     }
 
     /// Reads the SDA level.
     pub fn read_sda(&self) -> bool {
-        self.gpiob.crh.modify(|_, w| w.cnf11().open_drain().mode11().input());
+        self.gpiob.crh().modify(|_, w| w.cnf11().open_drain().mode11().input());
 
         for _ in 0..32 {
-            self.gpiob.idr.read();
+            self.gpiob.idr().read();
         }
 
-        self.gpiob.idr.read().idr11().is_high()
+        self.gpiob.idr().read().idr11().is_high()
     }
 }
 
 impl Drop for I2c2Gpio {
     fn drop(&mut self) {
         // Restore I2C pin configuration.
-        self.gpiob.crh.modify(|_, w| {
+        self.gpiob.crh().modify(|_, w| {
             w.cnf10()
                 .variant(self.saved_crh.cnf10().variant())
                 .mode10()

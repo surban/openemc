@@ -7,6 +7,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-thiserror = "1"
+thiserror = "2"
 displaydoc = "0.2"
 byteorder = "1"

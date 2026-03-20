@@ -105,11 +105,11 @@ impl BootInfoExt for BootInfo {
 
             // Get reset status.
             STANDALONE_BOOT_INFO.reset_status =
-                ResetStatus::from_rcc_pwr(dp.RCC.csr.read().bits(), dp.PWR.csr.read().bits());
-            dp.RCC.csr.modify(|_, w| w.rmvf().clear());
-            dp.RCC.csr.modify(|_, w| w.rmvf().clear_bit());
-            dp.PWR.cr.modify(|_, w| w.cwuf().set_bit());
-            dp.PWR.cr.modify(|_, w| w.cwuf().clear_bit());
+                ResetStatus::from_rcc_pwr(dp.RCC.csr().read().bits(), dp.PWR.csr().read().bits());
+            dp.RCC.csr().modify(|_, w| w.rmvf().clear());
+            dp.RCC.csr().modify(|_, w| w.rmvf().clear_bit());
+            dp.PWR.cr().modify(|_, w| w.cwuf().set_bit());
+            dp.PWR.cr().modify(|_, w| w.cwuf().clear_bit());
 
             // Get boot reason.
             STANDALONE_BOOT_INFO.boot_reason = BootReason::get(bkp);
@@ -171,17 +171,17 @@ pub fn init() {
     match (cfg!(feature = "defmt-rtt"), option_env!("DEFMT_LOG")) {
         (false, _) | (true, Some("off") | None) => {
             dp.DBGMCU
-                .cr
+                .cr()
                 .modify(|_, w| w.dbg_sleep().clear_bit().dbg_stop().clear_bit().dbg_standby().clear_bit());
         }
         _ => {
-            dp.DBGMCU.cr.modify(|_, w| w.dbg_sleep().set_bit().dbg_stop().set_bit().dbg_standby().set_bit());
-            dp.RCC.ahbenr.modify(|_, w| w.dma1en().enabled());
+            dp.DBGMCU.cr().modify(|_, w| w.dbg_sleep().set_bit().dbg_stop().set_bit().dbg_standby().set_bit());
+            dp.RCC.ahbenr().modify(|_, w| w.dma1en().enabled());
         }
     }
 
     // Make sure backup domain is not in reset.
-    dp.RCC.bdcr.modify(|_, w| w.bdrst().disabled());
+    dp.RCC.bdcr().modify(|_, w| w.bdrst().disabled());
 }
 
 /// Switches to the bootloader without reset.
@@ -250,10 +250,10 @@ pub fn enter_standby() -> ! {
     defmt::info!("preparing to enter standby mode");
 
     let mut cp = unsafe { cortex_m::Peripherals::steal() };
-    let dp = unsafe { Peripherals::steal() };
+    let mut dp = unsafe { Peripherals::steal() };
 
     // Check if WKUP pin is low.
-    let mut gpioa = unsafe { dp.GPIOA.split_without_reset() };
+    let mut gpioa = unsafe { dp.GPIOA.split_without_reset(&mut dp.RCC) };
     let wkup = gpioa.pa0.into_floating_input(&mut gpioa.crl);
     if wkup.is_high() {
         // Device should stay awake, convert shutdown into reset.
@@ -275,8 +275,8 @@ pub fn enter_standby() -> ! {
     }
 
     // Enable standby mode and wake up using WKUP pin.
-    dp.PWR.csr.modify(|_, w| w.ewup().set_bit());
-    dp.PWR.cr.modify(|_, w| w.lpds().set_bit().cwuf().set_bit().pdds().standby_mode());
+    dp.PWR.csr().modify(|_, w| w.ewup().set_bit());
+    dp.PWR.cr().modify(|_, w| w.lpds().set_bit().cwuf().set_bit().pdds().standby_mode());
     cp.SCB.set_sleepdeep();
 
     // Enter standby mode.

@@ -25,68 +25,68 @@ impl Timer {
         let dp = unsafe { Peripherals::steal() };
 
         match self {
-            Self::Timer1 => dp.AFIO.mapr.modify(|_, w| unsafe { w.tim1_remap().bits(value) }),
-            Self::Timer2 => dp.AFIO.mapr.modify(|_, w| unsafe { w.tim2_remap().bits(value) }),
-            Self::Timer3 => dp.AFIO.mapr.modify(|_, w| unsafe { w.tim3_remap().bits(value) }),
-            Self::Timer4 => dp.AFIO.mapr.modify(|_, w| w.tim4_remap().bit(value & 0b1 != 0)),
-        }
+            Self::Timer1 => dp.AFIO.mapr().modify(|_, w| unsafe { w.tim1_remap().bits(value) }),
+            Self::Timer2 => dp.AFIO.mapr().modify(|_, w| unsafe { w.tim2_remap().bits(value) }),
+            Self::Timer3 => dp.AFIO.mapr().modify(|_, w| unsafe { w.tim3_remap().bits(value) }),
+            Self::Timer4 => dp.AFIO.mapr().modify(|_, w| w.tim4_remap().bit(value & 0b1 != 0)),
+        };
     }
 
     fn set_enable(&self, enable: bool) {
         let dp = unsafe { Peripherals::steal() };
 
         if enable {
-            dp.RCC.apb2enr.modify(|_, w| w.afioen().enabled());
+            dp.RCC.apb2enr().modify(|_, w| w.afioen().enabled());
         }
 
         match self {
             Self::Timer1 => {
-                dp.RCC.apb2enr.modify(|_, w| w.tim1en().bit(enable));
+                dp.RCC.apb2enr().modify(|_, w| w.tim1en().bit(enable));
 
                 if enable {
-                    dp.RCC.apb2rstr.modify(|_, w| w.tim1rst().reset());
-                    dp.RCC.apb2rstr.modify(|_, w| w.tim1rst().clear_bit());
+                    dp.RCC.apb2rstr().modify(|_, w| w.tim1rst().reset());
+                    dp.RCC.apb2rstr().modify(|_, w| w.tim1rst().clear_bit());
                 }
 
-                dp.TIM1.bdtr.modify(|_, w| w.moe().bit(enable).ossr().idle_level().ossi().idle_level());
+                dp.TIM1.bdtr().modify(|_, w| w.moe().bit(enable).ossr().idle_level().ossi().idle_level());
                 dp.TIM1
-                    .cr1
+                    .cr1()
                     .modify(|_, w| w.cen().bit(enable).arpe().enabled().urs().counter_only().udis().enabled());
             }
             Self::Timer2 => {
-                dp.RCC.apb1enr.modify(|_, w| w.tim2en().bit(enable));
+                dp.RCC.apb1enr().modify(|_, w| w.tim2en().bit(enable));
 
                 if enable {
-                    dp.RCC.apb1rstr.modify(|_, w| w.tim2rst().reset());
-                    dp.RCC.apb1rstr.modify(|_, w| w.tim2rst().clear_bit());
+                    dp.RCC.apb1rstr().modify(|_, w| w.tim2rst().reset());
+                    dp.RCC.apb1rstr().modify(|_, w| w.tim2rst().clear_bit());
                 }
 
                 dp.TIM2
-                    .cr1
+                    .cr1()
                     .modify(|_, w| w.arpe().enabled().urs().counter_only().udis().enabled().cen().bit(enable));
             }
             Self::Timer3 => {
-                dp.RCC.apb1enr.modify(|_, w| w.tim3en().bit(enable));
+                dp.RCC.apb1enr().modify(|_, w| w.tim3en().bit(enable));
 
                 if enable {
-                    dp.RCC.apb1rstr.modify(|_, w| w.tim3rst().reset());
-                    dp.RCC.apb1rstr.modify(|_, w| w.tim3rst().clear_bit());
+                    dp.RCC.apb1rstr().modify(|_, w| w.tim3rst().reset());
+                    dp.RCC.apb1rstr().modify(|_, w| w.tim3rst().clear_bit());
                 }
 
                 dp.TIM3
-                    .cr1
+                    .cr1()
                     .modify(|_, w| w.arpe().enabled().urs().counter_only().udis().enabled().cen().bit(enable));
             }
             Self::Timer4 => {
-                dp.RCC.apb1enr.modify(|_, w| w.tim4en().bit(enable));
+                dp.RCC.apb1enr().modify(|_, w| w.tim4en().bit(enable));
 
                 if enable {
-                    dp.RCC.apb1rstr.modify(|_, w| w.tim4rst().reset());
-                    dp.RCC.apb1rstr.modify(|_, w| w.tim4rst().clear_bit());
+                    dp.RCC.apb1rstr().modify(|_, w| w.tim4rst().reset());
+                    dp.RCC.apb1rstr().modify(|_, w| w.tim4rst().clear_bit());
                 }
 
                 dp.TIM4
-                    .cr1
+                    .cr1()
                     .modify(|_, w| w.arpe().enabled().urs().counter_only().udis().enabled().cen().bit(enable));
             }
         }
@@ -104,31 +104,31 @@ impl Timer {
     fn set_prescaler(&self, prescaler: u16) {
         let dp = unsafe { Peripherals::steal() };
         match self {
-            Self::Timer1 => dp.TIM1.psc.write(|w| w.psc().bits(prescaler)),
-            Self::Timer2 => dp.TIM2.psc.write(|w| w.psc().bits(prescaler)),
-            Self::Timer3 => dp.TIM3.psc.write(|w| w.psc().bits(prescaler)),
-            Self::Timer4 => dp.TIM4.psc.write(|w| w.psc().bits(prescaler)),
-        }
+            Self::Timer1 => dp.TIM1.psc().write(|w| w.psc().set(prescaler)),
+            Self::Timer2 => dp.TIM2.psc().write(|w| w.psc().set(prescaler)),
+            Self::Timer3 => dp.TIM3.psc().write(|w| w.psc().set(prescaler)),
+            Self::Timer4 => dp.TIM4.psc().write(|w| w.psc().set(prescaler)),
+        };
     }
 
     fn set_auto_reload(&self, auto_reload: u16) {
         let dp = unsafe { Peripherals::steal() };
         match self {
-            Self::Timer1 => dp.TIM1.arr.write(|w| w.arr().bits(auto_reload)),
-            Self::Timer2 => dp.TIM2.arr.write(|w| w.arr().bits(auto_reload)),
-            Self::Timer3 => dp.TIM3.arr.write(|w| w.arr().bits(auto_reload)),
-            Self::Timer4 => dp.TIM4.arr.write(|w| w.arr().bits(auto_reload)),
-        }
+            Self::Timer1 => dp.TIM1.arr().write(|w| w.arr().set(auto_reload)),
+            Self::Timer2 => dp.TIM2.arr().write(|w| w.arr().set(auto_reload)),
+            Self::Timer3 => dp.TIM3.arr().write(|w| w.arr().set(auto_reload)),
+            Self::Timer4 => dp.TIM4.arr().write(|w| w.arr().set(auto_reload)),
+        };
     }
 
     fn update(&self) {
         let dp = unsafe { Peripherals::steal() };
         match self {
-            Self::Timer1 => dp.TIM1.egr.write(|w| w.ug().update()),
-            Self::Timer2 => dp.TIM2.egr.write(|w| w.ug().update()),
-            Self::Timer3 => dp.TIM3.egr.write(|w| w.ug().update()),
-            Self::Timer4 => dp.TIM4.egr.write(|w| w.ug().update()),
-        }
+            Self::Timer1 => dp.TIM1.egr().write(|w| w.ug().update()),
+            Self::Timer2 => dp.TIM2.egr().write(|w| w.ug().update()),
+            Self::Timer3 => dp.TIM3.egr().write(|w| w.ug().update()),
+            Self::Timer4 => dp.TIM4.egr().write(|w| w.ug().update()),
+        };
     }
 
     fn set_pwm(&self, channel: u8, mode: bool) {
@@ -199,76 +199,76 @@ impl Timer {
                 .ccmr2_output()
                 .modify(|_, w| if mode { w.oc4m().pwm_mode1() } else { w.oc4m().pwm_mode2() }.oc4pe().enabled()),
             _ => defmt::panic!("invalid channel"),
-        }
+        };
     }
 
     fn set_compare(&self, channel: u8, value: u16) {
         let dp = unsafe { Peripherals::steal() };
         match (self, channel) {
-            (Self::Timer1, 0) => dp.TIM1.ccr1().write(|w| w.ccr().bits(value)),
-            (Self::Timer1, 1) => dp.TIM1.ccr2().write(|w| w.ccr().bits(value)),
-            (Self::Timer1, 2) => dp.TIM1.ccr3().write(|w| w.ccr().bits(value)),
-            (Self::Timer1, 3) => dp.TIM1.ccr4().write(|w| w.ccr().bits(value)),
-            (Self::Timer2, 0) => dp.TIM2.ccr1().write(|w| w.ccr().bits(value)),
-            (Self::Timer2, 1) => dp.TIM2.ccr2().write(|w| w.ccr().bits(value)),
-            (Self::Timer2, 2) => dp.TIM2.ccr3().write(|w| w.ccr().bits(value)),
-            (Self::Timer2, 3) => dp.TIM2.ccr4().write(|w| w.ccr().bits(value)),
-            (Self::Timer3, 0) => dp.TIM3.ccr1().write(|w| w.ccr().bits(value)),
-            (Self::Timer3, 1) => dp.TIM3.ccr2().write(|w| w.ccr().bits(value)),
-            (Self::Timer3, 2) => dp.TIM3.ccr3().write(|w| w.ccr().bits(value)),
-            (Self::Timer3, 3) => dp.TIM3.ccr4().write(|w| w.ccr().bits(value)),
-            (Self::Timer4, 0) => dp.TIM4.ccr1().write(|w| w.ccr().bits(value)),
-            (Self::Timer4, 1) => dp.TIM4.ccr2().write(|w| w.ccr().bits(value)),
-            (Self::Timer4, 2) => dp.TIM4.ccr3().write(|w| w.ccr().bits(value)),
-            (Self::Timer4, 3) => dp.TIM4.ccr4().write(|w| w.ccr().bits(value)),
+            (Self::Timer1, 0) => dp.TIM1.ccr1().write(|w| w.ccr().set(value)),
+            (Self::Timer1, 1) => dp.TIM1.ccr2().write(|w| w.ccr().set(value)),
+            (Self::Timer1, 2) => dp.TIM1.ccr3().write(|w| w.ccr().set(value)),
+            (Self::Timer1, 3) => dp.TIM1.ccr4().write(|w| w.ccr().set(value)),
+            (Self::Timer2, 0) => dp.TIM2.ccr1().write(|w| w.ccr().set(value)),
+            (Self::Timer2, 1) => dp.TIM2.ccr2().write(|w| w.ccr().set(value)),
+            (Self::Timer2, 2) => dp.TIM2.ccr3().write(|w| w.ccr().set(value)),
+            (Self::Timer2, 3) => dp.TIM2.ccr4().write(|w| w.ccr().set(value)),
+            (Self::Timer3, 0) => dp.TIM3.ccr1().write(|w| w.ccr().set(value)),
+            (Self::Timer3, 1) => dp.TIM3.ccr2().write(|w| w.ccr().set(value)),
+            (Self::Timer3, 2) => dp.TIM3.ccr3().write(|w| w.ccr().set(value)),
+            (Self::Timer3, 3) => dp.TIM3.ccr4().write(|w| w.ccr().set(value)),
+            (Self::Timer4, 0) => dp.TIM4.ccr1().write(|w| w.ccr().set(value)),
+            (Self::Timer4, 1) => dp.TIM4.ccr2().write(|w| w.ccr().set(value)),
+            (Self::Timer4, 2) => dp.TIM4.ccr3().write(|w| w.ccr().set(value)),
+            (Self::Timer4, 3) => dp.TIM4.ccr4().write(|w| w.ccr().set(value)),
             _ => defmt::panic!("invalid channel"),
-        }
+        };
     }
 
     fn set_output_enable(&self, channel: u8, enable: bool) {
         let dp = unsafe { Peripherals::steal() };
         match (self, channel) {
-            (Self::Timer1, 0) => dp.TIM1.ccer.modify(|_, w| w.cc1e().bit(enable).cc1ne().bit(enable)),
-            (Self::Timer1, 1) => dp.TIM1.ccer.modify(|_, w| w.cc2e().bit(enable).cc2ne().bit(enable)),
-            (Self::Timer1, 2) => dp.TIM1.ccer.modify(|_, w| w.cc3e().bit(enable).cc3ne().bit(enable)),
-            (Self::Timer1, 3) => dp.TIM1.ccer.modify(|_, w| w.cc4e().bit(enable)),
-            (Self::Timer2, 0) => dp.TIM2.ccer.modify(|_, w| w.cc1e().bit(enable)),
-            (Self::Timer2, 1) => dp.TIM2.ccer.modify(|_, w| w.cc2e().bit(enable)),
-            (Self::Timer2, 2) => dp.TIM2.ccer.modify(|_, w| w.cc3e().bit(enable)),
-            (Self::Timer2, 3) => dp.TIM2.ccer.modify(|_, w| w.cc4e().bit(enable)),
-            (Self::Timer3, 0) => dp.TIM3.ccer.modify(|_, w| w.cc1e().bit(enable)),
-            (Self::Timer3, 1) => dp.TIM3.ccer.modify(|_, w| w.cc2e().bit(enable)),
-            (Self::Timer3, 2) => dp.TIM3.ccer.modify(|_, w| w.cc3e().bit(enable)),
-            (Self::Timer3, 3) => dp.TIM3.ccer.modify(|_, w| w.cc4e().bit(enable)),
-            (Self::Timer4, 0) => dp.TIM4.ccer.modify(|_, w| w.cc1e().bit(enable)),
-            (Self::Timer4, 1) => dp.TIM4.ccer.modify(|_, w| w.cc2e().bit(enable)),
-            (Self::Timer4, 2) => dp.TIM4.ccer.modify(|_, w| w.cc3e().bit(enable)),
-            (Self::Timer4, 3) => dp.TIM4.ccer.modify(|_, w| w.cc4e().bit(enable)),
+            (Self::Timer1, 0) => dp.TIM1.ccer().modify(|_, w| w.cc1e().bit(enable).cc1ne().bit(enable)),
+            (Self::Timer1, 1) => dp.TIM1.ccer().modify(|_, w| w.cc2e().bit(enable).cc2ne().bit(enable)),
+            (Self::Timer1, 2) => dp.TIM1.ccer().modify(|_, w| w.cc3e().bit(enable).cc3ne().bit(enable)),
+            (Self::Timer1, 3) => dp.TIM1.ccer().modify(|_, w| w.cc4e().bit(enable)),
+            (Self::Timer2, 0) => dp.TIM2.ccer().modify(|_, w| w.cc1e().bit(enable)),
+            (Self::Timer2, 1) => dp.TIM2.ccer().modify(|_, w| w.cc2e().bit(enable)),
+            (Self::Timer2, 2) => dp.TIM2.ccer().modify(|_, w| w.cc3e().bit(enable)),
+            (Self::Timer2, 3) => dp.TIM2.ccer().modify(|_, w| w.cc4e().bit(enable)),
+            (Self::Timer3, 0) => dp.TIM3.ccer().modify(|_, w| w.cc1e().bit(enable)),
+            (Self::Timer3, 1) => dp.TIM3.ccer().modify(|_, w| w.cc2e().bit(enable)),
+            (Self::Timer3, 2) => dp.TIM3.ccer().modify(|_, w| w.cc3e().bit(enable)),
+            (Self::Timer3, 3) => dp.TIM3.ccer().modify(|_, w| w.cc4e().bit(enable)),
+            (Self::Timer4, 0) => dp.TIM4.ccer().modify(|_, w| w.cc1e().bit(enable)),
+            (Self::Timer4, 1) => dp.TIM4.ccer().modify(|_, w| w.cc2e().bit(enable)),
+            (Self::Timer4, 2) => dp.TIM4.ccer().modify(|_, w| w.cc3e().bit(enable)),
+            (Self::Timer4, 3) => dp.TIM4.ccer().modify(|_, w| w.cc4e().bit(enable)),
             _ => defmt::panic!("invalid channel"),
-        }
+        };
     }
 
     fn set_output_polarity(&self, channel: u8, invert: bool) {
         let dp = unsafe { Peripherals::steal() };
         match (self, channel) {
-            (Self::Timer1, 0) => dp.TIM1.ccer.modify(|_, w| w.cc1p().bit(invert).cc1np().bit(invert)),
-            (Self::Timer1, 1) => dp.TIM1.ccer.modify(|_, w| w.cc2p().bit(invert).cc2np().bit(invert)),
-            (Self::Timer1, 2) => dp.TIM1.ccer.modify(|_, w| w.cc3p().bit(invert).cc3np().bit(invert)),
-            (Self::Timer1, 3) => dp.TIM1.ccer.modify(|_, w| w.cc4p().bit(invert)),
-            (Self::Timer2, 0) => dp.TIM2.ccer.modify(|_, w| w.cc1p().bit(invert)),
-            (Self::Timer2, 1) => dp.TIM2.ccer.modify(|_, w| w.cc2p().bit(invert)),
-            (Self::Timer2, 2) => dp.TIM2.ccer.modify(|_, w| w.cc3p().bit(invert)),
-            (Self::Timer2, 3) => dp.TIM2.ccer.modify(|_, w| w.cc4p().bit(invert)),
-            (Self::Timer3, 0) => dp.TIM3.ccer.modify(|_, w| w.cc1p().bit(invert)),
-            (Self::Timer3, 1) => dp.TIM3.ccer.modify(|_, w| w.cc2p().bit(invert)),
-            (Self::Timer3, 2) => dp.TIM3.ccer.modify(|_, w| w.cc3p().bit(invert)),
-            (Self::Timer3, 3) => dp.TIM3.ccer.modify(|_, w| w.cc4p().bit(invert)),
-            (Self::Timer4, 0) => dp.TIM4.ccer.modify(|_, w| w.cc1p().bit(invert)),
-            (Self::Timer4, 1) => dp.TIM4.ccer.modify(|_, w| w.cc2p().bit(invert)),
-            (Self::Timer4, 2) => dp.TIM4.ccer.modify(|_, w| w.cc3p().bit(invert)),
-            (Self::Timer4, 3) => dp.TIM4.ccer.modify(|_, w| w.cc4p().bit(invert)),
+            (Self::Timer1, 0) => dp.TIM1.ccer().modify(|_, w| w.cc1p().bit(invert).cc1np().bit(invert)),
+            (Self::Timer1, 1) => dp.TIM1.ccer().modify(|_, w| w.cc2p().bit(invert).cc2np().bit(invert)),
+            (Self::Timer1, 2) => dp.TIM1.ccer().modify(|_, w| w.cc3p().bit(invert).cc3np().bit(invert)),
+            (Self::Timer1, 3) => dp.TIM1.ccer().modify(|_, w| w.cc4p().bit(invert)),
+            (Self::Timer2, 0) => dp.TIM2.ccer().modify(|_, w| w.cc1p().bit(invert)),
+            (Self::Timer2, 1) => dp.TIM2.ccer().modify(|_, w| w.cc2p().bit(invert)),
+            (Self::Timer2, 2) => dp.TIM2.ccer().modify(|_, w| w.cc3p().bit(invert)),
+            (Self::Timer2, 3) => dp.TIM2.ccer().modify(|_, w| w.cc4p().bit(invert)),
+            (Self::Timer3, 0) => dp.TIM3.ccer().modify(|_, w| w.cc1p().bit(invert)),
+            (Self::Timer3, 1) => dp.TIM3.ccer().modify(|_, w| w.cc2p().bit(invert)),
+            (Self::Timer3, 2) => dp.TIM3.ccer().modify(|_, w| w.cc3p().bit(invert)),
+            (Self::Timer3, 3) => dp.TIM3.ccer().modify(|_, w| w.cc4p().bit(invert)),
+            (Self::Timer4, 0) => dp.TIM4.ccer().modify(|_, w| w.cc1p().bit(invert)),
+            (Self::Timer4, 1) => dp.TIM4.ccer().modify(|_, w| w.cc2p().bit(invert)),
+            (Self::Timer4, 2) => dp.TIM4.ccer().modify(|_, w| w.cc3p().bit(invert)),
+            (Self::Timer4, 3) => dp.TIM4.ccer().modify(|_, w| w.cc4p().bit(invert)),
             _ => defmt::panic!("invalid channel"),
-        }
+        };
     }
 }
 

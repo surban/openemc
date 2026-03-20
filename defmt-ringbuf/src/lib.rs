@@ -118,8 +118,10 @@ fn do_write(data: &[u8]) {
 ///
 /// `log_available` is called when new log messages are available.
 ///
-/// This must be called exactly once.
 /// Log messages received before initiailization are discarded.
+///
+/// # Safety
+/// This must be called exactly once.
 pub unsafe fn init<const SIZE: usize>(
     ring_buffer: &'static mut MaybeUninit<RingBuffer<SIZE>>, log_available: fn(),
 ) {

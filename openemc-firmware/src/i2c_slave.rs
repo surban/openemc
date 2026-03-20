@@ -86,9 +86,9 @@ where
 {
     /// Configures the I2C peripheral to work in slave mode.
     fn configure(i2c: I2C, pins: PINS, addr: u8, clocks: Clocks) -> Self {
-        let rcc = unsafe { &(*RCC::ptr()) };
-        I2C::enable(rcc);
-        I2C::reset(rcc);
+        let mut rcc = unsafe { RCC::steal() };
+        I2C::enable(&mut rcc);
+        I2C::reset(&mut rcc);
 
         let mut i2c = Self { i2c, pins, addr, pclk1: I2C::clock(&clocks), state: State::Idle };
         i2c.reset();
@@ -104,20 +104,20 @@ where
     ///
     /// Configures the `I2C_CRX` registers according to the system frequency.
     fn init(&mut self) {
-        self.i2c.cr1.write(|w| w.pe().clear_bit());
+        self.i2c.cr1().write(|w| w.pe().clear_bit());
 
         let pclk1_mhz = self.pclk1.to_MHz() as u16;
-        self.i2c.cr2.write(|w| unsafe { w.freq().bits(pclk1_mhz as u8) });
+        self.i2c.cr2().write(|w| unsafe { w.freq().bits(pclk1_mhz as u8) });
 
-        self.i2c.oar1.write(|w| w.add().bits((self.addr as u16) << 1));
+        self.i2c.oar1().write(|w| w.add().set((self.addr as u16) << 1));
 
-        self.i2c.cr1.modify(|_, w| w.pe().enabled().ack().ack());
+        self.i2c.cr1().modify(|_, w| w.pe().enabled().ack().ack());
     }
 
     /// Perform an I2C software reset
     fn reset(&mut self) {
-        self.i2c.cr1.write(|w| w.pe().set_bit().swrst().set_bit());
-        self.i2c.cr1.reset();
+        self.i2c.cr1().write(|w| w.pe().set_bit().swrst().set_bit());
+        self.i2c.cr1().reset();
         self.init();
     }
 
@@ -126,31 +126,31 @@ where
     /// Workaround for I2C controller bugs.
     fn sr1_delay(&mut self) {
         for _ in 0..100 {
-            self.i2c.sr1.read();
+            self.i2c.sr1().read();
         }
     }
 
     /// Gets the next event.
     pub fn event(&mut self) -> nb::Result<Event<'_, I2C, PINS>, Error> {
-        let sr1 = self.i2c.sr1.read();
+        let sr1 = self.i2c.sr1().read();
 
         if sr1.berr().is_error() {
-            self.i2c.sr1.modify(|_, w| w.berr().clear_bit());
+            self.i2c.sr1().modify(|_, w| w.berr().clear_bit());
             return Err(Error::Bus.into());
         }
 
         match self.state {
             State::Idle => {
                 if sr1.addr().is_match() {
-                    self.i2c.sr1.read();
-                    let sr2 = self.i2c.sr2.read();
+                    self.i2c.sr1().read();
+                    let sr2 = self.i2c.sr2().read();
 
                     if sr2.tra().bit_is_set() {
                         self.state = State::Sending;
                         Ok(Event::StartWrite)
                     } else {
                         self.state = State::Receiving;
-                        self.i2c.cr1.modify(|_, w| w.ack().ack());
+                        self.i2c.cr1().modify(|_, w| w.ack().ack());
                         Ok(Event::StartRead)
                     }
                 } else {
@@ -159,7 +159,7 @@ where
             }
             State::Sending => {
                 if sr1.af().is_failure() {
-                    self.i2c.sr1.modify(|_, w| w.af().no_failure());
+                    self.i2c.sr1().modify(|_, w| w.af().clear());
                     self.state = State::Idle;
                     Ok(Event::End)
                 } else if sr1.tx_e().is_empty() {
@@ -172,11 +172,11 @@ where
             State::WriteWaiting => defmt::panic!("write event was not handled"),
             State::Receiving => {
                 if sr1.rx_ne().is_not_empty() {
-                    let value = self.i2c.dr.read().dr().bits();
+                    let value = self.i2c.dr().read().dr().bits();
                     Ok(Event::Read(value))
                 } else if sr1.stopf().is_stop() || sr1.tx_e().is_empty() {
-                    self.i2c.sr1.read();
-                    self.i2c.cr1.modify(|_, w| w.pe().enabled().ack().ack());
+                    self.i2c.sr1().read();
+                    self.i2c.cr1().modify(|_, w| w.pe().enabled().ack().ack());
                     self.state = State::Idle;
 
                     if sr1.tx_e().is_empty() {
@@ -198,37 +198,37 @@ where
     ///
     /// The event interrupt must be enabled separately using [`listen_event`](Self::listen_event).
     pub fn listen_buffer(&mut self) {
-        self.i2c.cr2.modify(|_, w| w.itbufen().enabled());
+        self.i2c.cr2().modify(|_, w| w.itbufen().enabled());
     }
 
     /// Disables triggering the event interrupt (I2Cx_EV) when the transmit buffer is
     /// empty or the receive buffer is not empty.
     pub fn unlisten_buffer(&mut self) {
-        self.i2c.cr2.modify(|_, w| w.itbufen().disabled());
+        self.i2c.cr2().modify(|_, w| w.itbufen().disabled());
     }
 
     /// Enables triggering the event interrupt (I2Cx_EV) when the address is matched,
     /// stop is detected, the byte transfer is finished or an event
     /// described in [`listen_buffer`](Self::listen_buffer) occurrs.
     pub fn listen_event(&mut self) {
-        self.i2c.cr2.modify(|_, w| w.itevten().enabled());
+        self.i2c.cr2().modify(|_, w| w.itevten().enabled());
     }
 
     /// Disables triggering the event interrupt (I2Cx_EV) when the address is matched,
     /// stop is detected, the byte transfer is finished or an event
     /// described in [unlisten_buffer](Self::unlisten_buffer) occurrs.
     pub fn unlisten_event(&mut self) {
-        self.i2c.cr2.modify(|_, w| w.itevten().disabled());
+        self.i2c.cr2().modify(|_, w| w.itevten().disabled());
     }
 
     /// Enables triggering the error interrupt (I2Cx_ER) when an error is detected.
     pub fn listen_error(&mut self) {
-        self.i2c.cr2.modify(|_, w| w.iterren().enabled());
+        self.i2c.cr2().modify(|_, w| w.iterren().enabled());
     }
 
     /// Disables triggering the error interrupt (I2Cx_ER) when an error is detected.
     pub fn unlisten_error(&mut self) {
-        self.i2c.cr2.modify(|_, w| w.iterren().disabled());
+        self.i2c.cr2().modify(|_, w| w.iterren().disabled());
     }
 
     /// Releases the I2C peripheral and associated pins.
@@ -275,7 +275,7 @@ where
 {
     /// Sends the specified value to the I2C master.
     pub fn write(self, value: u8) {
-        self.0.i2c.dr.write(|w| w.dr().bits(value));
+        self.0.i2c.dr().write(|w| w.dr().set(value));
         self.0.state = State::Sending;
     }
 }

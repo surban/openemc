@@ -170,11 +170,11 @@ fn main() -> ! {
     }
 
     // Get and clear reset reason.
-    let reset_status = ResetStatus::from_rcc_pwr(dp.RCC.csr.read().bits(), dp.PWR.csr.read().bits());
-    dp.RCC.csr.modify(|_, w| w.rmvf().clear());
-    dp.RCC.csr.modify(|_, w| w.rmvf().clear_bit());
-    dp.PWR.cr.modify(|_, w| w.cwuf().set_bit());
-    dp.PWR.cr.modify(|_, w| w.cwuf().clear_bit());
+    let reset_status = ResetStatus::from_rcc_pwr(dp.RCC.csr().read().bits(), dp.PWR.csr().read().bits());
+    dp.RCC.csr().modify(|_, w| w.rmvf().clear());
+    dp.RCC.csr().modify(|_, w| w.rmvf().clear_bit());
+    dp.PWR.cr().modify(|_, w| w.cwuf().set_bit());
+    dp.PWR.cr().modify(|_, w| w.cwuf().clear_bit());
 
     let mut board = ThisBoard::new();
 
@@ -274,9 +274,7 @@ fn main() -> ! {
         && (boot_reason == BootReason::SurpriseInUser as _
             || boot_reason == BootReason::SurpriseInBootloader as _)
     {
-        defmt::info!(
-            "ignoring bootloader entry reasons \"boot reason\" and \"reset cause\" due to power-on reset"
-        );
+        defmt::info!("ignoring bootloader entry reasons 'boot reason' and 'reset cause' due to power-on reset");
         bl_boot_reason = false;
         bl_reset_cause = false;
     }

@@ -2,7 +2,7 @@
 
 use core::cell::Cell;
 use defmt::Format;
-use stm32f1::stm32f103::{rcc::bdcr::RTCSEL_A, Peripherals, RTC};
+use stm32f1::stm32f103::{rcc::bdcr::RTCSEL, Peripherals, RTC};
 use stm32f1xx_hal::backup_domain::BackupDomain;
 
 use crate::backup::BackupReg;
@@ -34,7 +34,7 @@ impl ClockSrc {
         let dp = unsafe { Peripherals::steal() };
 
         match self {
-            Self::Lse => dp.RCC.bdcr.read().lserdy().is_ready(),
+            Self::Lse => dp.RCC.bdcr().read().lserdy().is_ready(),
             Self::Lsi | Self::HseDiv128 => true,
         }
     }
@@ -80,8 +80,8 @@ impl Rtc {
     pub fn new(rtc: RTC, _bkp: &mut BackupDomain) -> Self {
         let dp = unsafe { Peripherals::steal() };
 
-        dp.RCC.bdcr.modify(|_, w| w.rtcen().enabled().lseon().on());
-        rtc.crl.modify(|_, w| w.rsf().clear());
+        dp.RCC.bdcr().modify(|_, w| w.rtcen().enabled().lseon().on());
+        rtc.crl().modify(|_, w| w.rsf().clear());
 
         Self { rtc, prescaler: None, alarm_at_init: Cell::new(None) }
     }
@@ -106,9 +106,9 @@ impl Rtc {
             *v = bkp.read_data_register_low(reg);
         }
 
-        dp.RCC.bdcr.modify(|_, w| w.bdrst().enabled());
-        dp.RCC.bdcr.modify(|_, w| w.bdrst().disabled());
-        dp.RCC.bdcr.modify(|_, w| w.rtcen().enabled().lseon().on());
+        dp.RCC.bdcr().modify(|_, w| w.bdrst().enabled());
+        dp.RCC.bdcr().modify(|_, w| w.bdrst().disabled());
+        dp.RCC.bdcr().modify(|_, w| w.rtcen().enabled().lseon().on());
 
         for (reg, v) in regs.into_iter().enumerate() {
             bkp.write_data_register_low(reg, v);
@@ -122,11 +122,11 @@ impl Rtc {
     pub fn clock_src(&self) -> Option<ClockSrc> {
         let dp = unsafe { Peripherals::steal() };
 
-        match dp.RCC.bdcr.read().rtcsel().variant() {
-            RTCSEL_A::NoClock => None,
-            RTCSEL_A::Lse => Some(ClockSrc::Lse),
-            RTCSEL_A::Lsi => Some(ClockSrc::Lsi),
-            RTCSEL_A::Hse => Some(ClockSrc::HseDiv128),
+        match dp.RCC.bdcr().read().rtcsel().variant() {
+            RTCSEL::NoClock => None,
+            RTCSEL::Lse => Some(ClockSrc::Lse),
+            RTCSEL::Lsi => Some(ClockSrc::Lsi),
+            RTCSEL::Hse => Some(ClockSrc::HseDiv128),
         }
     }
 
@@ -148,16 +148,16 @@ impl Rtc {
         defmt::info!("setting RTC clock source to {}", clock_src);
 
         if let ClockSrc::Lse = clock_src {
-            dp.RCC.bdcr.modify(|_, w| w.lseon().on());
+            dp.RCC.bdcr().modify(|_, w| w.lseon().on());
         } else {
-            dp.RCC.bdcr.modify(|_, w| w.lseon().off());
+            dp.RCC.bdcr().modify(|_, w| w.lseon().off());
         }
 
-        dp.RCC.bdcr.modify(|_, w| {
+        dp.RCC.bdcr().modify(|_, w| {
             w.rtcsel().variant(match clock_src {
-                ClockSrc::Lse => RTCSEL_A::Lse,
-                ClockSrc::Lsi => RTCSEL_A::Lsi,
-                ClockSrc::HseDiv128 => RTCSEL_A::Hse,
+                ClockSrc::Lse => RTCSEL::Lse,
+                ClockSrc::Lsi => RTCSEL::Lsi,
+                ClockSrc::HseDiv128 => RTCSEL::Hse,
             })
         });
     }
@@ -168,7 +168,7 @@ impl Rtc {
     /// One unit causes a slowdown of 1_000_000/2^20 PPM ≈ 0.954 PPM.
     pub fn slowdown(&self, _bkp: &mut BackupDomain) -> u8 {
         let dp = unsafe { Peripherals::steal() };
-        dp.BKP.rtccr.read().cal().bits()
+        dp.BKP.rtccr().read().cal().bits()
     }
 
     /// Sets the calibration slowdown value in clock pulses that will
@@ -178,15 +178,15 @@ impl Rtc {
     pub fn set_slowdown(&mut self, _bkp: &mut BackupDomain, slowdown: u8) {
         defmt::info!("setting RTC slowdown to {}", slowdown);
         let dp = unsafe { Peripherals::steal() };
-        dp.BKP.rtccr.modify(|_, w| unsafe { w.cal().bits(slowdown) })
+        dp.BKP.rtccr().modify(|_, w| unsafe { w.cal().bits(slowdown) });
     }
 
     /// Ensures that the RTC registers are synchronized and ready for modification.
     fn check_regs_synced(&self) -> Result<(), RtcNotReady> {
-        let crl = self.rtc.crl.read();
+        let crl = self.rtc.crl().read();
         if crl.rsf().is_synchronized() && crl.rtoff().bit_is_set() {
             if self.alarm_at_init.get().is_none() {
-                self.alarm_at_init.set(Some(self.rtc.crl.read().alrf().is_alarm()));
+                self.alarm_at_init.set(Some(self.rtc.crl().read().alrf().is_alarm()));
             }
             Ok(())
         } else {
@@ -199,13 +199,13 @@ impl Rtc {
         self.check_regs_synced()?;
 
         // Enable write access.
-        self.rtc.crl.modify(|_, w| w.cnf().enter());
+        self.rtc.crl().modify(|_, w| w.cnf().enter());
 
         // Perform modifications.
         let ret = modify_fn(&mut self.rtc);
 
         // Commit changes.
-        self.rtc.crl.modify(|_, w| w.cnf().exit());
+        self.rtc.crl().modify(|_, w| w.cnf().exit());
 
         Ok(ret)
     }
@@ -213,24 +213,26 @@ impl Rtc {
     /// Enable RTC alarm interrupt.
     pub fn listen_alarm(&mut self) -> Result<(), RtcNotReady> {
         defmt::info!("enabling RTC alarm");
-        self.modify(|rtc| rtc.crh.modify(|_, w| w.alrie().enabled()))
+        self.modify(|rtc| rtc.crh().modify(|_, w| w.alrie().enabled()))?;
+        Ok(())
     }
 
     /// Disable RTC alarm interrupt.
     pub fn unlisten_alarm(&mut self) -> Result<(), RtcNotReady> {
         defmt::info!("disabling RTC alarm");
-        self.modify(|rtc| rtc.crh.modify(|_, w| w.alrie().disabled()))
+        self.modify(|rtc| rtc.crh().modify(|_, w| w.alrie().disabled()))?;
+        Ok(())
     }
 
     /// Returns whether RTC alarm interrupt is enabled.
     pub fn is_alarm_listened(&self) -> bool {
-        self.rtc.crh.read().alrie().is_enabled()
+        self.rtc.crh().read().alrie().is_enabled()
     }
 
     /// Returns whether an alarm has occured.
     pub fn is_alarming(&self) -> Result<bool, RtcNotReady> {
         self.check_regs_synced()?;
-        Ok(self.rtc.crl.read().alrf().is_alarm())
+        Ok(self.rtc.crl().read().alrf().is_alarm())
     }
 
     /// Returns whether the RTC was alarming when it was initialized.
@@ -241,7 +243,8 @@ impl Rtc {
     /// Clears the alarm.
     pub fn silence_alarm(&mut self) -> Result<(), RtcNotReady> {
         defmt::info!("silencing RTC alarm");
-        self.modify(|rtc| rtc.crl.modify(|_, w| w.alrf().clear()))
+        self.modify(|rtc| rtc.crl().modify(|_, w| w.alrf().clear()))?;
+        Ok(())
     }
 
     /// Gets the alarm time.
@@ -254,8 +257,8 @@ impl Rtc {
         defmt::info!("setting RTC alarm to {}", alarm);
 
         self.modify(|rtc| {
-            rtc.alrh.write(|w| w.alrh().bits((alarm >> 16) as u16));
-            rtc.alrl.write(|w| w.alrl().bits(alarm as u16));
+            rtc.alrh().write(|w| w.alrh().set((alarm >> 16) as u16));
+            rtc.alrl().write(|w| w.alrl().set(alarm as u16));
         })?;
 
         BackupReg::RtcAlarmHigh.set(bkp, (alarm >> 16) as u16);
@@ -270,10 +273,10 @@ impl Rtc {
 
         match self.prescaler {
             Some(prescaler_max) => Ok(Clock {
-                clock: (self.rtc.cnth.read().cnth().bits() as u32) << 16
-                    | (self.rtc.cntl.read().cntl().bits() as u32),
-                prescaler: (self.rtc.divh.read().divh().bits() as u32) << 16
-                    | (self.rtc.divl.read().divl().bits() as u32),
+                clock: (self.rtc.cnth().read().cnth().bits() as u32) << 16
+                    | (self.rtc.cntl().read().cntl().bits() as u32),
+                prescaler: (self.rtc.divh().read().divh().bits() as u32) << 16
+                    | (self.rtc.divl().read().divl().bits() as u32),
                 prescaler_max,
             }),
             None => Err(RtcNotReady),
@@ -284,8 +287,8 @@ impl Rtc {
     pub fn set_clock(&mut self, clock: u32) -> Result<(), RtcNotReady> {
         defmt::info!("setting RTC to {}", clock);
         self.modify(|rtc| {
-            rtc.cnth.write(|w| w.cnth().bits((clock >> 16) as u16));
-            rtc.cntl.write(|w| w.cntl().bits(clock as u16));
+            rtc.cnth().write(|w| w.cnth().set((clock >> 16) as u16));
+            rtc.cntl().write(|w| w.cntl().set(clock as u16));
         })
     }
 
@@ -298,8 +301,8 @@ impl Rtc {
 
         let p = prescaler - 1;
         self.modify(|rtc| {
-            rtc.prlh.write(|w| w.prlh().bits((p >> 16) as u8));
-            rtc.prll.write(|w| w.prll().bits(p as u16));
+            rtc.prlh().write(|w| w.prlh().set((p >> 16) as u8));
+            rtc.prll().write(|w| w.prll().set(p as u16));
         })
     }
 

@@ -20,7 +20,7 @@
 
 use core::marker::PhantomData;
 use defmt::Format;
-use embedded_hal::blocking::i2c;
+use embedded_hal::i2c;
 use heapless::Vec;
 
 use crate::i2c_master::I2cError;
@@ -271,9 +271,8 @@ pub struct Bq25713<I2C> {
 
 impl<I2C> Bq25713<I2C>
 where
-    I2C: i2c::Write<i2c::SevenBitAddress> + i2c::WriteRead<i2c::SevenBitAddress>,
-    <I2C as i2c::Write<i2c::SevenBitAddress>>::Error: Into<I2cError>,
-    <I2C as i2c::WriteRead<i2c::SevenBitAddress>>::Error: Into<I2cError>,
+    I2C: i2c::I2c<i2c::SevenBitAddress>,
+    <I2C as i2c::ErrorType>::Error: Into<I2cError>,
 {
     /// Read I2C register(s).
     fn read(&self, i2c: &mut I2C, reg: u8, len: usize) -> Result<Vec<u8, 32>> {

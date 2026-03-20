@@ -41,17 +41,17 @@ impl AdcInputs {
     ///
     /// GPIO settings might be disturbed briefly.
     pub fn new() -> Self {
-        let dp = unsafe { Peripherals::steal() };
+        let mut dp = unsafe { Peripherals::steal() };
 
         // Save GPIO config.
-        let crl_a = dp.GPIOA.crl.read().bits();
-        let crl_b = dp.GPIOB.crl.read().bits();
-        let crl_c = dp.GPIOC.crl.read().bits();
+        let crl_a = dp.GPIOA.crl().read().bits();
+        let crl_b = dp.GPIOB.crl().read().bits();
+        let crl_c = dp.GPIOC.crl().read().bits();
 
         // Acquire analog pins.
-        let mut gpioa = unsafe { dp.GPIOA.split_without_reset() };
-        let mut gpiob = unsafe { dp.GPIOB.split_without_reset() };
-        let mut gpioc = unsafe { dp.GPIOC.split_without_reset() };
+        let mut gpioa = unsafe { dp.GPIOA.split_without_reset(&mut dp.RCC) };
+        let mut gpiob = unsafe { dp.GPIOB.split_without_reset(&mut dp.RCC) };
+        let mut gpioc = unsafe { dp.GPIOC.split_without_reset(&mut dp.RCC) };
         let this = Self {
             ch0: gpioa.pa0.into_analog(&mut gpioa.crl),
             ch1: gpioa.pa1.into_analog(&mut gpioa.crl),
@@ -74,9 +74,9 @@ impl AdcInputs {
         // Restore GPIO config.
         unsafe {
             let dp = Peripherals::steal();
-            dp.GPIOA.crl.write(|w| w.bits(crl_a));
-            dp.GPIOB.crl.write(|w| w.bits(crl_b));
-            dp.GPIOC.crl.write(|w| w.bits(crl_c));
+            dp.GPIOA.crl().write(|w| w.bits(crl_a));
+            dp.GPIOB.crl().write(|w| w.bits(crl_b));
+            dp.GPIOC.crl().write(|w| w.bits(crl_c));
         }
 
         this

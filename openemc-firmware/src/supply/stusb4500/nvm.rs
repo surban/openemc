@@ -18,7 +18,7 @@
 
 //! STUSB4500 NVM programming interface.
 
-use embedded_hal::blocking::i2c;
+use embedded_hal::i2c;
 use heapless::Vec;
 
 use crate::i2c_master::I2cError;
@@ -28,9 +28,8 @@ use super::{Error, Result, IDS, REG_ID};
 /// STUSB4500 NVM programming interface.
 pub struct StUsb4500Nvm<'a, I2C>
 where
-    I2C: i2c::Write<i2c::SevenBitAddress> + i2c::WriteRead<i2c::SevenBitAddress>,
-    <I2C as i2c::Write<i2c::SevenBitAddress>>::Error: Into<I2cError>,
-    <I2C as i2c::WriteRead<i2c::SevenBitAddress>>::Error: Into<I2cError>,
+    I2C: i2c::I2c<i2c::SevenBitAddress>,
+    <I2C as i2c::ErrorType>::Error: Into<I2cError>,
 {
     addr: u8,
     i2c: &'a mut I2C,
@@ -39,9 +38,8 @@ where
 
 impl<'a, I2C> StUsb4500Nvm<'a, I2C>
 where
-    I2C: i2c::Write<i2c::SevenBitAddress> + i2c::WriteRead<i2c::SevenBitAddress>,
-    <I2C as i2c::Write<i2c::SevenBitAddress>>::Error: Into<I2cError>,
-    <I2C as i2c::WriteRead<i2c::SevenBitAddress>>::Error: Into<I2cError>,
+    I2C: i2c::I2c<i2c::SevenBitAddress>,
+    <I2C as i2c::ErrorType>::Error: Into<I2cError>,
 {
     /// Mask of programmable bits within NVM.
     #[rustfmt::skip]
@@ -271,9 +269,8 @@ where
 
 impl<'a, I2C> Drop for StUsb4500Nvm<'a, I2C>
 where
-    I2C: i2c::Write<i2c::SevenBitAddress> + i2c::WriteRead<i2c::SevenBitAddress>,
-    <I2C as i2c::Write<i2c::SevenBitAddress>>::Error: Into<I2cError>,
-    <I2C as i2c::WriteRead<i2c::SevenBitAddress>>::Error: Into<I2cError>,
+    I2C: i2c::I2c<i2c::SevenBitAddress>,
+    <I2C as i2c::ErrorType>::Error: Into<I2cError>,
 {
     fn drop(&mut self) {
         if self.nvm_enabled {
