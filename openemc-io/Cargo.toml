@@ -1,0 +1,8 @@
+[package]
+name = "openemc-io"
+description = "OpenEMC board IO"
+license = "LGPL-3.0"
+edition = "2021"
+
+[dependencies]
+rustix = "1"

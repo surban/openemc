@@ -2,6 +2,7 @@
 members = [
     "board-io-test",
     "openemc-build",
+    "openemc-io",
     "openemc-log",
     "openemc-pack",
     "xtask",

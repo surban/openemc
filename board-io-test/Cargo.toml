@@ -5,5 +5,5 @@ license = "GPL-3.0"
 edition = "2021"
 
 [dependencies]
+openemc-io = { path = "../openemc-io" }
 rand = "0.10"
-nix = { version = "0.31", features = ["ioctl"] }

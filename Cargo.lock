@@ -242,7 +242,7 @@ dependencies = [
 name = "board-io-test"
 version = "0.0.0"
 dependencies = [
- "nix 0.31.2",
+ "openemc-io",
  "rand",
 ]
 
@@ -1522,6 +1522,13 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "openemc-build"
 version = "0.0.0"
+
+[[package]]
+name = "openemc-io"
+version = "0.0.0"
+dependencies = [
+ "rustix",
+]
 
 [[package]]
 name = "openemc-log"

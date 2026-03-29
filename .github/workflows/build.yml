@@ -25,6 +25,7 @@ jobs:
         run: |
           cargo fmt --check --manifest-path openemc-bootloader/Cargo.toml
           cargo fmt --check --manifest-path openemc-firmware/Cargo.toml
+          cargo fmt --check --manifest-path openemc-io/Cargo.toml
           cargo fmt --check --manifest-path openemc-log/Cargo.toml
           cargo fmt --check --manifest-path openemc-pack/Cargo.toml
           cargo fmt --check --manifest-path openemc-shared/Cargo.toml
@@ -33,6 +34,7 @@ jobs:
         run: |
           cd openemc-bootloader ; cargo clippy --quiet ; cd ..
           cd openemc-firmware ; cargo clippy --quiet ; cd ..
+          cd openemc-io ; cargo clippy --quiet ; cd ..
           cd openemc-log ; cargo clippy --quiet ; cd ..
           cd openemc-pack ; cargo clippy --quiet ; cd ..
           cd openemc-shared ; cargo clippy --quiet ; cd ..
@@ -41,6 +43,8 @@ jobs:
         run: cd openemc-bootloader ; cargo build --release --quiet
       - name: Build firmware
         run: cd openemc-firmware ; cargo build --release --quiet
+      - name: Build io
+        run: cd openemc-io ; cargo build --release --quiet        
       - name: Build logger
         run: cd openemc-log ; cargo build --release --quiet
       - name: Build packer

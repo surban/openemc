@@ -11,6 +11,7 @@ cd ..
 cargo +nightly fmt
 cargo +nightly fmt --manifest-path openemc-bootloader/Cargo.toml
 cargo +nightly fmt --manifest-path openemc-firmware/Cargo.toml
+cargo +nightly fmt --manifest-path openemc-io/Cargo.toml
 cargo +nightly fmt --manifest-path openemc-shared/Cargo.toml
 cargo +nightly fmt --manifest-path openemc-log/Cargo.toml
 cargo +nightly fmt --manifest-path openemc-pack/Cargo.toml
