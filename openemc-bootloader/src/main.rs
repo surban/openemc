@@ -41,7 +41,7 @@ use defmt_rtt as _;
 
 use panic_probe as _;
 
-use core::{cell::RefCell, ffi::c_void, mem::MaybeUninit};
+use core::{cell::RefCell, ffi::c_void, mem::MaybeUninit, str};
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::entry;
 use defmt::{unwrap, Format};
@@ -179,9 +179,9 @@ fn main() -> ! {
     let mut board = ThisBoard::new();
 
     // Print header.
-    defmt::warn!("OpenEMC bootloader version {:a}", VERSION);
+    defmt::warn!("OpenEMC bootloader version {}", unsafe { str::from_utf8_unchecked(VERSION) });
     defmt::info!("EMC model:    0x{:02x}", emc_model());
-    defmt::info!("board model:  {:a}", board.model());
+    defmt::info!("board model:  {}", unsafe { str::from_utf8_unchecked(board.model()) });
     defmt::info!("I2C address:  0x{:02x} (remap: {:?})", ThisBoard::I2C_ADDR, ThisBoard::I2C_REMAP);
     defmt::info!("flash:        {} bytes (page size: {} bytes)", flash::size(), flash::page_size());
     defmt::info!(

@@ -63,6 +63,7 @@ use core::{
     cell::Cell,
     ffi::c_void,
     mem::{replace, size_of},
+    str,
     sync::atomic::Ordering,
 };
 use cortex_m::{interrupt, peripheral::NVIC};
@@ -324,8 +325,8 @@ mod app {
             BOOTLOADER_LOG_REF = Some(defmt_ringbuf::RingBuffer::init(&mut *addr_of_mut!(BOOTLOADER_LOG)));
         }
 
-        defmt::warn!("OpenEMC version {:a}", VERSION);
-        defmt::warn!("{:a}", COPYRIGHT);
+        defmt::warn!("OpenEMC version {}", unsafe { str::from_utf8_unchecked(VERSION) });
+        defmt::warn!("{}", unsafe { str::from_utf8_unchecked(COPYRIGHT) });
 
         #[cfg(feature = "debug-blink")]
         defmt::warn!("debug blinking is active");
@@ -393,7 +394,7 @@ mod app {
             defmt::warn!("firmware is running without bootloader");
         }
         defmt::info!("EMC model:      0x{:02x}", bi.emc_model);
-        defmt::info!("board model:    {:a}", bi.board_model());
+        defmt::info!("board model:    {}", unsafe { str::from_utf8_unchecked(bi.board_model()) });
         defmt::info!("unique id:      {:024x}", unique_device_id());
         defmt::info!("bootloader crc: {:08x}", bootloader_crc32);
         defmt::debug!(
