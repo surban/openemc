@@ -9,6 +9,8 @@ After=dev-openemc.device systemd-journal-flush.service
 Type=exec
 ExecStartPre=-openemc-log --bootloader
 ExecStart=openemc-log
+TimeoutStopSec=5
+KillSignal=SIGKILL
 
 [Install]
 WantedBy=basic.target
