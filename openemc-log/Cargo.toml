@@ -27,7 +27,6 @@ nix = { version = "0.31", features = ["poll"] }
 log = "0.4"
 libc = "0.2"
 env_logger = "0.11"
-ctrlc = { version = "3", features = ["termination"] }
 flate2 = "1"
 
 probe-rs = { version = "0.31", optional = true }

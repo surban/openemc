@@ -36,7 +36,6 @@ use std::{
     io::{ErrorKind, Read, Seek},
     os::{fd::AsFd, unix::prelude::OsStringExt},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
     thread::sleep,
     time::Duration,
 };
@@ -47,8 +46,6 @@ const READ_BUFFER_SIZE: usize = 128;
 const UNPROCESSED_SIZE: usize = 16_777_216;
 const POLL_TIMEOUT: Duration = Duration::from_secs(60);
 const FIRMWARE_DIR: &str = "/lib/firmware";
-
-static STOP: AtomicBool = AtomicBool::new(false);
 
 /// OpenEMC logger.
 #[derive(Parser)]
@@ -227,7 +224,7 @@ fn read_device_memory(addr: u64, data: &mut [u8]) -> Result<()> {
     Ok(())
 }
 
-fn perform(opts: &Opts) -> Result<bool> {
+fn perform(opts: &Opts) -> Result<()> {
     #[cfg(feature = "probe")]
     let probe = opts.probe;
     #[cfg(not(feature = "probe"))]
@@ -336,7 +333,7 @@ fn perform(opts: &Opts) -> Result<bool> {
     let mut stream_decoder = table.new_stream_decoder();
     let mut unprocessed = 0;
 
-    while !STOP.load(Ordering::SeqCst) {
+    loop {
         // Read from start of device file.
         if is_dev {
             log.rewind()?;
@@ -356,7 +353,7 @@ fn perform(opts: &Opts) -> Result<bool> {
                     Err(err) => return Err(err.into()),
                 }
             }
-            Ok(0) => return Ok(true),
+            Ok(0) => return Ok(()),
             Ok(n) => {
                 stream_decoder.received(&buf[..n]);
                 unprocessed += n;
@@ -400,13 +397,9 @@ fn perform(opts: &Opts) -> Result<bool> {
             log_msg.log();
         }
     }
-
-    Ok(false)
 }
 
 fn main() -> Result<()> {
-    ctrlc::set_handler(|| STOP.store(true, Ordering::SeqCst))?;
-
     #[allow(unused_mut)]
     let mut opts = Opts::parse();
 
@@ -434,7 +427,7 @@ fn main() -> Result<()> {
     let res = perform(&opts);
 
     match &res {
-        Ok(finished) => log::info!("======== log {} ========", if *finished { "finished" } else { "stopped" }),
+        Ok(()) => log::info!("======== log finished ========"),
         Err(err) => log::error!("======== logging failed: {err} ========"),
     }
     res?;
