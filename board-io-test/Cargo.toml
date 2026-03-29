@@ -6,4 +6,4 @@ edition = "2021"
 
 [dependencies]
 rand = "0.10"
-libc = "0.2"
+nix = { version = "0.31", features = ["ioctl"] }

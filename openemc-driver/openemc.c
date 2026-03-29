@@ -1724,17 +1724,18 @@ static long openemc_fops_ioctl(struct file *file, unsigned int cmd,
 			       unsigned long arg)
 {
 	struct openemc *emc = file_to_openemc(file);
-	__user u8 *buf = (__user u8 *)arg;
-	u8 len = cmd;
-	u8 data[OPENEMC_MAX_DATA_SIZE];
+	struct openemc_ioctl_data ioctl_data;
 	u8 info;
 	long ret;
 
-	if (cmd > OPENEMC_MAX_DATA_SIZE)
-		return -EINVAL;
+	if (cmd != OPENEMC_BOARD_IOCTL_CMD)
+		return -ENOTTY;
 
-	if (copy_from_user(data, buf, len))
+	if (copy_from_user(&ioctl_data, (void __user *)arg, sizeof(ioctl_data)))
 		return -EFAULT;
+
+	if (ioctl_data.len > OPENEMC_MAX_DATA_SIZE)
+		return -EINVAL;
 
 	mutex_lock(&emc->ioctl_lock);
 
@@ -1742,7 +1743,8 @@ static long openemc_fops_ioctl(struct file *file, unsigned int cmd,
 	if (ret < 0)
 		goto out;
 
-	ret = openemc_write_data(emc, OPENEMC_BOARD_IOCTL, len, data);
+	ret = openemc_write_data(emc, OPENEMC_BOARD_IOCTL, ioctl_data.len,
+				 ioctl_data.data);
 	if (ret < 0)
 		goto out;
 
@@ -1760,19 +1762,20 @@ static long openemc_fops_ioctl(struct file *file, unsigned int cmd,
 		goto out;
 	}
 
-	len = min_t(u8, info, OPENEMC_MAX_DATA_SIZE);
-	if (len > 0) {
-		ret = openemc_read_data(emc, OPENEMC_BOARD_IOCTL, len, data);
+	ioctl_data.len = min_t(u8, info, OPENEMC_MAX_DATA_SIZE);
+	if (ioctl_data.len > 0) {
+		ret = openemc_read_data(emc, OPENEMC_BOARD_IOCTL,
+					ioctl_data.len, ioctl_data.data);
 		if (ret < 0)
 			goto out;
-
-		if (copy_to_user(buf, data, len)) {
-			ret = -EFAULT;
-			goto out;
-		}
 	}
 
-	ret = len;
+	if (copy_to_user((void __user *)arg, &ioctl_data, sizeof(ioctl_data))) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	ret = ioctl_data.len;
 
 out:
 	mutex_unlock(&emc->ioctl_lock);
@@ -2080,4 +2083,4 @@ module_i2c_driver(openemc_i2c_driver);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Sebastian Urban <surban@surban.net>");
 MODULE_DESCRIPTION("OpenEMC");
-MODULE_VERSION("1.0");
+MODULE_VERSION("1.1.0");

@@ -9,6 +9,7 @@
 #define __LINUX_MFD_OPENEMC_H
 
 #include <linux/i2c.h>
+#include <linux/ioctl.h>
 #include <linux/mfd/core.h>
 #include <linux/miscdevice.h>
 
@@ -194,6 +195,16 @@
 #define OPENEMC_IRQ_BOARD_IO_READ 23
 #define OPENEMC_IRQ_BOARD_IO_WRITE 24
 #define OPENEMC_IRQ_BOARD_IOCTL 25
+
+/* Board ioctl interface */
+#define OPENEMC_IOC_MAGIC 0xEC
+
+struct openemc_ioctl_data {
+	__u8 len;
+	__u8 data[OPENEMC_MAX_DATA_SIZE];
+};
+
+#define OPENEMC_BOARD_IOCTL_CMD _IOWR(OPENEMC_IOC_MAGIC, 0, struct openemc_ioctl_data)
 
 enum openemc_pin_mode {
 	OPENEMC_PIN_MODE_GPIO,
