@@ -2,7 +2,7 @@
 /*
  * MFD core driver for OpenEMC
  *
- * Copyright (C) 2022-2024 Sebastian Urban <surban@surban.net>
+ * Copyright (C) 2022-2026 Sebastian Urban <surban@surban.net>
  */
 
 #ifndef __LINUX_MFD_OPENEMC_H
