@@ -1,8 +1,14 @@
 [package]
 name = "openemc-io"
-description = "OpenEMC board IO"
-license = "LGPL-3.0"
+version = "1.1.0"
+description = "Userspace interface for communicating with an OpenEMC embedded controller"
+authors = ["Sebastian Urban <surban@surban.net>"]
+license = "MIT"
 edition = "2021"
+repository = "https://github.com/surban/openemc"
+readme = "README.md"
+keywords = ["openemc", "embedded", "ioctl", "linux"]
+categories = ["hardware-support", "os::linux-apis"]
 
 [dependencies]
 rustix = "1"

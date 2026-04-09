@@ -3,7 +3,7 @@
 //! For use with STM Nucleo-F103RB example board (`stm_nucleo_f103rb.rs`).
 //!
 
-use openemc_io::{OpenEmc, OpenEmcIoctlError};
+use openemc_io::{IoctlError, OpenEmc};
 use rand::prelude::*;
 use std::io::{Read, Write};
 
@@ -43,7 +43,7 @@ fn ioctl_test(openemc: &mut OpenEmc) {
     let result = openemc.ioctl(&test_data);
     assert!(result.is_err(), "ioctl should have failed");
     let err = result.unwrap_err();
-    let ioctl_err = err.get_ref().unwrap().downcast_ref::<OpenEmcIoctlError>().unwrap();
+    let ioctl_err = err.get_ref().unwrap().downcast_ref::<IoctlError>().unwrap();
     assert_eq!(ioctl_err.0, 10, "wrong errno");
 
     println!("ioctl test done");
