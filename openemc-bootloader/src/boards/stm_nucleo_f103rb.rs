@@ -11,7 +11,7 @@ use crate::{board::Board, i2c_reg_slave::I2CRegTransaction, util::delay_ms, watc
 use openemc_shared::boot::{BootInfo, ResetStatus};
 
 /// I2C development mode register.
-const REG_DEVELOPMENT_MODE: u8 = 0xe0;
+const REG_DEVELOPMENT_MODE: u8 = 0xb0;
 
 /// STM Nucleo-F103RB evaluation board.
 pub struct BoardImpl {

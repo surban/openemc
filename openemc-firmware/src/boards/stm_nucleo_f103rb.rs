@@ -28,7 +28,7 @@ use crate::{
 };
 
 /// I2C development mode register.
-const REG_DEVELOPMENT_MODE: u8 = 0xe0;
+const REG_DEVELOPMENT_MODE: u8 = 0xb0;
 
 /// Reset STUSB4500 at startup?
 const RESET_STUSB4500: bool = false;
