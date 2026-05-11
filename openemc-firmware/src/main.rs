@@ -295,6 +295,8 @@ mod app {
         charger_attachment_power_on: bool,
         /// Persistent platform store.
         pstore: pstore::Pstore<'static>,
+        /// PWM timers.
+        pwm_timers: [Option<PwmTimer>; 4],
     }
 
     /// Exclusive resources.
@@ -304,8 +306,6 @@ mod app {
         i2c_reg_slave: Option<RemappableI2CRegSlave<I2C_BUFFER_SIZE>>,
         /// User GPIO.
         ugpio: MaskedGpio<{ board::PORTS }>,
-        /// PWM timers.
-        pwm_timers: [Option<PwmTimer>; 4],
         /// AD converter.
         adc: Adc<ADC1>,
         /// AD converter inputs.
@@ -746,8 +746,9 @@ mod app {
                 bootloader_crc32,
                 charger_attachment_power_on,
                 pstore,
+                pwm_timers,
             },
-            Local { i2c_reg_slave, adc, adc_inp, ugpio, pwm_timers },
+            Local { i2c_reg_slave, adc, adc_inp, ugpio },
             init::Monotonics(mono),
         )
     }
@@ -1282,6 +1283,29 @@ mod app {
         defmt::unwrap!(charge_led::spawn_after(100u64.millis()));
     }
 
+    /// Advances active PWM duty cycle ramps.
+    ///
+    /// Self-respawns every 10 ms while any channel has an active ramp.
+    /// When no channel is ramping the task exits and is re-spawned by the
+    /// I2C handler the next time a ramp is started.
+    #[task(shared = [pwm_timers])]
+    fn pwm_ramp(mut cx: pwm_ramp::Context) {
+        let active = cx.shared.pwm_timers.lock(|pwm_timers| {
+            let now = monotonics::now();
+            let mut active = false;
+            for pwm_timer in pwm_timers.iter_mut().flatten() {
+                if pwm_timer.tick(now) {
+                    active = true;
+                }
+            }
+            active
+        });
+
+        if active {
+            defmt::unwrap!(pwm_ramp::spawn_after(10u64.millis()));
+        }
+    }
+
     /// Log data avilable.
     #[task(binds = USART3, shared = [irq])]
     fn log_available(mut cx: log_available::Context) {
@@ -1509,7 +1533,6 @@ mod app {
             copyright_offset: usize = 0,
             mfd_cell_index: usize = 0,
             ugpio,
-            pwm_timers,
             pwm_timer_index: u8 = 0,
             pwm_channel_index: u8 = 0,
             echo: [u8; I2C_BUFFER_SIZE] = [0; I2C_BUFFER_SIZE],
@@ -1533,6 +1556,7 @@ mod app {
             &bootloader_crc32,
             &charger_attachment_power_on,
             pstore,
+            pwm_timers,
         ],
         priority = 2,
     )]
@@ -1794,49 +1818,85 @@ mod app {
             Event::Read { reg: reg::POWERED_ON_BY_CHARGER } => {
                 respond_u8(*cx.shared.charger_attachment_power_on as u8)
             }
-            Event::Read { reg: reg::PWM_TIMERS } => respond_u8(cx.local.pwm_timers.len() as u8),
+            Event::Read { reg: reg::PWM_TIMERS } => {
+                cx.shared.pwm_timers.lock(|pwm_timers| respond_u8(pwm_timers.len() as u8));
+            }
             Event::Read { reg: reg::PWM_TIMER } => respond_u8(*cx.local.pwm_timer_index),
             Event::Write { reg: reg::PWM_TIMER, value } => {
                 *cx.local.pwm_timer_index = value.as_u8();
             }
             Event::Read { reg: reg::PWM_TIMER_CHANNELS } => {
-                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                    respond_u8(pwm_timer.channel_count());
-                }
+                cx.shared.pwm_timers.lock(|pwm_timers| {
+                    if let Some(Some(pwm_timer)) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                        respond_u8(pwm_timer.channel_count());
+                    }
+                });
             }
             Event::Write { reg: reg::PWM_TIMER_REMAP, value } => {
-                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                    pwm_timer.set_remap(value.as_u8());
-                }
+                cx.shared.pwm_timers.lock(|pwm_timers| {
+                    if let Some(Some(pwm_timer)) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                        pwm_timer.set_remap(value.as_u8());
+                    }
+                });
             }
             Event::Write { reg: reg::PWM_TIMER_FREQUENCY, value } => {
-                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                    pwm_timer.set_frequency(value.as_u32().Hz());
-                }
+                cx.shared.pwm_timers.lock(|pwm_timers| {
+                    if let Some(Some(pwm_timer)) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                        pwm_timer.set_frequency(value.as_u32().Hz());
+                    }
+                });
             }
             Event::Read { reg: reg::PWM_CHANNEL } => respond_u8(*cx.local.pwm_channel_index),
             Event::Write { reg: reg::PWM_CHANNEL, value } => {
                 let channel = value.as_u8();
-                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                    if channel < pwm_timer.channel_count() {
-                        *cx.local.pwm_channel_index = channel;
+                cx.shared.pwm_timers.lock(|pwm_timers| {
+                    if let Some(Some(pwm_timer)) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                        if channel < pwm_timer.channel_count() {
+                            *cx.local.pwm_channel_index = channel;
+                        }
                     }
-                }
+                });
             }
             Event::Write { reg: reg::PWM_CHANNEL_DUTY_CYCLE, value } => {
-                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                    pwm_timer.set_duty_cycle(*cx.local.pwm_channel_index, value.as_u16());
-                }
+                cx.shared.pwm_timers.lock(|pwm_timers| {
+                    if let Some(Some(pwm_timer)) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                        if pwm_timer.set_duty_cycle(
+                            *cx.local.pwm_channel_index,
+                            value.as_u16(),
+                            monotonics::now(),
+                        ) {
+                            let _ = pwm_ramp::spawn();
+                        }
+                    }
+                });
             }
             Event::Write { reg: reg::PWM_CHANNEL_POLARITY, value } => {
-                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                    pwm_timer.set_polarity(*cx.local.pwm_channel_index, value.as_u8() != 0);
-                }
+                cx.shared.pwm_timers.lock(|pwm_timers| {
+                    if let Some(Some(pwm_timer)) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                        pwm_timer.set_polarity(*cx.local.pwm_channel_index, value.as_u8() != 0);
+                    }
+                });
             }
             Event::Write { reg: reg::PWM_CHANNEL_OUTPUT, value } => {
-                if let Some(Some(pwm_timer)) = cx.local.pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                    pwm_timer.set_output(*cx.local.pwm_channel_index, value.as_u8() != 0);
-                }
+                cx.shared.pwm_timers.lock(|pwm_timers| {
+                    if let Some(Some(pwm_timer)) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                        pwm_timer.set_output(*cx.local.pwm_channel_index, value.as_u8() != 0);
+                    }
+                });
+            }
+            Event::Read { reg: reg::PWM_CHANNEL_DUTY_CYCLE_RAMP_TIME } => {
+                cx.shared.pwm_timers.lock(|pwm_timers| {
+                    if let Some(Some(pwm_timer)) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                        respond_u32(pwm_timer.ramp_time_ms(*cx.local.pwm_channel_index));
+                    }
+                });
+            }
+            Event::Write { reg: reg::PWM_CHANNEL_DUTY_CYCLE_RAMP_TIME, value } => {
+                cx.shared.pwm_timers.lock(|pwm_timers| {
+                    if let Some(Some(pwm_timer)) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
+                        pwm_timer.set_ramp_time_ms(*cx.local.pwm_channel_index, value.as_u32());
+                    }
+                });
             }
             Event::Read { reg: reg::BATTERY_VOLTAGE } => {
                 cx.shared.battery.lock(|battery| {

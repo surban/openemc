@@ -229,6 +229,15 @@ pub const PWM_CHANNEL_POLARITY: u8 = 0x77;
 /// 1=enabled, 0=disabled.
 pub const PWM_CHANNEL_OUTPUT: u8 = 0x78;
 
+/// Duty cycle ramp time of the current PWM channel in milliseconds (u32).
+///
+/// When set to a non-zero value, subsequent writes to
+/// `PWM_CHANNEL_DUTY_CYCLE` cause the duty cycle to move linearly from its
+/// current value to the written target over this time. A value of zero
+/// (the default) disables ramping and applies new duty cycle values
+/// immediately.
+pub const PWM_CHANNEL_DUTY_CYCLE_RAMP_TIME: u8 = 0x79;
+
 /// Current battery voltage in mV. (read-only, u32)
 pub const BATTERY_VOLTAGE: u8 = 0x80;
 

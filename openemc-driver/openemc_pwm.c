@@ -13,6 +13,8 @@
 #include "openemc.h"
 
 #define MAX_TIMERS 16
+#define MAX_CHANNELS_PER_TIMER 4
+#define MAX_CHANNELS (MAX_TIMERS * MAX_CHANNELS_PER_TIMER)
 
 static const struct of_device_id openemc_pwm_of_match[] = {
 	{ .compatible = "openemc,openemc_pwm" },
@@ -135,6 +137,10 @@ static int openemc_pwm_probe(struct platform_device *pdev)
 	struct openemc_pwm *pwm;
 	u8 timer, timers;
 	u8 remap[MAX_TIMERS];
+	u32 ramp_time_ms[MAX_CHANNELS];
+	int ramp_time_count;
+	unsigned int hwpwm = 0;
+	u8 ch;
 	int ret;
 
 	match = of_match_node(openemc_pwm_of_match, pdev->dev.of_node);
@@ -159,12 +165,28 @@ static int openemc_pwm_probe(struct platform_device *pdev)
 	of_property_read_u8_array(pdev->dev.of_node, "timer-remap", remap,
 				  MAX_TIMERS);
 
+	memset(ramp_time_ms, 0, sizeof(ramp_time_ms));
+	ramp_time_count = of_property_count_u32_elems(
+		pdev->dev.of_node, "openemc,duty-cycle-ramp-time-ms");
+	if (ramp_time_count > 0) {
+		ramp_time_count = min(ramp_time_count, (int)MAX_CHANNELS);
+		ret = of_property_read_u32_array(
+			pdev->dev.of_node, "openemc,duty-cycle-ramp-time-ms",
+			ramp_time_ms, ramp_time_count);
+		if (ret < 0)
+			return ret;
+	}
+
 	ret = openemc_read_u8(pwm->emc, OPENEMC_PWM_TIMERS, &timers);
 	if (ret < 0)
 		return ret;
 	timers = min(timers, (u8)MAX_TIMERS);
 
 	for (timer = 0; timer < timers; timer++) {
+		ret = openemc_write_u8(pwm->emc, OPENEMC_PWM_TIMER, timer);
+		if (ret < 0)
+			return ret;
+
 		ret = openemc_read_u8(pwm->emc, OPENEMC_PWM_TIMER_CHANNELS,
 				      &pwm->n_channels[timer]);
 		if (ret < 0)
@@ -177,6 +199,25 @@ static int openemc_pwm_probe(struct platform_device *pdev)
 				       remap[timer]);
 		if (ret < 0)
 			return ret;
+
+		for (ch = 0; ch < pwm->n_channels[timer]; ch++) {
+			ret = openemc_write_u8(pwm->emc, OPENEMC_PWM_CHANNEL,
+					       ch);
+			if (ret < 0)
+				return ret;
+
+			dev_dbg(pwm->dev,
+				"PWM %u (timer %d, channel %d) duty cycle ramp time: %u ms\n",
+				hwpwm, timer, ch, ramp_time_ms[hwpwm]);
+			ret = openemc_write_u32(
+				pwm->emc,
+				OPENEMC_PWM_CHANNEL_DUTY_CYCLE_RAMP_TIME,
+				ramp_time_ms[hwpwm]);
+			if (ret < 0)
+				return ret;
+
+			hwpwm++;
+		}
 	}
 
 	ret = devm_pwmchip_add(pwm->dev, &pwm->chip);

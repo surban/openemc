@@ -3,9 +3,25 @@
 use defmt::Format;
 use stm32f1::stm32f103::Peripherals;
 use stm32f1xx_hal::{rcc::Clocks, time::Hertz};
+use systick_monotonic::fugit::ExtU64;
+
+use crate::{Duration, Instant};
 
 /// Channels per timer.
 const CHANNEL_COUNT: usize = 4;
+
+/// State of an in-progress duty cycle ramp.
+#[derive(Clone, Copy)]
+struct Ramp {
+    /// When the ramp started.
+    start: Instant,
+    /// Duty cycle at the start of the ramp.
+    from: u16,
+    /// Target duty cycle.
+    to: u16,
+    /// Total ramp duration.
+    duration: Duration,
+}
 
 /// Timer instance.
 #[derive(Clone, Copy, PartialEq, Eq, Format)]
@@ -278,7 +294,15 @@ pub struct PwmTimer {
     clocks: Clocks,
     arr: u32,
     freq: Hertz,
+    /// Currently displayed duty cycle per channel.
+    /// For channels with an active ramp this is the last interpolated value
+    /// written to the hardware compare register.
     duty_cycles: [u16; CHANNEL_COUNT],
+    /// Configured ramp time per channel in milliseconds.
+    /// A value of zero disables ramping (the default).
+    ramp_time_ms: [u32; CHANNEL_COUNT],
+    /// Active ramp per channel.
+    ramps: [Option<Ramp>; CHANNEL_COUNT],
 }
 
 impl PwmTimer {
@@ -290,7 +314,15 @@ impl PwmTimer {
             timer.set_pwm(ch as u8, true);
         }
 
-        Self { timer, clocks: *clocks, arr: 0, freq: Hertz::Hz(0), duty_cycles: [0; CHANNEL_COUNT] }
+        Self {
+            timer,
+            clocks: *clocks,
+            arr: 0,
+            freq: Hertz::Hz(0),
+            duty_cycles: [0; CHANNEL_COUNT],
+            ramp_time_ms: [0; CHANNEL_COUNT],
+            ramps: [None; CHANNEL_COUNT],
+        }
     }
 
     /// Channel count.
@@ -325,13 +357,17 @@ impl PwmTimer {
         self.timer.set_auto_reload(self.arr as u16);
         self.timer.update();
 
-        for (channel, &duty_cycle) in self.duty_cycles.clone().iter().enumerate() {
-            self.set_duty_cycle(channel as u8, duty_cycle);
+        // Re-apply the currently displayed duty cycle on each channel so the
+        // new ARR is reflected in the compare registers. Any active ramp will
+        // continue on its next tick.
+        for channel in 0..CHANNEL_COUNT {
+            self.apply_duty_cycle(channel as u8, self.duty_cycles[channel]);
         }
     }
 
-    /// Sets the duty cycle.
-    pub fn set_duty_cycle(&mut self, channel: u8, duty_cycle: u16) {
+    /// Writes the duty cycle to the hardware compare register and updates the
+    /// stored displayed value, but does not affect ramping state.
+    fn apply_duty_cycle(&mut self, channel: u8, duty_cycle: u16) {
         self.duty_cycles[channel as usize] = duty_cycle;
 
         let cmp = if duty_cycle >= u16::MAX - 2 {
@@ -340,9 +376,83 @@ impl PwmTimer {
             (self.arr * duty_cycle as u32 + u16::MAX as u32 / 2) / (u16::MAX as u32)
         };
 
-        defmt::debug!("setting {:?} channel {} arr={} compare={}", &self.timer, channel, self.arr, cmp);
+        defmt::debug!("applying {:?} channel {} arr={} compare={}", &self.timer, channel, self.arr, cmp);
         self.timer.set_compare(channel, cmp as u16);
         self.timer.update();
+    }
+
+    /// Sets the target duty cycle for a channel.
+    ///
+    /// If a non-zero ramp time is configured for the channel, the duty cycle
+    /// will move linearly from its current value to `duty_cycle` over the
+    /// configured ramp time. Otherwise the value is applied immediately.
+    ///
+    /// Returns whether a ramp has been started.
+    pub fn set_duty_cycle(&mut self, channel: u8, duty_cycle: u16, now: Instant) -> bool {
+        let ch = channel as usize;
+        let ramp_ms = self.ramp_time_ms[ch];
+
+        if ramp_ms == 0 {
+            self.ramps[ch] = None;
+            self.apply_duty_cycle(channel, duty_cycle);
+            return false;
+        }
+
+        let from = self.duty_cycles[ch];
+        if from == duty_cycle {
+            self.ramps[ch] = None;
+            return false;
+        }
+
+        self.ramps[ch] = Some(Ramp { start: now, from, to: duty_cycle, duration: (ramp_ms as u64).millis() });
+        true
+    }
+
+    /// Returns the configured ramp time for a channel in milliseconds.
+    pub fn ramp_time_ms(&self, channel: u8) -> u32 {
+        self.ramp_time_ms[channel as usize]
+    }
+
+    /// Returns `true` if any channel currently has an active duty cycle ramp.
+    pub fn is_ramping(&self) -> bool {
+        self.ramps.iter().any(|r| r.is_some())
+    }
+
+    /// Sets the ramp time for a channel in milliseconds.
+    ///
+    /// A value of zero disables ramping. Changing the ramp time does not
+    /// affect a ramp that is already in progress.
+    pub fn set_ramp_time_ms(&mut self, channel: u8, ramp_time_ms: u32) {
+        self.ramp_time_ms[channel as usize] = ramp_time_ms;
+    }
+
+    /// Advances any in-progress duty cycle ramps and writes interpolated
+    /// values to the hardware. Returns `true` if at least one channel is
+    /// still ramping after this call.
+    pub fn tick(&mut self, now: Instant) -> bool {
+        let mut active = false;
+        for ch in 0..CHANNEL_COUNT {
+            let Some(ramp) = self.ramps[ch] else { continue };
+
+            let elapsed = now.checked_duration_since(ramp.start).unwrap_or(Duration::from_ticks(0));
+            if elapsed >= ramp.duration {
+                self.ramps[ch] = None;
+                self.apply_duty_cycle(ch as u8, ramp.to);
+                continue;
+            }
+
+            let elapsed_ms = elapsed.to_millis() as u32;
+            let total_ms = ramp.duration.to_millis() as u32;
+            let total_ms = total_ms.max(1);
+            let from = ramp.from as i32;
+            let to = ramp.to as i32;
+            let value = from + ((to - from) * elapsed_ms as i32) / total_ms as i32;
+            let value = value.clamp(0, u16::MAX as i32) as u16;
+
+            self.apply_duty_cycle(ch as u8, value);
+            active = true;
+        }
+        active
     }
 
     /// Sets the output polarity.
