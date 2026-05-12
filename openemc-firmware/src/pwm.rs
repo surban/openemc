@@ -64,7 +64,7 @@ impl Timer {
                     dp.RCC.apb2rstr().modify(|_, w| w.tim1rst().clear_bit());
                 }
 
-                dp.TIM1.bdtr().modify(|_, w| w.moe().bit(enable).ossr().idle_level().ossi().idle_level());
+                dp.TIM1.bdtr().modify(|_, w| w.moe().bit(enable).ossr().hi_z().ossi().hi_z());
                 dp.TIM1
                     .cr1()
                     .modify(|_, w| w.cen().bit(enable).arpe().enabled().urs().counter_only().udis().enabled());
