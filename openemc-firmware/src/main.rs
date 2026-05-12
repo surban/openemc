@@ -1142,15 +1142,14 @@ mod app {
                             if cx.shared.power_mode.is_full()
                                 && !ac
                                 && m.v_bat_mv < min_mv
-                                && monotonics::now().checked_duration_since(*first) >= Some(grace_period) =>
+                                && monotonics::now().checked_duration_since(*first) >= Some(grace_period)
+                                && undervoltage_power_off::spawn(true).is_ok() =>
                         {
-                            if undervoltage_power_off::spawn(true).is_ok() {
-                                defmt::warn!(
-                                    "Battery voltage of {} mV is below critical voltage of {} mV, shutting down",
-                                    m.v_bat_mv,
-                                    min_mv
-                                );
-                            }
+                            defmt::warn!(
+                                "Battery voltage of {} mV is below critical voltage of {} mV, shutting down",
+                                m.v_bat_mv,
+                                min_mv
+                            );
                         }
                         _ => (),
                     }
