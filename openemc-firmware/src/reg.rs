@@ -221,13 +221,25 @@ pub const PWM_CHANNEL: u8 = 0x75;
 /// The duty cycle of the current PWM channel (write-only, u16).
 pub const PWM_CHANNEL_DUTY_CYCLE: u8 = 0x76;
 
-/// The polarity of the current PWM channel (write-only, u8).
-/// 0=not inverted, 1=inverted.
+/// The polarity of the current PWM channel (write-only, u8 bitmask).
+///
+/// Bit 0: invert main output (CCxP).
+/// Bit 1: invert complementary output (CCxNP), if present.
 pub const PWM_CHANNEL_POLARITY: u8 = 0x77;
 
-/// Output of current PWM channel. (write-only, u8)
-/// 1=enabled, 0=disabled.
+/// Output enable of the current PWM channel (write-only, u8 bitmask).
+///
+/// Bit 0: enable main output (CCxE).
+/// Bit 1: enable complementary output (CCxNE), if present.
 pub const PWM_CHANNEL_OUTPUT: u8 = 0x78;
+
+/// Bit selecting the main output in `PWM_CHANNEL_POLARITY` and
+/// `PWM_CHANNEL_OUTPUT`.
+pub const PWM_CHANNEL_MAIN: u8 = 0b01;
+
+/// Bit selecting the complementary output in `PWM_CHANNEL_POLARITY` and
+/// `PWM_CHANNEL_OUTPUT`.
+pub const PWM_CHANNEL_COMPLEMENTARY: u8 = 0b10;
 
 /// Duty cycle ramp time of the current PWM channel in milliseconds (u32).
 ///

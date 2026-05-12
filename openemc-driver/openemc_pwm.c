@@ -29,6 +29,7 @@ struct openemc_pwm {
 	struct mutex lock;
 	struct pwm_chip chip;
 	u8 n_channels[MAX_TIMERS + 1];
+	u8 complementary_invert[MAX_CHANNELS];
 };
 
 static inline struct openemc_pwm *to_openemc_pwm(struct pwm_chip *chip)
@@ -62,6 +63,7 @@ static int openemc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm_dev,
 	u16 duty = U16_MAX * state->duty_cycle / state->period;
 	bool enabled = state->enabled;
 	u8 timer, channel;
+	u8 main_invert, comp_invert, polarity_bits;
 	int ret = 0;
 
 	mutex_lock(&pwm->lock);
@@ -100,9 +102,12 @@ static int openemc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm_dev,
 			goto out;
 	}
 
+	main_invert = (state->polarity == PWM_POLARITY_INVERSED) ? 1 : 0;
+	comp_invert = main_invert ^ pwm->complementary_invert[pwm_dev->hwpwm];
+	polarity_bits = (main_invert ? OPENEMC_PWM_CHANNEL_MAIN : 0) |
+			(comp_invert ? OPENEMC_PWM_CHANNEL_COMPLEMENTARY : 0);
 	ret = openemc_write_u8(pwm->emc, OPENEMC_PWM_CHANNEL_POLARITY,
-			       state->polarity == PWM_POLARITY_INVERSED ? 1 :
-									  0);
+			       polarity_bits);
 	if (ret < 0)
 		goto out;
 
@@ -115,7 +120,9 @@ static int openemc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm_dev,
 		goto out;
 
 	if (enabled) {
-		ret = openemc_write_u8(pwm->emc, OPENEMC_PWM_CHANNEL_OUTPUT, 1);
+		ret = openemc_write_u8(pwm->emc, OPENEMC_PWM_CHANNEL_OUTPUT,
+				       OPENEMC_PWM_CHANNEL_MAIN |
+					       OPENEMC_PWM_CHANNEL_COMPLEMENTARY);
 		if (ret < 0)
 			goto out;
 	}
@@ -139,6 +146,7 @@ static int openemc_pwm_probe(struct platform_device *pdev)
 	u8 remap[MAX_TIMERS];
 	u32 ramp_time_ms[MAX_CHANNELS];
 	int ramp_time_count;
+	int comp_invert_count;
 	unsigned int hwpwm = 0;
 	u8 ch;
 	int ret;
@@ -173,6 +181,18 @@ static int openemc_pwm_probe(struct platform_device *pdev)
 		ret = of_property_read_u32_array(
 			pdev->dev.of_node, "openemc,duty-cycle-ramp-time-ms",
 			ramp_time_ms, ramp_time_count);
+		if (ret < 0)
+			return ret;
+	}
+
+	memset(pwm->complementary_invert, 0, sizeof(pwm->complementary_invert));
+	comp_invert_count = of_property_count_u8_elems(
+		pdev->dev.of_node, "openemc,complementary-invert");
+	if (comp_invert_count > 0) {
+		comp_invert_count = min(comp_invert_count, (int)MAX_CHANNELS);
+		ret = of_property_read_u8_array(
+			pdev->dev.of_node, "openemc,complementary-invert",
+			pwm->complementary_invert, comp_invert_count);
 		if (ret < 0)
 			return ret;
 	}
@@ -216,6 +236,22 @@ static int openemc_pwm_probe(struct platform_device *pdev)
 			if (ret < 0)
 				return ret;
 
+			/* Configure the complementary output polarity early
+			   (before the PWM consumer applies its first state) so
+			   that the idle pin level matches the board wiring. */
+			ret = openemc_write_u8(
+				pwm->emc, OPENEMC_PWM_CHANNEL_POLARITY,
+				(pwm->complementary_invert[hwpwm] & 1) ?
+					OPENEMC_PWM_CHANNEL_COMPLEMENTARY :
+					0);
+			if (ret < 0)
+				return ret;
+
+			ret = openemc_write_u8(
+				pwm->emc, OPENEMC_PWM_CHANNEL_OUTPUT, 0);
+			if (ret < 0)
+				return ret;
+
 			hwpwm++;
 		}
 	}
@@ -244,4 +280,4 @@ module_platform_driver(openemc_pwm_driver);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Sebastian Urban <surban@surban.net>");
 MODULE_DESCRIPTION("OpenEMC PWM");
-MODULE_VERSION("1.2");
+MODULE_VERSION("1.3");

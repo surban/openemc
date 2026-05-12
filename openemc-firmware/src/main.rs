@@ -1873,14 +1873,24 @@ mod app {
             Event::Write { reg: reg::PWM_CHANNEL_POLARITY, value } => {
                 cx.shared.pwm_timers.lock(|pwm_timers| {
                     if let Some(Some(pwm_timer)) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                        pwm_timer.set_polarity(*cx.local.pwm_channel_index, value.as_u8() != 0);
+                        let bits = value.as_u8();
+                        pwm_timer.set_polarity(
+                            *cx.local.pwm_channel_index,
+                            (bits & reg::PWM_CHANNEL_MAIN) != 0,
+                            (bits & reg::PWM_CHANNEL_COMPLEMENTARY) != 0,
+                        );
                     }
                 });
             }
             Event::Write { reg: reg::PWM_CHANNEL_OUTPUT, value } => {
                 cx.shared.pwm_timers.lock(|pwm_timers| {
                     if let Some(Some(pwm_timer)) = pwm_timers.get_mut(*cx.local.pwm_timer_index as usize) {
-                        pwm_timer.set_output(*cx.local.pwm_channel_index, value.as_u8() != 0);
+                        let bits = value.as_u8();
+                        pwm_timer.set_output(
+                            *cx.local.pwm_channel_index,
+                            (bits & reg::PWM_CHANNEL_MAIN) != 0,
+                            (bits & reg::PWM_CHANNEL_COMPLEMENTARY) != 0,
+                        );
                     }
                 });
             }

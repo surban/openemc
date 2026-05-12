@@ -241,48 +241,52 @@ impl Timer {
         };
     }
 
-    fn set_output_enable(&self, channel: u8, enable: bool) {
+    fn set_output_enable(&self, channel: u8, enable_main: bool, enable_complementary: bool) {
         let dp = unsafe { Peripherals::steal() };
+        let m = enable_main;
+        let n = enable_complementary;
         match (self, channel) {
-            (Self::Timer1, 0) => dp.TIM1.ccer().modify(|_, w| w.cc1e().bit(enable).cc1ne().bit(enable)),
-            (Self::Timer1, 1) => dp.TIM1.ccer().modify(|_, w| w.cc2e().bit(enable).cc2ne().bit(enable)),
-            (Self::Timer1, 2) => dp.TIM1.ccer().modify(|_, w| w.cc3e().bit(enable).cc3ne().bit(enable)),
-            (Self::Timer1, 3) => dp.TIM1.ccer().modify(|_, w| w.cc4e().bit(enable)),
-            (Self::Timer2, 0) => dp.TIM2.ccer().modify(|_, w| w.cc1e().bit(enable)),
-            (Self::Timer2, 1) => dp.TIM2.ccer().modify(|_, w| w.cc2e().bit(enable)),
-            (Self::Timer2, 2) => dp.TIM2.ccer().modify(|_, w| w.cc3e().bit(enable)),
-            (Self::Timer2, 3) => dp.TIM2.ccer().modify(|_, w| w.cc4e().bit(enable)),
-            (Self::Timer3, 0) => dp.TIM3.ccer().modify(|_, w| w.cc1e().bit(enable)),
-            (Self::Timer3, 1) => dp.TIM3.ccer().modify(|_, w| w.cc2e().bit(enable)),
-            (Self::Timer3, 2) => dp.TIM3.ccer().modify(|_, w| w.cc3e().bit(enable)),
-            (Self::Timer3, 3) => dp.TIM3.ccer().modify(|_, w| w.cc4e().bit(enable)),
-            (Self::Timer4, 0) => dp.TIM4.ccer().modify(|_, w| w.cc1e().bit(enable)),
-            (Self::Timer4, 1) => dp.TIM4.ccer().modify(|_, w| w.cc2e().bit(enable)),
-            (Self::Timer4, 2) => dp.TIM4.ccer().modify(|_, w| w.cc3e().bit(enable)),
-            (Self::Timer4, 3) => dp.TIM4.ccer().modify(|_, w| w.cc4e().bit(enable)),
+            (Self::Timer1, 0) => dp.TIM1.ccer().modify(|_, w| w.cc1e().bit(m).cc1ne().bit(n)),
+            (Self::Timer1, 1) => dp.TIM1.ccer().modify(|_, w| w.cc2e().bit(m).cc2ne().bit(n)),
+            (Self::Timer1, 2) => dp.TIM1.ccer().modify(|_, w| w.cc3e().bit(m).cc3ne().bit(n)),
+            (Self::Timer1, 3) => dp.TIM1.ccer().modify(|_, w| w.cc4e().bit(m)),
+            (Self::Timer2, 0) => dp.TIM2.ccer().modify(|_, w| w.cc1e().bit(m)),
+            (Self::Timer2, 1) => dp.TIM2.ccer().modify(|_, w| w.cc2e().bit(m)),
+            (Self::Timer2, 2) => dp.TIM2.ccer().modify(|_, w| w.cc3e().bit(m)),
+            (Self::Timer2, 3) => dp.TIM2.ccer().modify(|_, w| w.cc4e().bit(m)),
+            (Self::Timer3, 0) => dp.TIM3.ccer().modify(|_, w| w.cc1e().bit(m)),
+            (Self::Timer3, 1) => dp.TIM3.ccer().modify(|_, w| w.cc2e().bit(m)),
+            (Self::Timer3, 2) => dp.TIM3.ccer().modify(|_, w| w.cc3e().bit(m)),
+            (Self::Timer3, 3) => dp.TIM3.ccer().modify(|_, w| w.cc4e().bit(m)),
+            (Self::Timer4, 0) => dp.TIM4.ccer().modify(|_, w| w.cc1e().bit(m)),
+            (Self::Timer4, 1) => dp.TIM4.ccer().modify(|_, w| w.cc2e().bit(m)),
+            (Self::Timer4, 2) => dp.TIM4.ccer().modify(|_, w| w.cc3e().bit(m)),
+            (Self::Timer4, 3) => dp.TIM4.ccer().modify(|_, w| w.cc4e().bit(m)),
             _ => defmt::panic!("invalid channel"),
         };
     }
 
-    fn set_output_polarity(&self, channel: u8, invert: bool) {
+    fn set_output_polarity(&self, channel: u8, invert_main: bool, invert_complementary: bool) {
         let dp = unsafe { Peripherals::steal() };
+        let m = invert_main;
+        let n = invert_complementary;
         match (self, channel) {
-            (Self::Timer1, 0) => dp.TIM1.ccer().modify(|_, w| w.cc1p().bit(invert).cc1np().bit(invert)),
-            (Self::Timer1, 1) => dp.TIM1.ccer().modify(|_, w| w.cc2p().bit(invert).cc2np().bit(invert)),
-            (Self::Timer1, 2) => dp.TIM1.ccer().modify(|_, w| w.cc3p().bit(invert).cc3np().bit(invert)),
-            (Self::Timer1, 3) => dp.TIM1.ccer().modify(|_, w| w.cc4p().bit(invert)),
-            (Self::Timer2, 0) => dp.TIM2.ccer().modify(|_, w| w.cc1p().bit(invert)),
-            (Self::Timer2, 1) => dp.TIM2.ccer().modify(|_, w| w.cc2p().bit(invert)),
-            (Self::Timer2, 2) => dp.TIM2.ccer().modify(|_, w| w.cc3p().bit(invert)),
-            (Self::Timer2, 3) => dp.TIM2.ccer().modify(|_, w| w.cc4p().bit(invert)),
-            (Self::Timer3, 0) => dp.TIM3.ccer().modify(|_, w| w.cc1p().bit(invert)),
-            (Self::Timer3, 1) => dp.TIM3.ccer().modify(|_, w| w.cc2p().bit(invert)),
-            (Self::Timer3, 2) => dp.TIM3.ccer().modify(|_, w| w.cc3p().bit(invert)),
-            (Self::Timer3, 3) => dp.TIM3.ccer().modify(|_, w| w.cc4p().bit(invert)),
-            (Self::Timer4, 0) => dp.TIM4.ccer().modify(|_, w| w.cc1p().bit(invert)),
-            (Self::Timer4, 1) => dp.TIM4.ccer().modify(|_, w| w.cc2p().bit(invert)),
-            (Self::Timer4, 2) => dp.TIM4.ccer().modify(|_, w| w.cc3p().bit(invert)),
-            (Self::Timer4, 3) => dp.TIM4.ccer().modify(|_, w| w.cc4p().bit(invert)),
+            (Self::Timer1, 0) => dp.TIM1.ccer().modify(|_, w| w.cc1p().bit(m).cc1np().bit(n)),
+            (Self::Timer1, 1) => dp.TIM1.ccer().modify(|_, w| w.cc2p().bit(m).cc2np().bit(n)),
+            (Self::Timer1, 2) => dp.TIM1.ccer().modify(|_, w| w.cc3p().bit(m).cc3np().bit(n)),
+            (Self::Timer1, 3) => dp.TIM1.ccer().modify(|_, w| w.cc4p().bit(m)),
+            (Self::Timer2, 0) => dp.TIM2.ccer().modify(|_, w| w.cc1p().bit(m)),
+            (Self::Timer2, 1) => dp.TIM2.ccer().modify(|_, w| w.cc2p().bit(m)),
+            (Self::Timer2, 2) => dp.TIM2.ccer().modify(|_, w| w.cc3p().bit(m)),
+            (Self::Timer2, 3) => dp.TIM2.ccer().modify(|_, w| w.cc4p().bit(m)),
+            (Self::Timer3, 0) => dp.TIM3.ccer().modify(|_, w| w.cc1p().bit(m)),
+            (Self::Timer3, 1) => dp.TIM3.ccer().modify(|_, w| w.cc2p().bit(m)),
+            (Self::Timer3, 2) => dp.TIM3.ccer().modify(|_, w| w.cc3p().bit(m)),
+            (Self::Timer3, 3) => dp.TIM3.ccer().modify(|_, w| w.cc4p().bit(m)),
+            (Self::Timer4, 0) => dp.TIM4.ccer().modify(|_, w| w.cc1p().bit(m)),
+            (Self::Timer4, 1) => dp.TIM4.ccer().modify(|_, w| w.cc2p().bit(m)),
+            (Self::Timer4, 2) => dp.TIM4.ccer().modify(|_, w| w.cc3p().bit(m)),
+            (Self::Timer4, 3) => dp.TIM4.ccer().modify(|_, w| w.cc4p().bit(m)),
             _ => defmt::panic!("invalid channel"),
         };
     }
@@ -456,14 +460,35 @@ impl PwmTimer {
     }
 
     /// Sets the output polarity.
-    pub fn set_polarity(&mut self, channel: u8, invert: bool) {
-        defmt::debug!("setting {:?} channel {} invert={:?}", &self.timer, channel, invert);
-        self.timer.set_output_polarity(channel, invert)
+    ///
+    /// `invert_main` controls the polarity of the main output (CCxP).
+    /// `invert_complementary` controls the polarity of the complementary
+    /// output (CCxNP); it is ignored for channels that do not have a
+    /// complementary output.
+    pub fn set_polarity(&mut self, channel: u8, invert_main: bool, invert_complementary: bool) {
+        defmt::debug!(
+            "setting {:?} channel {} invert_main={:?} invert_complementary={:?}",
+            &self.timer,
+            channel,
+            invert_main,
+            invert_complementary
+        );
+        self.timer.set_output_polarity(channel, invert_main, invert_complementary)
     }
 
     /// Enables or disables the PWM output.
-    pub fn set_output(&mut self, channel: u8, enable: bool) {
-        defmt::debug!("setting {:?} channel {} enable={:?}", &self.timer, channel, enable);
-        self.timer.set_output_enable(channel, enable);
+    ///
+    /// `enable_main` enables the main output (CCxE).
+    /// `enable_complementary` enables the complementary output (CCxNE); it is
+    /// ignored for channels that do not have a complementary output.
+    pub fn set_output(&mut self, channel: u8, enable_main: bool, enable_complementary: bool) {
+        defmt::debug!(
+            "setting {:?} channel {} enable_main={:?} enable_complementary={:?}",
+            &self.timer,
+            channel,
+            enable_main,
+            enable_complementary
+        );
+        self.timer.set_output_enable(channel, enable_main, enable_complementary);
     }
 }
