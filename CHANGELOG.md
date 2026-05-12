@@ -4,10 +4,9 @@ All notable changes to OpenEMC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 1.2.0 - 2026-05-12
 ### Added
 - pwm: per-channel duty cycle ramp time, configurable via the new
-  `PWM_CHANNEL_DUTY_CYCLE_RAMP_TIME` register and the
   `openemc,duty-cycle-ramp-time-ms` device tree property
 
 ## 1.1.0 - 2026-04-09
