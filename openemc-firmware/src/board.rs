@@ -104,6 +104,9 @@ pub trait Board {
     /// Battery current in mA that is used to indicate charging error if fallen below.
     const CHARGING_LED_MIN_CURRENT: i32 = 0;
 
+    /// Battery current in mA that is used to indicate charging if reached.
+    const CHARGING_LED_CHARGE_CURRENT: i32 = 200;
+
     /// Task arguments.
     type TaskArgs: 'static;
 

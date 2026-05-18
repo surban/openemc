@@ -1258,9 +1258,10 @@ mod app {
                         let voltage_mv = b.voltage_mv.unwrap_or_default();
                         let current_ma = b.current_ma.unwrap_or_default();
                         (
-                            voltage_mv < ThisBoard::CHARGING_LED_END_VOLTAGE
+                            (voltage_mv < ThisBoard::CHARGING_LED_END_VOLTAGE
                                 && !(voltage_mv >= ThisBoard::CHARGING_LED_NOT_CHARGING_ACCEPTABLE_VOLTAGE
-                                    && current_ma < ThisBoard::CHARGING_LED_MIN_CURRENT),
+                                    && current_ma < ThisBoard::CHARGING_LED_MIN_CURRENT))
+                                || (current_ma >= ThisBoard::CHARGING_LED_CHARGE_CURRENT),
                             !b.charging.is_charging() || current_ma < ThisBoard::CHARGING_LED_MIN_CURRENT,
                         )
                     })
