@@ -42,6 +42,8 @@ pub enum Error {
     Timeout,
     /// Verification of written data failed.
     VerifyFailed,
+    /// Too many USB PD soft resets.
+    TooManySoftResets,
 }
 
 /// STUSB4500 result.
@@ -139,6 +141,7 @@ pub struct StUsb4500<I2C> {
     last_pin_reset: Option<Instant>,
     last_register_reset: Option<Instant>,
     last_soft_reset: Option<Instant>,
+    soft_reset_count: usize,
     best_pdo_requested: bool,
     report: PowerSupply,
     started: Instant,
@@ -205,6 +208,7 @@ where
             last_pin_reset: None,
             last_register_reset: None,
             last_soft_reset: None,
+            soft_reset_count: 0,
             best_pdo_requested: false,
             report: Default::default(),
             started: monotonics::now(),
@@ -256,7 +260,9 @@ where
         self.fsm_attached_since = None;
         self.best_pdo_requested = false;
         self.rdo = None;
+        self.soft_reset_count = 0;
         self.reset = ResetState::RegisterReset(monotonics::now());
+
         Ok(())
     }
 
@@ -330,8 +336,15 @@ where
 
     /// Send soft reset message to power source.
     fn soft_reset(&mut self, i2c: &mut I2C) -> Result<()> {
+        const MAX_SOFT_RESETS: usize = 20;
         const CMD_SEND_MESSAGE: u8 = 0x26;
         const CMD_SOFT_RESET_MESSAGE_TYPE: u8 = 0x0d;
+
+        self.soft_reset_count += 1;
+        if self.soft_reset_count > MAX_SOFT_RESETS {
+            defmt::warn!("Too many STUSB4500 USB PD soft resets ({})", self.soft_reset_count);
+            return Err(Error::TooManySoftResets);
+        }
 
         defmt::info!("STUSB4500 USB PD soft reset");
 
