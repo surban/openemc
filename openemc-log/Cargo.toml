@@ -31,5 +31,5 @@ flate2 = "1"
 
 probe-rs = { version = "0.31", optional = true }
 tempfile = { version = "3.9", optional = true }
-object = { version = "0.38", optional = true }
+object = { version = "0.39", optional = true }
 defmt-ringbuf-offline = { path = "../defmt-ringbuf-offline", optional = true }
