@@ -1245,7 +1245,7 @@ mod app {
                     *cx.local.supplying_since = None;
                 }
 
-                let grace_period: Duration = 12u64.secs();
+                let grace_period: Duration = 20u64.secs();
                 let grace = cx
                     .local
                     .supplying_since
