@@ -46,7 +46,7 @@ jobs:
       - name: Build io
         run: cd openemc-io ; cargo build --release --quiet        
       - name: Build logger
-        run: cd openemc-log ; cargo build --release --quiet
+        run: cd openemc-log ; cargo build --release --quiet --all-features
       - name: Build packer
         run: cd openemc-pack ; cargo build --quiet
       - name: Build generic firmware package
