@@ -210,12 +210,11 @@ fn firmware_elf_path(opts: &Opts, openemc_log: Option<&Path>) -> Result<PathBuf>
 /// Read from device memory via debug probe.
 #[cfg(feature = "probe")]
 fn read_device_memory(addr: u64, data: &mut [u8]) -> Result<()> {
-    use probe_rs::{Lister, MemoryInterface, Permissions};
+    use probe_rs::{probe::list::Lister, MemoryInterface, Permissions};
 
     let lister = Lister::new();
     let probes = lister.list_all();
-    let probe =
-        probes.first().context("no debug probe found")?.open(&lister).context("cannot open debug probe")?;
+    let probe = probes.first().context("no debug probe found")?.open().context("cannot open debug probe")?;
     let mut session =
         probe.attach_under_reset("STM32F103RB", Permissions::default()).context("cannot connect to target")?;
     let mut core = session.core(0).context("cannot connect to core")?;
