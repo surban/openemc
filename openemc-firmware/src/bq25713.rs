@@ -596,7 +596,7 @@ where
 
     /// Sets the maximum charge voltage.
     fn set_max_charge_voltage(&mut self, i2c: &mut I2C, mv: u32) -> Result<()> {
-        defmt::debug!("Setting maximum charge voltage to {} mV", mv);
+        defmt::info!("Setting maximum charge voltage to {} mV", mv);
         let v = ((mv / Self::MAX_CHARGE_VOLTAGE_QUANTIZATION) as u16) << 3 & 0b0111_1111_1111_1000;
         self.write_u16(i2c, REG_MAX_CHARGE_VOLTAGE, v)?;
         self.last_max_charge_voltage = mv;
