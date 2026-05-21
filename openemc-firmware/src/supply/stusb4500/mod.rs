@@ -336,7 +336,7 @@ where
 
     /// Send soft reset message to power source.
     fn soft_reset(&mut self, i2c: &mut I2C) -> Result<()> {
-        const MAX_SOFT_RESETS: usize = 20;
+        const MAX_SOFT_RESETS: usize = 5;
         const CMD_SEND_MESSAGE: u8 = 0x26;
         const CMD_SOFT_RESET_MESSAGE_TYPE: u8 = 0x0d;
 
@@ -700,7 +700,7 @@ where
                 }
 
                 if self.supply_pdos.is_empty() {
-                    let pdo_timeout: Duration = 5u64.secs();
+                    let pdo_timeout: Duration = 2u64.secs();
                     match self.snk_ready_since {
                         Some(since)
                             if self.supply_pdos.is_empty() && monotonics::now() - since >= pdo_timeout =>
