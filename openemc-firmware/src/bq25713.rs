@@ -58,6 +58,18 @@ pub struct Bq25713Cfg {
     pub max_charge_ma: u32,
     /// Hiccup mode during system short protection.
     pub sys_short: bool,
+    /// Path resistance between the BAT sense pin and the battery cells in mΩ.
+    ///
+    /// Set to `0` to disable IR compensation. When non-zero, the charger's CV
+    /// regulation target is dynamically raised by `i_chg × r` (capped by
+    /// [`ir_comp_v_clamp_mv`](Self::ir_comp_v_clamp_mv)).
+    pub ir_comp_r_mohm: u32,
+    /// Maximum IR compensation voltage clamp in mV.
+    ///
+    /// Hard upper bound on the IR compensation term, i.e. on how far above
+    /// [`max_battery_mv`](Self::max_battery_mv) the CV regulation target at the
+    /// BAT sense pin may rise.
+    pub ir_comp_v_clamp_mv: u32,
 }
 
 /// BQ25713 measured voltages and currents.
@@ -266,6 +278,7 @@ pub struct Bq25713<I2C> {
     charge_enabled: bool,
     input_current_limit: Option<InputCurrentLimit>,
     chrg_ok: bool,
+    last_max_charge_voltage: u32,
     _i2c: PhantomData<I2C>,
 }
 
@@ -319,6 +332,7 @@ where
             charge_enabled: false,
             input_current_limit: None,
             chrg_ok: false,
+            last_max_charge_voltage: 0,
             _i2c: PhantomData,
         }
     }
@@ -578,11 +592,38 @@ where
         Ok((v[0] & 0b00111111) as u32 * 256)
     }
 
+    const MAX_CHARGE_VOLTAGE_QUANTIZATION: u32 = 8;
+
     /// Sets the maximum charge voltage.
     fn set_max_charge_voltage(&mut self, i2c: &mut I2C, mv: u32) -> Result<()> {
         defmt::debug!("Setting maximum charge voltage to {} mV", mv);
-        let v = ((mv / 8) as u16) << 3 & 0b0111_1111_1111_1000;
-        self.write_u16(i2c, REG_MAX_CHARGE_VOLTAGE, v)
+        let v = ((mv / Self::MAX_CHARGE_VOLTAGE_QUANTIZATION) as u16) << 3 & 0b0111_1111_1111_1000;
+        self.write_u16(i2c, REG_MAX_CHARGE_VOLTAGE, v)?;
+        self.last_max_charge_voltage = mv;
+        Ok(())
+    }
+
+    /// Updates the charger's maximum charge voltage register based on the latest
+    /// measured charge current to compensate for IR drop across the path between
+    /// the BAT sense pin and the battery cells.
+    fn update_ir_compensation(&mut self, i2c: &mut I2C) -> Result<()> {
+        let comp_mv = match &self.measurement {
+            // Only compensate while the charger is actually pushing current into the battery.
+            Some(m) if self.status.ac_stat => {
+                let drop_mv = m.i_chg_ma.saturating_mul(self.cfg.ir_comp_r_mohm) / 1000;
+                drop_mv.min(self.cfg.ir_comp_v_clamp_mv)
+            }
+            _ => 0,
+        };
+
+        let target_mv = self.cfg.max_battery_mv.saturating_add(comp_mv);
+        if target_mv / Self::MAX_CHARGE_VOLTAGE_QUANTIZATION
+            != self.last_max_charge_voltage / Self::MAX_CHARGE_VOLTAGE_QUANTIZATION
+        {
+            self.set_max_charge_voltage(i2c, target_mv)?;
+        }
+
+        Ok(())
     }
 
     /// Sets the charge current.
@@ -697,6 +738,7 @@ where
 
         self.update_status(i2c)?;
         self.update_adc(i2c)?;
+        self.update_ir_compensation(i2c)?;
         self.set_charge_current(i2c, self.cfg.max_charge_ma)?;
         self.program_input_current_limit(i2c)?;
         self.program_charge_enabled(i2c)?;
