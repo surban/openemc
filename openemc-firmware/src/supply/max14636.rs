@@ -67,8 +67,12 @@ impl Max14636 {
 
         match (sw_open_low, chg_al_n_low, chg_det_low) {
             (false, true, false) => PowerSupply::UsbDcp,
-            (true, true, false) => PowerSupply::UsbCdp,
-            (true, true, true) => PowerSupply::UsbSdp,
+            // SW_OPEN low means the chip has closed the USB data switches, which
+            // it only does after a successful SDP/CDP detection. A momentary
+            // CHG_AL_N release (e.g. caused by a brief VBUS sag under load) does
+            // not invalidate that detection, so treat CHG_AL_N as don't-care here.
+            (true, _, false) => PowerSupply::UsbCdp,
+            (true, _, true) => PowerSupply::UsbSdp,
             (false, true, true) => PowerSupply::Ps2,
             (false, false, true) => PowerSupply::Disconnected,
             _ => {
