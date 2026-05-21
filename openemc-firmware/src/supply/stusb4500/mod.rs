@@ -713,10 +713,13 @@ where
                         None => self.snk_ready_since = Some(monotonics::now()),
                     }
                 } else if self.last_supply_pdos != self.supply_pdos {
-                    defmt::info!("Issuing soft reset to verify PDOs");
-                    self.last_supply_pdos = mem::take(&mut self.supply_pdos);
-                    self.snk_ready_since = None;
-                    self.soft_reset(i2c)?;
+                    let reset_delay: Duration = 2u64.secs();
+                    if self.snk_ready_since.is_none_or(|since| monotonics::now() - since >= reset_delay) {
+                        defmt::info!("Issuing soft reset to verify PDOs");
+                        self.last_supply_pdos = mem::take(&mut self.supply_pdos);
+                        self.snk_ready_since = None;
+                        self.soft_reset(i2c)?;
+                    }
                 } else {
                     self.snk_ready_since = None;
 
