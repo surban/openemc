@@ -362,7 +362,8 @@ mod app {
 
         // Start watchdog and its manager.
         let dog = IndependentWatchdog::new(cx.device.IWDG);
-        let mut watchman = Watchman::new(dog, 120u64.secs(), bi.boot_reason != BootReason::PowerOff as _);
+        let mut watchman =
+            Watchman::new(dog, ThisBoard::INITIAL_WATCHDOG_TIMEOUT, bi.boot_reason != BootReason::PowerOff as _);
         unwrap!(watchdog_petter::spawn());
 
         // Caclulate CRC32 of bootloader.

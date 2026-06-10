@@ -51,6 +51,9 @@ pub trait Board {
     /// Mode for I2C 2 master bus.
     const I2C2_MODE: Option<i2c::Mode> = None;
 
+    /// Initial watchdog timeout after firmware start.
+    const INITIAL_WATCHDOG_TIMEOUT: Duration = Duration::minutes(2);
+
     /// I2C address on I2C 2 master bus of STUSB4500 USB PD controller, if present.
     const STUSB4500_I2C_ADDR: Option<u8> = None;
 
