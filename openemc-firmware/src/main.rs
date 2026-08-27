@@ -37,6 +37,7 @@ use panic_probe as _;
 use stm32f1xx_hal as _;
 
 mod adc;
+mod afio;
 mod backup;
 mod board;
 mod boards;

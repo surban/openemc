@@ -2,6 +2,8 @@
 
 use stm32f1::stm32f103::Peripherals;
 
+use crate::afio;
+
 /// I2C receiver state.
 #[derive(Clone, Copy)]
 enum State {
@@ -47,12 +49,12 @@ impl I2CSlave {
 
         // Configure I2C pins.
         if remap {
-            dp.AFIO.mapr().modify(|_, w| w.i2c1_remap().set_bit());
+            afio::modify_mapr(|_, w| w.i2c1_remap().set_bit());
             dp.GPIOB.crh().modify(|_, w| {
                 w.cnf8().alt_open_drain().mode8().output50().cnf9().alt_open_drain().mode9().output50()
             });
         } else {
-            dp.AFIO.mapr().modify(|_, w| w.i2c1_remap().clear_bit());
+            afio::modify_mapr(|_, w| w.i2c1_remap().clear_bit());
             dp.GPIOB.crl().modify(|_, w| {
                 w.cnf6().alt_open_drain().mode6().output50().cnf7().alt_open_drain().mode7().output50()
             });
@@ -143,7 +145,7 @@ impl Drop for I2CSlave {
         } else {
             self.dp.GPIOB.crl().modify(|_, w| w.cnf6().open_drain().cnf7().open_drain());
         }
-        self.dp.AFIO.mapr().modify(|_, w| w.i2c1_remap().clear_bit());
+        afio::modify_mapr(|_, w| w.i2c1_remap().clear_bit());
 
         // Disable I2C clock.
         self.dp.RCC.apb1enr().modify(|_, w| w.i2c1en().disabled());

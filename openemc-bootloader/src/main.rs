@@ -21,6 +21,7 @@
 #![no_std]
 #![no_main]
 
+mod afio;
 mod backup;
 mod board;
 mod boards;

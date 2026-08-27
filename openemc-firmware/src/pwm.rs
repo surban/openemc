@@ -5,7 +5,7 @@ use stm32f1::stm32f103::Peripherals;
 use stm32f1xx_hal::{rcc::Clocks, time::Hertz};
 use systick_monotonic::fugit::ExtU64;
 
-use crate::{Duration, Instant};
+use crate::{afio, Duration, Instant};
 
 /// Channels per timer.
 const CHANNEL_COUNT: usize = 4;
@@ -38,13 +38,11 @@ pub enum Timer {
 
 impl Timer {
     fn set_remap(&self, value: u8) {
-        let dp = unsafe { Peripherals::steal() };
-
         match self {
-            Self::Timer1 => dp.AFIO.mapr().modify(|_, w| unsafe { w.tim1_remap().bits(value) }),
-            Self::Timer2 => dp.AFIO.mapr().modify(|_, w| unsafe { w.tim2_remap().bits(value) }),
-            Self::Timer3 => dp.AFIO.mapr().modify(|_, w| unsafe { w.tim3_remap().bits(value) }),
-            Self::Timer4 => dp.AFIO.mapr().modify(|_, w| w.tim4_remap().bit(value & 0b1 != 0)),
+            Self::Timer1 => afio::modify_mapr(|_, w| unsafe { w.tim1_remap().bits(value) }),
+            Self::Timer2 => afio::modify_mapr(|_, w| unsafe { w.tim2_remap().bits(value) }),
+            Self::Timer3 => afio::modify_mapr(|_, w| unsafe { w.tim3_remap().bits(value) }),
+            Self::Timer4 => afio::modify_mapr(|_, w| w.tim4_remap().bit(value & 0b1 != 0)),
         };
     }
 
