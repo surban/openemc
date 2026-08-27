@@ -27,7 +27,7 @@ pub mod flash;
 pub const BOOTLOADER_LOG_SIZE: usize = 1024;
 
 /// Log buffer size.
-pub const LOG_SIZE: usize = 8192;
+pub const LOG_SIZE: usize = 4096;
 
 /// Number of flash pages to store configuration.
 pub const CFG_FLASH_PAGES: usize = 1;
