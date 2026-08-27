@@ -141,9 +141,15 @@ impl Drop for I2CSlave {
 
         // Deconfigure I2C pins.
         if self.remap {
-            self.dp.GPIOB.crh().modify(|_, w| w.cnf8().open_drain().cnf9().open_drain());
+            self.dp
+                .GPIOB
+                .crh()
+                .modify(|_, w| w.cnf8().open_drain().mode8().input().cnf9().open_drain().mode9().input());
         } else {
-            self.dp.GPIOB.crl().modify(|_, w| w.cnf6().open_drain().cnf7().open_drain());
+            self.dp
+                .GPIOB
+                .crl()
+                .modify(|_, w| w.cnf6().open_drain().mode6().input().cnf7().open_drain().mode7().input());
         }
         afio::modify_mapr(|_, w| w.i2c1_remap().clear_bit());
 
