@@ -4,6 +4,11 @@ All notable changes to OpenEMC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+### Fixed
+- pwm: channels of a timer that follows a timer disabled by the board
+  were reported but could not be used
+
 ## 1.4.0 - 2026-06-10
 ### Added
 - board: INITIAL_WATCHDOG_TIMEOUT constant to specify initial watchdog timeout

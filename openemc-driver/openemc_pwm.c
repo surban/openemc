@@ -28,6 +28,7 @@ struct openemc_pwm {
 
 	struct mutex lock;
 	struct pwm_chip chip;
+	u8 n_timers;
 	u8 n_channels[MAX_TIMERS + 1];
 	u8 complementary_invert[MAX_CHANNELS];
 };
@@ -42,7 +43,7 @@ static int openemc_timer_channel(struct openemc_pwm *pwm, unsigned int hwpwm,
 {
 	u8 t;
 
-	for (t = 0; pwm->n_channels[t] != 0; t++) {
+	for (t = 0; t < pwm->n_timers; t++) {
 		if (hwpwm < pwm->n_channels[t]) {
 			*timer = t;
 			*channel = hwpwm;
@@ -201,6 +202,7 @@ static int openemc_pwm_probe(struct platform_device *pdev)
 	if (ret < 0)
 		return ret;
 	timers = min(timers, (u8)MAX_TIMERS);
+	pwm->n_timers = timers;
 
 	for (timer = 0; timer < timers; timer++) {
 		ret = openemc_write_u8(pwm->emc, OPENEMC_PWM_TIMER, timer);
