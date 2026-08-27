@@ -514,7 +514,7 @@ where
         let buf2 = self.read(i2c, REG_VBUS_CTRL, 1)?;
         let monitoring_status = MonitoringStatus::parse(buf[0], buf[1], buf2[0]);
         if self.monitoring_status != monitoring_status {
-            defmt::info!("Monitoring status: {:?}", monitoring_status);
+            defmt::debug!("Monitoring status: {:?}", monitoring_status);
             self.monitoring_status = monitoring_status;
         }
         Ok(())

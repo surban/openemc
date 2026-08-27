@@ -476,7 +476,7 @@ where
         let lo = self.read(i2c, REG_CHARGER_STATUS_LO, 1)?;
         let status = Bq25713Status::parse(hi[0], lo[0]);
         if self.status != status {
-            defmt::info!("BQ25713 status: {:?}", &status);
+            defmt::debug!("BQ25713 status: {:?}", &status);
             self.status = status;
         }
         Ok(())
@@ -596,7 +596,7 @@ where
 
     /// Sets the maximum charge voltage.
     fn set_max_charge_voltage(&mut self, i2c: &mut I2C, mv: u32) -> Result<()> {
-        defmt::info!("Setting maximum charge voltage to {} mV", mv);
+        defmt::debug!("Setting maximum charge voltage to {} mV", mv);
         let v = ((mv / Self::MAX_CHARGE_VOLTAGE_QUANTIZATION) as u16) << 3 & 0b0111_1111_1111_1000;
         self.write_u16(i2c, REG_MAX_CHARGE_VOLTAGE, v)?;
         self.last_max_charge_voltage = mv;
