@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 ### Fixed
+- rtc: an alarm that occurs in charging mode powers on the system
+- rtc: the alarm interrupt is signalled to the host when an alarm is
+  pending at boot
 - pwm: channels of a timer that follows a timer disabled by the board
   were reported but could not be used
 

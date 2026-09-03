@@ -120,6 +120,12 @@ impl<const PORTS: usize> IrqState<PORTS> {
         pending
     }
 
+    /// Clears the specified pending EXTI interrupts without signalling the I2C master.
+    pub fn clear_pending(&mut self, irqs: u32) {
+        let dp = unsafe { Peripherals::steal() };
+        dp.EXTI.pr().write(|w| unsafe { w.bits(irqs & self.controlled) });
+    }
+
     fn apply_controlled(&self, current: u32, desired: u32) -> u32 {
         current & !self.controlled | (desired & self.controlled)
     }

@@ -3,9 +3,9 @@
 use core::cell::Cell;
 use defmt::Format;
 use stm32f1::stm32f103::{rcc::bdcr::RTCSEL, Peripherals, RTC};
-use stm32f1xx_hal::backup_domain::BackupDomain;
+use stm32f1xx_hal::{backup_domain::BackupDomain, prelude::*};
 
-use crate::backup::BackupReg;
+use crate::{backup::BackupReg, Delay};
 
 /// RTC clock source.
 #[derive(Clone, Copy, PartialEq, Eq, Format)]
@@ -69,7 +69,12 @@ impl Clock {
 pub struct Rtc {
     rtc: RTC,
     prescaler: Option<u32>,
+    /// Alarm time, mirrored in the backup registers.
+    alarm: u32,
+    /// Whether the alarm is armed, mirrored in the backup registers.
+    alarm_armed: bool,
     alarm_at_init: Cell<Option<bool>>,
+    alarm_at_init_silenced: bool,
 }
 
 impl Rtc {
@@ -77,18 +82,61 @@ impl Rtc {
     pub const PRESCALER_NEG_OFFSET: u32 = 2;
 
     /// Creates a new interface to the real-time clock and enables it.
-    pub fn new(rtc: RTC, _bkp: &mut BackupDomain) -> Self {
+    ///
+    /// Waits for the RTC registers to synchronize, which only completes if the RTC is clocked.
+    pub fn new(rtc: RTC, bkp: &mut BackupDomain, delay: &mut Delay) -> Self {
         let dp = unsafe { Peripherals::steal() };
 
         dp.RCC.bdcr().modify(|_, w| w.rtcen().enabled().lseon().on());
         rtc.crl().modify(|_, w| w.rsf().clear());
 
-        Self { rtc, prescaler: None, alarm_at_init: Cell::new(None) }
+        let mut this = Self {
+            rtc,
+            prescaler: None,
+            alarm: (BackupReg::RtcAlarmHigh.get(bkp) as u32) << 16 | BackupReg::RtcAlarmLow.get(bkp) as u32,
+            alarm_armed: BackupReg::RtcAlarmArmed.get(bkp) != 0,
+            alarm_at_init: Cell::new(None),
+            alarm_at_init_silenced: false,
+        };
+
+        // Wait for RTC sync.
+        delay.delay(10u32.millis());
+        for _ in 0..100 {
+            if this.is_synced() {
+                break;
+            }
+            delay.delay(1u32.millis());
+        }
+        delay.delay(10u32.millis());
+        for _ in 0..100 {
+            this.read_counter();
+        }
+        if !this.is_synced() {
+            defmt::warn!("RTC registers are not synchronized");
+        }
+
+        // Restore RTC alarm settings that might have been cleared by reset from backup registers.
+        if this.restore_alarm(bkp).is_err() {
+            defmt::warn!("cannot restore RTC alarm");
+        }
+
+        this
     }
 
     /// Returns whether the RTC is fully ready.
     pub fn is_ready(&self) -> bool {
         self.check_regs_synced().is_ok() && self.prescaler.is_some()
+    }
+
+    /// Restore RTC alarm settings from backup registers.
+    pub fn restore_alarm(&mut self, bkp: &mut BackupDomain) -> Result<(), RtcNotReady> {
+        self.set_alarm(self.alarm, bkp)?;
+        if self.alarm_armed {
+            self.listen_alarm(bkp)?;
+        } else {
+            self.unlisten_alarm(bkp)?;
+        }
+        Ok(())
     }
 
     /// Backups the backup domain, resets it and then restores its values,
@@ -113,6 +161,13 @@ impl Rtc {
         for (reg, v) in regs.into_iter().enumerate() {
             bkp.write_data_register_low(reg, v);
         }
+
+        // The alarm has been lost by the backup domain reset.
+        BackupReg::RtcAlarmHigh.set(bkp, 0);
+        BackupReg::RtcAlarmLow.set(bkp, 0);
+        BackupReg::RtcAlarmArmed.set(bkp, 0);
+        self.alarm = 0;
+        self.alarm_armed = false;
 
         let _ = self.set_clock(clock.map(|c| c.clock).unwrap_or_default());
         self.set_slowdown(bkp, slowdown);
@@ -186,7 +241,7 @@ impl Rtc {
         let crl = self.rtc.crl().read();
         if crl.rsf().is_synchronized() && crl.rtoff().bit_is_set() {
             if self.alarm_at_init.get().is_none() {
-                self.alarm_at_init.set(Some(self.rtc.crl().read().alrf().is_alarm()));
+                self.alarm_at_init.set(Some(self.is_alarm_pending_within(self.read_counter(), 0)));
             }
             Ok(())
         } else {
@@ -210,46 +265,88 @@ impl Rtc {
         Ok(ret)
     }
 
-    /// Enable RTC alarm interrupt.
-    pub fn listen_alarm(&mut self) -> Result<(), RtcNotReady> {
+    /// Arms the alarm by enabling the RTC alarm interrupt.
+    pub fn listen_alarm(&mut self, bkp: &mut BackupDomain) -> Result<(), RtcNotReady> {
         defmt::info!("enabling RTC alarm");
+        self.alarm_armed = true;
+        BackupReg::RtcAlarmArmed.set(bkp, 1);
         self.modify(|rtc| rtc.crh().modify(|_, w| w.alrie().enabled()))?;
         Ok(())
     }
 
-    /// Disable RTC alarm interrupt.
-    pub fn unlisten_alarm(&mut self) -> Result<(), RtcNotReady> {
+    /// Disarms the alarm by disabling the RTC alarm interrupt.
+    pub fn unlisten_alarm(&mut self, bkp: &mut BackupDomain) -> Result<(), RtcNotReady> {
         defmt::info!("disabling RTC alarm");
+        self.alarm_armed = false;
+        BackupReg::RtcAlarmArmed.set(bkp, 0);
         self.modify(|rtc| rtc.crh().modify(|_, w| w.alrie().disabled()))?;
         Ok(())
     }
 
-    /// Returns whether RTC alarm interrupt is enabled.
+    /// Returns whether the alarm is armed.
     pub fn is_alarm_listened(&self) -> bool {
-        self.rtc.crh().read().alrie().is_enabled()
+        self.alarm_armed
     }
 
-    /// Returns whether an alarm has occured.
+    /// Returns whether an alarm has occured and has not been silenced.
     pub fn is_alarming(&self) -> Result<bool, RtcNotReady> {
         self.check_regs_synced()?;
-        Ok(self.rtc.crl().read().alrf().is_alarm())
+        Ok(self.rtc.crl().read().alrf().is_alarm()
+            || (self.alarm_at_init.get() == Some(true) && !self.alarm_at_init_silenced))
     }
 
-    /// Returns whether the RTC was alarming when it was initialized.
+    /// Returns whether the alarm was pending when the RTC was initialized.
     pub fn was_alarming_at_init(&self) -> Result<bool, RtcNotReady> {
-        self.alarm_at_init.get().ok_or(RtcNotReady)
+        self.check_regs_synced()?;
+        Ok(self.alarm_at_init.get() == Some(true))
+    }
+
+    /// Returns whether the RTC registers are synchronized and can be accessed.
+    pub fn is_synced(&self) -> bool {
+        self.check_regs_synced().is_ok()
+    }
+
+    /// Returns whether the alarm is armed and its time has been reached.
+    ///
+    /// This does not depend on the alarm flag, since it is cleared by a system reset.
+    pub fn is_alarm_pending(&self) -> Result<bool, RtcNotReady> {
+        Ok(self.is_alarm_pending_within(self.counter()?, 0))
+    }
+
+    /// Returns whether the alarm is armed and its time has been reached or
+    /// will be reached within the next two seconds.
+    pub fn is_alarm_pending_soon(&self) -> Result<bool, RtcNotReady> {
+        Ok(self.is_alarm_pending_within(self.counter()?, 2))
+    }
+
+    /// Returns whether the alarm is armed and its time will be reached within
+    /// the specified number of seconds after the specified counter value.
+    fn is_alarm_pending_within(&self, counter: u32, secs: u32) -> bool {
+        self.alarm_armed && self.alarm != 0 && counter.saturating_add(secs) >= self.alarm
     }
 
     /// Clears the alarm.
     pub fn silence_alarm(&mut self) -> Result<(), RtcNotReady> {
         defmt::info!("silencing RTC alarm");
         self.modify(|rtc| rtc.crl().modify(|_, w| w.alrf().clear()))?;
+        self.alarm_at_init_silenced = true;
         Ok(())
     }
 
     /// Gets the alarm time.
-    pub fn alarm(&mut self, bkp: &mut BackupDomain) -> u32 {
-        (BackupReg::RtcAlarmHigh.get(bkp) as u32) << 16 | BackupReg::RtcAlarmLow.get(bkp) as u32
+    pub fn alarm(&self) -> u32 {
+        self.alarm
+    }
+
+    /// Gets the counter value.
+    fn counter(&self) -> Result<u32, RtcNotReady> {
+        self.check_regs_synced()?;
+        Ok(self.read_counter())
+    }
+
+    /// Reads the counter value without checking for synchronization.
+    fn read_counter(&self) -> u32 {
+        (self.rtc.cnth().read().cnth().bits() as u32) << 16 | (self.rtc.cntl().read().cntl().bits() as u32)
     }
 
     /// Sets the alarm time.
@@ -261,6 +358,7 @@ impl Rtc {
             rtc.alrl().write(|w| w.alrl().set(alarm as u16));
         })?;
 
+        self.alarm = alarm;
         BackupReg::RtcAlarmHigh.set(bkp, (alarm >> 16) as u16);
         BackupReg::RtcAlarmLow.set(bkp, alarm as u16);
 
@@ -273,8 +371,7 @@ impl Rtc {
 
         match self.prescaler {
             Some(prescaler_max) => Ok(Clock {
-                clock: (self.rtc.cnth().read().cnth().bits() as u32) << 16
-                    | (self.rtc.cntl().read().cntl().bits() as u32),
+                clock: self.read_counter(),
                 prescaler: (self.rtc.divh().read().divh().bits() as u32) << 16
                     | (self.rtc.divl().read().divl().bits() as u32),
                 prescaler_max,

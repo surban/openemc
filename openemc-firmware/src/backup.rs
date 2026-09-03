@@ -14,6 +14,8 @@ pub enum BackupReg {
     RtcAlarmHigh = 2,
     /// RTC alarm low part.
     RtcAlarmLow = 3,
+    /// RTC alarm armed.
+    RtcAlarmArmed = 4,
 }
 
 /// Initialzied?

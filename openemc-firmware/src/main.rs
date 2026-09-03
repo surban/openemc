@@ -442,6 +442,27 @@ mod app {
             _ => false,
         };
 
+        // Initialize RTC.
+        let mut rtc = Rtc::new(cx.device.RTC, &mut bkp, &mut delay);
+        let rtc_alarm_pending = rtc.is_alarm_pending_soon().unwrap_or_default();
+        if let Some(prescaler) = rtc.clock_src().and_then(|src| src.prescaler()) {
+            let _ = rtc.set_prescalar(prescaler - Rtc::PRESCALER_NEG_OFFSET);
+        }
+        unwrap!(check_rtc_src::spawn_after(5u64.secs()));
+        defmt::info!("RTC source:     {}", rtc.clock_src());
+        defmt::info!("RTC ready:      {}", rtc.is_ready());
+        defmt::info!("RTC clock:      {}", rtc.clock().map(|c| c.clock).unwrap_or_default());
+        defmt::info!("RTC alarm:      {}", rtc.alarm());
+        defmt::info!("RTC alarming:   {}", rtc_alarm_pending);
+        unwrap!(print_rtc_info::spawn());
+        blink_charging!(board, delay, watchman, 3);
+
+        // Power on if an RTC alarm is pending.
+        if rtc_alarm_pending && !board.power_mode().is_full() {
+            defmt::info!("powering on due to pending RTC alarm");
+            board.set_power_mode(PowerMode::Full { quiet: false });
+        }
+
         // Handle boot reason.
         BootReason::SurpriseInUser.set(&mut bkp);
         if (!BootInfo::is_from_bootloader()
@@ -456,20 +477,16 @@ mod app {
         if bi.boot_reason == BootReason::PowerOff as _ {
             board.set_power_led(false);
             BootReason::PowerOn.set(&mut bkp);
+            if rtc.is_alarm_pending_soon().unwrap_or_default() {
+                defmt::info!("RTC alarm is pending, turning power off into power on");
+                boot::restart(&mut bkp, BootReason::PowerOn);
+            }
+            if rtc.restore_alarm(&mut bkp).is_err() {
+                defmt::warn!("setting RTC alarm before shutdown failed");
+            }
             let init_resources = InitResources { afio: &mut afio, delay: &mut delay };
             board.shutdown(init_resources);
         }
-        blink_charging!(board, delay, watchman, 3);
-
-        // Initialize RTC.
-        let mut rtc = Rtc::new(cx.device.RTC, &mut bkp);
-        if let Some(prescaler) = rtc.clock_src().and_then(|src| src.prescaler()) {
-            let _ = rtc.set_prescalar(prescaler - Rtc::PRESCALER_NEG_OFFSET);
-        }
-        unwrap!(check_rtc_src::spawn_after(5u64.secs()));
-        defmt::info!("RTC source:     {}", rtc.clock_src());
-        defmt::info!("RTC ready:      {}", rtc.is_ready());
-        unwrap!(print_rtc_info::spawn());
         blink_charging!(board, delay, watchman, 4);
 
         // Power off if requested.
@@ -666,8 +683,18 @@ mod app {
         // Configure IRQ pin.
         let mut usable_exti = 0b0000_0000_0000_1111_1111_1111_1111_1111;
         board.limit_usable_exti(&mut usable_exti);
-        let irq = IrqState::new(ThisBoard::IRQ_PIN, ThisBoard::IRQ_PIN_CFG, usable_exti);
+        let mut irq = IrqState::new(ThisBoard::IRQ_PIN, ThisBoard::IRQ_PIN_CFG, usable_exti);
         unsafe { irq::unmask_exti() };
+
+        if !board.power_mode().is_full() {
+            // Listen for RTC alarm ourselves if the system is not fully powered on.
+            irq.set_exti_trigger_raising_edge(IrqState::RTC_ALARM);
+            irq.set_mask(IrqState::RTC_ALARM);
+        } else if rtc_alarm_pending {
+            // Deliver a pending RTC alarm to the host, since the alarm has occurred
+            // before the host could configure the interrupt.
+            irq.pend_soft(IrqState::RTC_ALARM);
+        }
 
         // Simulate PD IRQs.
         if ThisBoard::SIMULATE_PD_IRQS.is_some() {
@@ -907,12 +934,20 @@ mod app {
     }
 
     /// RTC alarm interrupt.
-    #[task(binds = RTCALARM, shared = [irq])]
+    #[task(binds = RTCALARM, shared = [irq, &power_mode])]
     fn rtc_alarm(mut cx: rtc_alarm::Context) {
         defmt::info!("RTC alarm");
-        cx.shared.irq.lock(|irq| {
-            irq.pend_gpio_exti();
-        });
+        if *cx.shared.power_mode == PowerMode::Charging {
+            // Power on the system, since there is no host to handle the alarm.
+            cx.shared.irq.lock(|irq| irq.clear_pending(IrqState::RTC_ALARM));
+            if power_restart::spawn(BootReason::Restart).is_ok() {
+                defmt::info!("Power on requested by RTC alarm");
+            }
+        } else {
+            cx.shared.irq.lock(|irq| {
+                irq.pend_gpio_exti();
+            });
+        }
     }
 
     /// Recovers the I2C 2 bus.
@@ -1702,9 +1737,7 @@ mod app {
                     defmt::error!("setting RTC clock failed");
                 }
             }
-            Event::Read { reg: reg::RTC_ALARM } => {
-                respond_u32((cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| rtc.alarm(bkp)))
-            }
+            Event::Read { reg: reg::RTC_ALARM } => respond_u32(cx.shared.rtc.lock(|rtc| rtc.alarm())),
             Event::Write { reg: reg::RTC_ALARM, value } => {
                 if (cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| rtc.set_alarm(value.as_u32(), bkp)).is_err() {
                     defmt::error!("setting RTC alarm failed");
@@ -1714,8 +1747,8 @@ mod app {
                 respond_u8(cx.shared.rtc.lock(|rtc| u8::from(rtc.is_alarm_listened())))
             }
             Event::Write { reg: reg::RTC_ALARM_ARMED, value } => {
-                cx.shared.rtc.lock(|rtc| {
-                    let res = if value.as_u8() != 0 { rtc.listen_alarm() } else { rtc.unlisten_alarm() };
+                (cx.shared.rtc, cx.shared.bkp).lock(|rtc, bkp| {
+                    let res = if value.as_u8() != 0 { rtc.listen_alarm(bkp) } else { rtc.unlisten_alarm(bkp) };
                     if res.is_err() {
                         defmt::error!("setting RTC alarm armed failed");
                     }
