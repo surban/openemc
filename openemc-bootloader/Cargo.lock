@@ -126,28 +126,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "defmt-test"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d326e211b94939affafdf96f5c1baf8745b960037dcf763f813597d32b03d51"
-dependencies = [
- "defmt",
- "defmt-test-macros",
- "semihosting",
-]
-
-[[package]]
-name = "defmt-test-macros"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a7563a5468e1a1bd97f44cb75b658c2feec75af2b1389e70f4c0677b8402edd"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "embedded-hal"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -187,7 +165,6 @@ dependencies = [
  "defmt",
  "defmt-ringbuf",
  "defmt-rtt",
- "defmt-test",
  "openemc-build",
  "openemc-shared",
  "panic-probe",
@@ -240,12 +217,6 @@ checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 dependencies = [
  "semver",
 ]
-
-[[package]]
-name = "semihosting"
-version = "0.1.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8e4abf97879f4e80db69a9fba7bd64998e9bdad25f58ef045a778e191172fd4"
 
 [[package]]
 name = "semver"

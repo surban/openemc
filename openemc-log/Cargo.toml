@@ -29,7 +29,7 @@ libc = "0.2"
 env_logger = "0.11"
 flate2 = "1"
 
-probe-rs = { version = "0.31", optional = true }
+probe-rs = { version = "0.32", optional = true }
 tempfile = { version = "3.9", optional = true }
-object = { version = "0.39", optional = true }
+object = { version = "0.40", optional = true }
 defmt-ringbuf-offline = { path = "../defmt-ringbuf-offline", optional = true }

@@ -193,28 +193,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "defmt-test"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d326e211b94939affafdf96f5c1baf8745b960037dcf763f813597d32b03d51"
-dependencies = [
- "defmt",
- "defmt-test-macros",
- "semihosting",
-]
-
-[[package]]
-name = "defmt-test-macros"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a7563a5468e1a1bd97f44cb75b658c2feec75af2b1389e70f4c0677b8402edd"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "embedded-can"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -396,7 +374,6 @@ dependencies = [
  "defmt",
  "defmt-ringbuf",
  "defmt-rtt",
- "defmt-test",
  "embedded-hal 1.0.0",
  "heapless 0.9.3",
  "nb 1.1.0",
@@ -526,12 +503,6 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
-
-[[package]]
-name = "semihosting"
-version = "0.1.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8e4abf97879f4e80db69a9fba7bd64998e9bdad25f58ef045a778e191172fd4"
 
 [[package]]
 name = "semver"

@@ -38,9 +38,6 @@ nb = "1.1"
 heapless = { version = "0.9", features = ["defmt"] }
 byteorder = { version = "1", default-features = false }
 
-[dev-dependencies]
-defmt-test = "0.5"
-
 [build-dependencies]
 openemc-build = { path = "../openemc-build" }
 openemc-shared = { path = "../openemc-shared" }
