@@ -4,7 +4,7 @@ All notable changes to OpenEMC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 1.4.1 - 2026-09-04
 ### Fixed
 - rtc: an alarm that occurs in charging mode powers on the system
 - rtc: the alarm interrupt is signalled to the host when an alarm is
