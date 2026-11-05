@@ -196,8 +196,8 @@ pub const ADC_VREF: u8 = 0x62;
 /// One u16 for each ADC channel.
 pub const ADC_VALUES: u8 = 0x63;
 
-/// ADC temperature in m°C.
-/// One u16.
+/// ADC temperature in °C.
+/// One i32.
 pub const ADC_TEMPERATURE: u8 = 0x64;
 
 /// Number of PWM timers (read-only, u8).
