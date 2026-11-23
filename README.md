@@ -137,6 +137,12 @@ An example is provided in the board file `stm_nucleo_f103rb.rs` together with th
 in `board-io-test`.
 
 
+## Contributing
+
+Contributions are welcome! Before your first pull request can be merged,
+you need to accept the [Contributor License Agreement](CLA.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
 ## License
 
 The OpenEMC firmware is released under the [GNU GPL version 3],
