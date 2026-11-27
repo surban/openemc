@@ -169,8 +169,11 @@ restart:
 							    data);
 			break;
 		case REQ_WRITE:
-			ret = i2c_smbus_write_i2c_block_data(i2c, command, len,
-							     data);
+			if (len == 0)
+				ret = i2c_smbus_write_byte(i2c, command);
+			else
+				ret = i2c_smbus_write_i2c_block_data(
+					i2c, command, len, data);
 			break;
 		default:
 			BUG();
