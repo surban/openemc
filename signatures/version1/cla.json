@@ -1,3 +1,12 @@
 {
-   "signedContributors": []
+  "signedContributors": [
+    {
+      "name": "Neme",
+      "id": 1364632,
+      "comment_id": 7213029987,
+      "created_at": "2026-11-27T08:00:02Z",
+      "repoId": 543629920,
+      "pullRequestNo": 2
+    }
+  ]
 }
